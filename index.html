@@ -315,6 +315,21 @@ tbody tr.clk:hover{background:#f8f9fc}
 .cm-score{font-size:26px;font-weight:700;letter-spacing:-.02em}
 .cm-grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media(max-width:860px){.cm-grid2{grid-template-columns:1fr}}
+
+/* ---------- call search ---------- */
+.cs-form{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;align-items:end}
+@media(max-width:900px){.cs-form{grid-template-columns:repeat(2,1fr)}}
+.cs-form label{display:block;font-size:12px;font-weight:650;color:var(--ink-3);
+  text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px}
+.cs-form input,.cs-form select{width:100%;font:inherit;font-size:14px;padding:8px 10px;
+  border:1px solid var(--line-2);border-radius:8px;background:#fff;color:var(--ink)}
+.cs-form .wide{grid-column:span 2}
+.cs-actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:14px}
+.cs-snip{font-size:13px;color:var(--ink-2);background:#fbfbfd;border-left:3px solid var(--gold);
+  padding:7px 11px;border-radius:0 8px 8px 0;margin-top:6px;line-height:1.6}
+.cs-snip mark{background:var(--gold-soft);color:var(--gold-deep);font-weight:650;padding:0 2px;border-radius:3px}
+.cs-count{font-size:13.5px;color:var(--ink-2)}
+.cs-pager{display:flex;gap:9px;align-items:center;justify-content:center;margin-top:16px}
 </style>
 </head>
 <body>
@@ -381,7 +396,10 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     openMods=new Set(), openTracks=null, mgrTab="roster", selTrainee=null,
     openCat=new Set(), draft=null,
     CM=null, cmSub="patterns", cmScope="current", cmDays=90,
-    selCallAgent=null, CMA=null;
+    selCallAgent=null, CMA=null,
+    CMS=null, CMF=null, cmPage=0, cmBusy=false,
+    cmQ={q:"",from:"",to:"",direction:"",call_type:"",agent:"",rule:"",
+         min_score:"",max_score:"",flagged:""};
 
 /* ================= helpers ================= */
 const $ = s => document.querySelector(s);
@@ -1511,7 +1529,7 @@ function mgrCall(){
          </div>
        </div>`;
 
-  const subs = [["patterns","What is happening"]]
+  const subs = [["patterns","What is happening"],["search","Search calls"]]
     .concat(cmFull() ? [["agents","By agent"],["coaching","Coaching"]] : [])
     .concat([["mapping","Rules and modules"]]);
 
@@ -1547,15 +1565,21 @@ function mgrCall(){
     cmScope = b.dataset.cmscope; selCallAgent = null;
     b.disabled = true; await loadCallMonitor(); mgrCall();
   }));
-  body.querySelectorAll("[data-cmsub]").forEach(b=>b.addEventListener("click", ()=>{
-    cmSub = b.dataset.cmsub; selCallAgent = null; mgrCall();
+  body.querySelectorAll("[data-cmsub]").forEach(b=>b.addEventListener("click", async ()=>{
+    cmSub = b.dataset.cmsub; selCallAgent = null;
+    if(cmSub === "search" && !CMF){
+      b.disabled = true;
+      CMF = await rpc("training_call_facets",{p_code:CODE,p_scope:cmScope});
+    }
+    mgrCall();
   }));
   $("#cmDays").addEventListener("change", async e=>{
     cmDays = parseInt(e.target.value,10); selCallAgent = null;
     e.target.disabled = true; await loadCallMonitor(); mgrCall();
   });
 
-  ({patterns:cmPatterns, agents:cmAgents, coaching:cmCoaching, mapping:cmMapping})[cmSub]();
+  ({patterns:cmPatterns, search:cmSearch, agents:cmAgents,
+    coaching:cmCoaching, mapping:cmMapping})[cmSub]();
 }
 
 /* ---- what is happening: the rules being broken, and where the training sits ---- */
@@ -1849,10 +1873,11 @@ async function openCallDetail(recordingId){
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:9px">
               ${f.module_slug
                 ? `<span class="tsub">Taught in <b>${esc(f.module_title||f.module_slug)}</b></span>
-                   ${d.person_id
+                   ${d.can_coach && d.person_id
                      ? `<button class="btn line sm" data-coach2="${esc(f.module_slug)}"
                           data-rule2="${esc(f.rule_id)}">Assign this module</button>`
-                     : `<span class="tsub">— enrol them to assign it</span>`}`
+                     : d.can_coach
+                       ? `<span class="tsub">— enrol them to assign it</span>` : ""}`
                 : `<span class="modlink none">No module covers this rule yet</span>`}
             </div>
           </div>`).join("") || `<div class="empty">No flags on this call.</div>`}
@@ -1877,6 +1902,214 @@ async function openCallDetail(recordingId){
   $("#cmdClose").addEventListener("click", closeModal);
   $("#modal").querySelectorAll("[data-coach2]").forEach(b=>b.addEventListener("click", ()=>
     cmAssign(b.dataset.coach2, b.dataset.rule2, recordingId)));
+}
+
+/* ---- search and browse calls ----
+   Option A of the two approaches discussed on 11 August 2026. The Call Monitoring
+   project's own search is AI-driven and requires a logged-in Supabase Auth token, which
+   the portal has no way to present — it authenticates by access code. So this is a
+   deterministic search over the same tables: filters plus a keyword match on the
+   transcript, gated by the same access code as everything else here.
+
+   Available to anyone with call monitoring access, including aggregate. Braden's call,
+   made knowingly: searching transcripts means reading them. What aggregate access still
+   does not get is the per-agent scoreboard or the ability to assign coaching. */
+
+function cmSearchMark(text, q){
+  if(!text) return "";
+  const safe = esc(text);
+  if(!q) return safe;
+  const needle = esc(q).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return safe.replace(new RegExp(needle, "gi"), m=>`<mark>${m}</mark>`);
+}
+
+function cmSearch(){
+  const f = CMF||{}, r = CMS;
+  const range = f.range||{};
+
+  // Searching the default scope finds nothing while the current rubric has scored nothing,
+  // which looks like a broken search rather than an empty index. Say so up front.
+  const cur0 = CM.scope === "current" && ((CM.summary||{}).calls||0) === 0;
+
+  $("#cmBody").innerHTML = `
+    ${cur0 ? `<div class="cm-banner warn">
+      <h4>There is nothing to search in the current rubric yet</h4>
+      <div class="cm-note">Search only looks at calls scored under rubric
+        <b>${esc(CM.rubric.version||"")}</b>, and none have been yet, so every search will come back
+        empty. Switch to the earlier history and all
+        ${((CM.coverage||{}).prior_rubric_evaluations||0).toLocaleString()} scored calls become
+        searchable.</div>
+      <div style="margin-top:10px">
+        <button class="btn gold sm" data-cmscope="all">Search the earlier history</button>
+      </div></div>` : ""}
+    <div class="card pad" style="margin-bottom:18px">
+      <div class="cs-form">
+        <div class="wide">
+          <label for="csQ">Words said on the call</label>
+          <input id="csQ" type="text" placeholder="lienholder, cancel, SR-22, garage…"
+                 value="${esc(cmQ.q)}" autocomplete="off">
+        </div>
+        <div><label for="csAgent">Person</label>
+          <select id="csAgent"><option value="">Anyone</option>
+            ${(f.agents||[]).map(a=>`<option value="${esc(a.call_name)}"
+              ${cmQ.agent===a.call_name?"selected":""}>${esc(a.display_name)}</option>`).join("")}
+          </select></div>
+        <div><label for="csType">Call type</label>
+          <select id="csType"><option value="">Any</option>
+            ${(f.call_types||[]).map(t=>`<option value="${esc(t)}"
+              ${cmQ.call_type===t?"selected":""}>${esc(String(t).replace(/_/g," "))}</option>`).join("")}
+          </select></div>
+        <div><label for="csFrom">From</label>
+          <input id="csFrom" type="date" value="${esc(cmQ.from)}"
+                 ${range.first?`min="${esc(range.first)}"`:""} ${range.last?`max="${esc(range.last)}"`:""}></div>
+        <div><label for="csTo">To</label>
+          <input id="csTo" type="date" value="${esc(cmQ.to)}"
+                 ${range.first?`min="${esc(range.first)}"`:""} ${range.last?`max="${esc(range.last)}"`:""}></div>
+        <div><label for="csDir">Direction</label>
+          <select id="csDir">
+            ${[["","Any"],["inbound","Inbound"],["outbound","Outbound"],["internal","Internal"]]
+              .map(([v,l])=>`<option value="${v}" ${cmQ.direction===v?"selected":""}>${l}</option>`).join("")}
+          </select></div>
+        <div><label for="csFlagged">Flags</label>
+          <select id="csFlagged">
+            ${[["","Any"],["true","Flagged only"],["false","Clean only"]]
+              .map(([v,l])=>`<option value="${v}" ${cmQ.flagged===v?"selected":""}>${l}</option>`).join("")}
+          </select></div>
+        <div class="wide"><label for="csRule">Broke this rule</label>
+          <select id="csRule"><option value="">Any rule</option>
+            ${(f.rules||[]).map(x=>`<option value="${esc(x.rule_id)}"
+              ${cmQ.rule===x.rule_id?"selected":""}>${esc(x.label)} — ${esc(x.rule_id)}</option>`).join("")}
+          </select></div>
+        <div><label for="csMin">Score at least</label>
+          <input id="csMin" type="number" min="0" max="120" placeholder="—" value="${esc(cmQ.min_score)}"></div>
+        <div><label for="csMax">Score at most</label>
+          <input id="csMax" type="number" min="0" max="120" placeholder="—" value="${esc(cmQ.max_score)}"></div>
+      </div>
+      <div class="cs-actions">
+        <button class="btn" id="csGo">Search</button>
+        <button class="btn line sm" id="csClear">Clear</button>
+        <span class="tsub">
+          Searching ${CM.scope === "current"
+            ? `calls scored on rubric ${esc(CM.rubric.version||"")}`
+            : `every scored call, all rubric versions`}${
+            range.first?` · ${sdate(range.first)} to ${sdate(range.last)}`:""}
+        </span>
+      </div>
+    </div>
+    <div id="csResults">${r ? "" : `<div class="card"><div class="empty">
+      Search by what was said, or narrow by person, type, date, score or rule — then open a call
+      to read the transcript.<br><br>
+      <span class="tsub">Try <b>cancel</b>, <b>lienholder</b>, or set <b>Flags</b> to "Flagged only"
+      with a rule to see a specific failure in context.</span></div></div>`}</div>`;
+
+  if(r) cmSearchResults();
+
+  const read = () => {
+    cmQ.q = $("#csQ").value.trim();
+    cmQ.agent = $("#csAgent").value; cmQ.call_type = $("#csType").value;
+    cmQ.from = $("#csFrom").value;   cmQ.to = $("#csTo").value;
+    cmQ.direction = $("#csDir").value; cmQ.flagged = $("#csFlagged").value;
+    cmQ.rule = $("#csRule").value;
+    cmQ.min_score = $("#csMin").value; cmQ.max_score = $("#csMax").value;
+  };
+  const go = async (page) => {
+    if(cmBusy) return;
+    read(); cmPage = page||0; cmBusy = true;
+    const btn = $("#csGo"); if(btn){ btn.disabled = true; btn.textContent = "Searching…"; }
+    try{
+      CMS = await rpc("training_call_search",{
+        p_code:CODE, p_scope:cmScope, p_limit:50, p_offset:cmPage*50,
+        p_q:cmQ.q||null, p_agent:cmQ.agent||null, p_call_type:cmQ.call_type||null,
+        p_from:cmQ.from||null, p_to:cmQ.to||null, p_direction:cmQ.direction||null,
+        p_rule:cmQ.rule||null,
+        p_flagged: cmQ.flagged===""?null:cmQ.flagged==="true",
+        p_min_score: cmQ.min_score===""?null:Number(cmQ.min_score),
+        p_max_score: cmQ.max_score===""?null:Number(cmQ.max_score)});
+      cmSearch();
+    }catch(ex){ toast(ex.message); }
+    finally{ cmBusy = false; }
+  };
+  $("#cmBody").querySelectorAll("[data-cmscope]").forEach(btn=>btn.addEventListener("click", async ()=>{
+    cmScope = btn.dataset.cmscope; btn.disabled = true;
+    CMS = null; cmPage = 0; CMF = null;
+    await loadCallMonitor();
+    CMF = await rpc("training_call_facets",{p_code:CODE,p_scope:cmScope});
+    mgrCall();
+  }));
+  $("#csGo").addEventListener("click", ()=>go(0));
+  $("#csClear").addEventListener("click", ()=>{
+    cmQ = {q:"",from:"",to:"",direction:"",call_type:"",agent:"",rule:"",
+           min_score:"",max_score:"",flagged:""};
+    CMS = null; cmPage = 0; cmSearch();
+  });
+  $("#cmBody").querySelectorAll("input").forEach(i=>i.addEventListener("keydown", e=>{
+    if(e.key === "Enter"){ e.preventDefault(); go(0); }
+  }));
+}
+
+function cmSearchResults(){
+  const r = CMS, box = $("#csResults");
+  if(!box || !r) return;
+  const total = r.total||0, from = r.offset+1, to = Math.min(r.offset + (r.results||[]).length, total);
+  const pages = Math.ceil(total/50);
+
+  box.innerHTML = `
+    <div class="section-h" style="margin-top:0">
+      <h2>${total ? `${total.toLocaleString()} call${total===1?"":"s"}` : "No matches"}</h2>
+      <span class="cs-count">${total ? `showing ${from}–${to}` : "try widening the filters"}</span></div>
+    ${total ? `
+    <div class="card" style="overflow-x:auto">
+      <table><thead><tr>
+        <th>When</th><th>Person</th><th>Type</th><th class="hide-sm">Length</th>
+        <th>Score</th><th>Flags</th>
+      </tr></thead><tbody>
+        ${(r.results||[]).map(c=>`<tr class="clk" data-cscall="${c.recording_id}">
+          <td><div class="tname">${sdate(c.started_at)}</div>
+              <div class="tsub">${new Date(c.started_at).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
+                · ${esc(c.direction)}</div></td>
+          <td><div class="tname">${esc(c.display_name||"—")}</div>
+              <div class="tsub">${esc(c.office||c.queue||"—")}</div></td>
+          <td><span class="tsub">${esc(String(c.call_type||"—").replace(/_/g," "))}${
+                c.relationship?`<br>${esc(c.relationship.replace(/_/g," "))}`:""}</span></td>
+          <td class="hide-sm"><span class="tsub">${Math.floor((c.duration_seconds||0)/60)}m ${(c.duration_seconds||0)%60}s</span></td>
+          <td><b style="color:${cmScoreColour(c.score_total)}">${c.score_total ?? "—"}</b>
+              ${c.hard_fail?`<div><span class="pill fail">Hard fail</span></div>`:""}
+              ${CM.scope==="all" && c.rubric_version?`<div class="tsub">${esc(c.rubric_version)}</div>`:""}</td>
+          <td>${(c.top_flags||[]).length
+                ? `<div class="chips">${c.top_flags.slice(0,3).map(x=>
+                     `<span class="chip">${esc(x)}</span>`).join("")}${
+                     c.top_flags.length>3?`<span class="chip">+${c.top_flags.length-3}</span>`:""}</div>`
+                : `<span class="pill done">Clean</span>`}
+              ${c.snippet?`<div class="cs-snip">…${cmSearchMark(c.snippet, r.query)}…</div>`:""}</td>
+        </tr>`).join("")}
+      </tbody></table>
+    </div>
+    ${pages>1?`<div class="cs-pager">
+      <button class="btn line sm" id="csPrev" ${cmPage===0?"disabled":""}>← Previous</button>
+      <span class="tsub">Page ${cmPage+1} of ${pages}</span>
+      <button class="btn line sm" id="csNext" ${cmPage>=pages-1?"disabled":""}>Next →</button>
+    </div>`:""}` : ""}`;
+
+  box.querySelectorAll("tr[data-cscall]").forEach(tr=>tr.addEventListener("click",
+    ()=>openCallDetail(tr.dataset.cscall)));
+
+  const page = async n => {
+    cmBusy = true;
+    try{
+      CMS = await rpc("training_call_search",{
+        p_code:CODE, p_scope:cmScope, p_limit:50, p_offset:n*50,
+        p_q:cmQ.q||null, p_agent:cmQ.agent||null, p_call_type:cmQ.call_type||null,
+        p_from:cmQ.from||null, p_to:cmQ.to||null, p_direction:cmQ.direction||null,
+        p_rule:cmQ.rule||null,
+        p_flagged: cmQ.flagged===""?null:cmQ.flagged==="true",
+        p_min_score: cmQ.min_score===""?null:Number(cmQ.min_score),
+        p_max_score: cmQ.max_score===""?null:Number(cmQ.max_score)});
+      cmPage = n; cmSearch(); window.scrollTo(0,0);
+    }catch(ex){ toast(ex.message); }
+    finally{ cmBusy = false; }
+  };
+  if($("#csPrev")) $("#csPrev").addEventListener("click", ()=>page(cmPage-1));
+  if($("#csNext")) $("#csNext").addEventListener("click", ()=>page(cmPage+1));
 }
 
 /* ---- coaching raised from calls ---- */
