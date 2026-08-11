@@ -286,6 +286,35 @@ tbody tr.clk:hover{background:#f8f9fc}
   .certdoc{border-width:3px}
   @page{size:landscape;margin:12mm}
 }
+
+/* ---------- call monitoring ---------- */
+.cm-note{font-size:13.5px;color:var(--ink-2);line-height:1.6}
+.cm-banner{background:var(--info-bg);border:1px solid #d5d7ee;border-left:4px solid var(--info);
+  border-radius:var(--r);padding:14px 16px;margin-bottom:16px}
+.cm-banner.warn{background:var(--warn-bg);border-color:#eddcbb;border-left-color:var(--warn)}
+.cm-banner h4{font-size:14.5px;margin-bottom:5px}
+.cm-sub{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.cm-sub button{border:1px solid var(--line-2);background:#fff;border-radius:999px;
+  padding:6px 14px;font-size:13px;color:var(--ink-2)}
+.cm-sub button.on{background:var(--navy);border-color:var(--navy);color:#fff;font-weight:600}
+.cm-ctl{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px;font-size:13px}
+.cm-ctl select{font:inherit;padding:6px 10px;border:1px solid var(--line-2);border-radius:8px;background:#fff}
+.sev{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:700;letter-spacing:.02em}
+.sev.HIGH{background:var(--bad-bg);color:var(--bad)}
+.sev.MEDIUM{background:var(--warn-bg);color:var(--warn)}
+.sev.LOW{background:var(--info-bg);color:var(--info)}
+.modlink{font-size:12.5px;color:var(--navy-3);font-weight:600}
+.modlink.none{color:var(--bad);font-weight:600}
+.spark{display:flex;align-items:flex-end;gap:3px;height:42px}
+.spark i{flex:1;background:var(--navy-3);border-radius:2px 2px 0 0;min-height:2px;opacity:.75}
+.ev{background:#f8f9fc;border-left:3px solid var(--line-2);padding:8px 12px;margin:7px 0;
+  border-radius:0 8px 8px 0;font-size:13px;color:var(--ink-2);font-style:italic}
+.tscript{background:#fbfbfd;border:1px solid var(--line);border-radius:10px;padding:14px 16px;
+  max-height:340px;overflow:auto;font-size:13px;line-height:1.7;white-space:pre-wrap}
+.tscript b{color:var(--navy)}
+.cm-score{font-size:26px;font-weight:700;letter-spacing:-.02em}
+.cm-grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:860px){.cm-grid2{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -350,7 +379,9 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     PREVIEW=null, MODE=null,
     selCE=null,
     openMods=new Set(), openTracks=null, mgrTab="roster", selTrainee=null,
-    openCat=new Set(), draft=null;
+    openCat=new Set(), draft=null,
+    CM=null, cmSub="patterns", cmScope="current", cmDays=90,
+    selCallAgent=null, CMA=null;
 
 /* ================= helpers ================= */
 const $ = s => document.querySelector(s);
@@ -444,6 +475,7 @@ $("#loginForm").addEventListener("submit", async e=>{
 $("#signOut").addEventListener("click", ()=>{
   if(PREVIEW){ exitPreview(); return; }
   CODE=ME=STATE=MGR=null; selTrainee=null; lastAdded=null; MODE=null;
+  CM=CMA=null; selCallAgent=null; cmSub="patterns"; cmScope="current"; cmDays=90;
   openMods.clear(); openTracks=null; location.hash="";
   $("#modeToggle").classList.add("hidden");
   $("#view-app").classList.add("hidden");
@@ -890,6 +922,7 @@ function renderManager(){
       <button class="tab ${mgrTab==="ce"?"on":""}" data-tab="ce">Licensing &amp; CE</button>
       <button class="tab ${mgrTab==="content"?"on":""}" data-tab="content">Content editor</button>
       <button class="tab ${mgrTab==="tracks"?"on":""}" data-tab="tracks">Track catalog</button>
+      ${cmHasCall() ? `<button class="tab ${mgrTab==="calls"?"on":""}" data-tab="calls">Call monitoring</button>` : ""}
       <button class="tab ${mgrTab==="activity"?"on":""}" data-tab="activity">Activity${unread?` (${unread})`:""}</button>
       <button class="tab ${mgrTab==="add"?"on":""}" data-tab="add">Add an agent</button>
     </div>
@@ -900,10 +933,13 @@ function renderManager(){
     mgrTab=b.dataset.tab; selTrainee=null;
     if(mgrTab==="content" && !CAT) await loadCatalog();
     if(mgrTab==="ce" && !CE) await loadCE();
+    if(mgrTab==="calls" && !CM) await loadCallMonitor();
     renderManager();
   }));
+  // A tab a person cannot see must not be reachable by leftover state either.
+  if(mgrTab === "calls" && !cmHasCall()) mgrTab = "roster";
   ({roster:mgrRoster, ce:mgrCE, content:mgrContent, tracks:mgrTracks,
-    activity:mgrActivity, add:mgrAdd})[mgrTab]();
+    activity:mgrActivity, add:mgrAdd, calls:mgrCall})[mgrTab]();
 }
 
 function mgrRoster(){
@@ -1399,6 +1435,531 @@ function renderCEDetail(){
     toast(b.dataset.ceEvent==="renewed"?"Licence renewed — next cycle opened":"Recorded");
   }));
   box.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+
+/* ================= call monitoring =================
+   Reads the Call Monitoring project (recordings, transcripts, call_evaluations) and
+   lines it up against the training content. Gated per person by call_monitor_access:
+   'full' sees named agents and individual calls, 'aggregate' sees agency-wide patterns
+   only. The gate is enforced in the database, not here — this only decides what to draw.
+
+   Scoring shown is the CURRENTLY ACTIVE rubric by default, because the earlier rubric
+   versions used different scales and averaging across them produces a meaningless
+   trend. The earlier history is reachable, but always labelled. */
+
+const cmHasCall = () => !!(ME && ME.call_monitor_access);
+const cmFull    = () => ME && ME.call_monitor_access === "full";
+
+async function loadCallMonitor(){
+  CM = await rpc("training_call_overview",{p_code:CODE,p_days:cmDays,p_scope:cmScope});
+}
+
+const cmScoreColour = v =>
+  v === null || v === undefined ? "var(--ink-3)"
+  : v >= 85 ? "var(--ok)" : v >= 70 ? "var(--warn)" : "var(--bad)";
+
+function cmModuleCell(r){
+  if(!r.module_slug)
+    return `<span class="modlink none">No module covers this</span>`;
+  return `<span class="modlink">${esc(r.module_title||r.module_slug)}</span>`
+       + (r.module_status === "draft" ? ` <span class="pill prog">Draft</span>` : "")
+       + (r.track ? `<div class="tsub">${esc(r.track)}</div>` : "");
+}
+
+function mgrCall(){
+  const body = $("#mgrBody");
+  if(!CM){ body.innerHTML = `<div class="card"><div class="empty">Loading…</div></div>`; return; }
+
+  const cov = CM.coverage||{}, sum = CM.summary||{};
+  const onCurrent = CM.scope === "current";
+  const nothingYet = (sum.calls||0) === 0;
+
+  // Honest statement of what is on screen. The active rubric was created 11 August 2026
+  // and has scored nothing yet, so without this the panel just looks broken.
+  const banner = onCurrent
+    ? `<div class="cm-banner ${nothingYet?"warn":""}">
+         <h4>${nothingYet
+              ? `Nothing scored on the current rubric yet`
+              : `Showing rubric ${esc(CM.rubric.version||"")} only`}</h4>
+         <div class="cm-note">
+           ${nothingYet
+             ? `Rubric <b>${esc(CM.rubric.version||"")}</b> became active ${when(CM.rubric.active_since)} and
+                <b>${cov.awaiting_current_scoring||0}</b> recordings in this window have not been
+                scored under it. There are <b>${cov.prior_rubric_evaluations||0}</b> evaluations on
+                earlier rubric versions, which used different scales — an agency average of 47, then
+                61, then 72, and one version that could score above 100 — so they are not mixed in
+                here. This panel fills up as the Call Monitoring project rescores.`
+             : `<b>${cov.scored}</b> calls scored on the current rubric.
+                <b>${cov.awaiting_current_scoring||0}</b> recordings in this window are still awaiting it.`}
+         </div>
+         <div style="margin-top:10px">
+           <button class="btn line sm" data-cmscope="all">Show the earlier history instead</button>
+         </div>
+       </div>`
+    : `<div class="cm-banner warn">
+         <h4>Showing every rubric version — scores are not comparable</h4>
+         <div class="cm-note">
+           These ${sum.calls} calls were scored under
+           ${(CM.rubric_versions||[]).filter(v=>!v.is_current).length} different rubric versions with
+           different scales. Patterns and rule counts are still meaningful; the average score and the
+           trend line are not. ${(CM.rubric_versions||[]).map(v=>
+             `<div style="margin-top:5px"><b>${esc(v.version)}</b>${v.is_current?" (current)":""} —
+              ${v.calls} calls, average ${v.avg_score}</div>`).join("")}
+         </div>
+         <div style="margin-top:10px">
+           <button class="btn gold sm" data-cmscope="current">Back to the current rubric only</button>
+         </div>
+       </div>`;
+
+  const subs = [["patterns","What is happening"]]
+    .concat(cmFull() ? [["agents","By agent"],["coaching","Coaching"]] : [])
+    .concat([["mapping","Rules and modules"]]);
+
+  body.innerHTML = `
+    ${banner}
+    <div class="cm-ctl">
+      <label for="cmDays">Period</label>
+      <select id="cmDays">
+        ${[[30,"Last 30 days"],[90,"Last 90 days"],[180,"Last 6 months"],[365,"Last 12 months"]]
+          .map(([v,l])=>`<option value="${v}" ${cmDays===v?"selected":""}>${l}</option>`).join("")}
+      </select>
+      <span class="tsub">
+        ${cov.first ? `${sdate(cov.first)} to ${sdate(cov.last)}` : "no scored calls in this period"}
+      </span>
+      ${!cmFull() ? `<span class="pill todo" title="Individual agent scores are not included in your view">Agency view</span>` : ""}
+    </div>
+
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Calls scored</div><div class="v">${sum.calls||0}</div></div>
+      <div class="stat"><div class="k">Average score</div>
+        <div class="v" style="color:${cmScoreColour(sum.avg_score)}">${sum.avg_score ?? "—"}</div></div>
+      <div class="stat"><div class="k">Calls with a flag</div><div class="v">${sum.flagged_calls||0}</div></div>
+      <div class="stat"><div class="k">Hard fails</div>
+        <div class="v" style="${sum.hard_fail_calls?'color:var(--bad)':''}">${sum.hard_fail_calls||0}</div></div>
+    </div>
+
+    <div class="cm-sub">
+      ${subs.map(([k,l])=>`<button class="${cmSub===k?"on":""}" data-cmsub="${k}">${l}</button>`).join("")}
+    </div>
+    <div id="cmBody"></div>`;
+
+  body.querySelectorAll("[data-cmscope]").forEach(b=>b.addEventListener("click", async ()=>{
+    cmScope = b.dataset.cmscope; selCallAgent = null;
+    b.disabled = true; await loadCallMonitor(); mgrCall();
+  }));
+  body.querySelectorAll("[data-cmsub]").forEach(b=>b.addEventListener("click", ()=>{
+    cmSub = b.dataset.cmsub; selCallAgent = null; mgrCall();
+  }));
+  $("#cmDays").addEventListener("change", async e=>{
+    cmDays = parseInt(e.target.value,10); selCallAgent = null;
+    e.target.disabled = true; await loadCallMonitor(); mgrCall();
+  });
+
+  ({patterns:cmPatterns, agents:cmAgents, coaching:cmCoaching, mapping:cmMapping})[cmSub]();
+}
+
+/* ---- what is happening: the rules being broken, and where the training sits ---- */
+function cmPatterns(){
+  const rules = CM.by_rule||[], opps = CM.by_opportunity||[], locs = CM.by_location||[];
+  const trend = CM.trend||[];
+  const calls = (CM.summary||{}).calls||0;
+  const box = $("#cmBody");
+
+  if(!calls){
+    box.innerHTML = `<div class="card"><div class="empty">
+      No calls scored in this period. Nothing to show yet — the rule-to-module map under
+      <b>Rules and modules</b> works regardless, and is worth a read now.</div></div>`;
+    return;
+  }
+
+  const maxW = Math.max(1, ...trend.map(t=>t.calls));
+
+  box.innerHTML = `
+    <div class="section-h"><h2>Rules being broken</h2>
+      <span class="note">Each one pointed at the module that teaches it</span></div>
+    <div class="card" style="overflow-x:auto">
+      <table><thead><tr>
+        <th>What went wrong</th><th>Severity</th><th>Calls</th>
+        ${cmFull()?"<th>People</th>":""}<th>Where it is taught</th>
+      </tr></thead><tbody>
+        ${rules.map(r=>`<tr>
+          <td><div class="tname">${esc(r.label||r.rule_id)}</div>
+              <div class="tsub"><span class="code">${esc(r.rule_id)}</span></div></td>
+          <td><span class="sev ${esc(r.severity||"LOW")}">${esc(r.severity||"—")}</span></td>
+          <td><b>${r.calls}</b><div class="tsub">${Math.round(r.calls*100/calls)}% of calls</div></td>
+          ${cmFull()?`<td>${r.agents}</td>`:""}
+          <td>${cmModuleCell(r)}</td>
+        </tr>`).join("")}
+      </tbody></table>
+    </div>
+
+    <div class="section-h"><h2>Revenue left on the table</h2>
+      <span class="note">Opportunities the evaluator heard and the agent did not take</span></div>
+    <div class="card" style="overflow-x:auto">
+      <table><thead><tr>
+        <th>Opportunity</th><th>Came up</th><th>Missed</th><th>Taken</th><th>Where it is taught</th>
+      </tr></thead><tbody>
+        ${opps.map(o=>{
+          const rate = o.present ? Math.round(o.missed*100/o.present) : 0;
+          return `<tr>
+            <td><div class="tname">${esc(o.label||o.opportunity_id)}</div>
+                <div class="tsub"><span class="code">${esc(o.opportunity_id)}</span></div></td>
+            <td>${o.present}</td>
+            <td><b style="color:${rate>=75?"var(--bad)":rate>=50?"var(--warn)":"var(--ink)"}">${o.missed}</b>
+                <div class="tsub">${rate}% missed</div></td>
+            <td>${o.addressed}</td>
+            <td>${cmModuleCell(o)}</td>
+          </tr>`;}).join("") || `<tr><td colspan="5"><span class="tsub">No opportunities recorded in this period.</span></td></tr>`}
+      </tbody></table>
+    </div>
+
+    <div class="cm-grid2" style="margin-top:26px">
+      <div>
+        <div class="section-h" style="margin-top:0"><h2>By office</h2></div>
+        <div class="card" style="overflow-x:auto">
+          <table><thead><tr><th>Office</th><th>Calls</th><th>Average</th><th>Hard fails</th></tr></thead>
+          <tbody>${locs.map(l=>`<tr>
+            <td><div class="tname">${esc(l.location)}</div>
+                ${l.agents?`<div class="tsub">${l.agents} on the phones</div>`:""}</td>
+            <td>${l.calls}</td>
+            <td><b style="color:${cmScoreColour(l.avg_score)}">${l.avg_score ?? "—"}</b></td>
+            <td>${l.hard_fails||0}</td></tr>`).join("")}</tbody></table>
+        </div>
+      </div>
+      <div>
+        <div class="section-h" style="margin-top:0"><h2>Volume by week</h2></div>
+        <div class="card pad">
+          <div class="spark">${trend.map(t=>
+            `<i style="height:${Math.round(t.calls*100/maxW)}%" title="${t.week}: ${t.calls} calls, average ${t.avg_score}"></i>`).join("")}</div>
+          <div class="tsub" style="margin-top:10px">
+            ${trend.length ? `${sdate(trend[0].week)} to ${sdate(trend[trend.length-1].week)} · hover a bar for the week` : "—"}
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+/* ---- by agent: full access only ---- */
+function cmAgents(){
+  const box = $("#cmBody");
+  const ags = CM.agents||[];
+  const unmapped = CM.unmapped_names||[];
+
+  if(!ags.length){
+    box.innerHTML = `<div class="card"><div class="empty">No agent-attributed calls in this period.</div></div>`;
+    return;
+  }
+
+  box.innerHTML = `
+    <div class="cm-banner">
+      <h4>How a call is attributed to a person</h4>
+      <div class="cm-note">
+        The phone system leaves <span class="code">agent_name</span> empty on every recording, so the
+        person is taken from the caller name on outbound calls and the callee name on inbound ones.
+        That identifies the <b>extension</b>, which is normally but not always the person who spoke —
+        a shared desk or a covered phone will be credited to whoever the extension belongs to. Treat
+        a single call as a prompt to listen, not as proof.
+        ${unmapped.length?`<div style="margin-top:7px">Unrecognised names on recent calls:
+          ${unmapped.map(n=>`<span class="code">${esc(n)}</span>`).join(" ")}</div>`:""}
+      </div>
+    </div>
+    <div class="card" style="overflow-x:auto">
+      <table><thead><tr>
+        <th>Person</th><th>Office</th><th>Calls</th><th>Average</th><th>Flags</th>
+        <th>Hard fails</th><th class="hide-sm">Last call</th><th>In the portal</th>
+      </tr></thead><tbody>
+        ${ags.map(a=>`<tr class="clk" data-cma="${esc(a.call_name)}">
+          <td><div class="tname">${esc(a.display_name)}</div>
+              ${a.open_coaching?`<div class="tsub"><b style="color:var(--warn)">${a.open_coaching} open coaching</b></div>`:""}</td>
+          <td><span class="tsub">${esc(a.office||"Not on the agent roster")}</span></td>
+          <td><b>${a.calls}</b></td>
+          <td><b style="color:${cmScoreColour(a.avg_score)}">${a.avg_score ?? "—"}</b></td>
+          <td>${a.flags||0}<div class="tsub">${a.calls?(a.flags/a.calls).toFixed(1):0} per call</div></td>
+          <td>${a.hard_fails?`<b style="color:var(--bad)">${a.hard_fails}</b>`:"0"}</td>
+          <td class="hide-sm"><span class="tsub">${when(a.last_call)}</span></td>
+          <td>${a.enrolled?`<span class="pill done">Enrolled</span>`
+                          :`<span class="pill todo">Not enrolled</span>`}</td>
+        </tr>`).join("")}
+      </tbody></table>
+    </div>
+    <div id="cmDetail"></div>`;
+
+  box.querySelectorAll("tr[data-cma]").forEach(r=>r.addEventListener("click", async ()=>{
+    selCallAgent = r.dataset.cma;
+    CMA = await rpc("training_call_agent_detail",
+      {p_code:CODE,p_call_name:selCallAgent,p_days:cmDays,p_scope:cmScope,p_limit:40});
+    renderCallAgent();
+  }));
+  if(selCallAgent && CMA) renderCallAgent();
+}
+
+function renderCallAgent(){
+  const a = CMA, box = $("#cmDetail");
+  if(!a || !box) return;
+  const s = a.summary||{};
+
+  box.innerHTML = `
+    <div class="section-h"><h2>${esc(a.display_name)}</h2>
+      <button class="btn line sm" id="cmClose">Close</button></div>
+
+    ${!a.enrolled ? `<div class="cm-banner warn">
+        <h4>${esc(a.display_name)} is not enrolled in the portal</h4>
+        <div class="cm-note">Their calls are being scored, but there is no training record to line up
+          against and no way to assign a module. Add them under <b>Add an agent</b> and the two halves
+          join up automatically.</div></div>` : ""}
+
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Calls</div><div class="v">${s.calls||0}</div></div>
+      <div class="stat"><div class="k">Average</div>
+        <div class="v" style="color:${cmScoreColour(s.avg_score)}">${s.avg_score ?? "—"}</div></div>
+      <div class="stat"><div class="k">Best / worst</div><div class="v" style="font-size:20px">${s.best ?? "—"} / ${s.worst ?? "—"}</div></div>
+      <div class="stat"><div class="k">Hard fails</div>
+        <div class="v" style="${s.hard_fails?'color:var(--bad)':''}">${s.hard_fails||0}</div></div>
+    </div>
+
+    <div class="section-h"><h2>What they get flagged for</h2>
+      <span class="note">With their progress on the module that covers it</span></div>
+    <div class="card" style="overflow-x:auto">
+      <table><thead><tr>
+        <th>What went wrong</th><th>Severity</th><th>Calls</th><th>Module</th>
+        <th>Their progress</th><th></th>
+      </tr></thead><tbody>
+        ${(a.by_rule||[]).map(r=>`<tr>
+          <td><div class="tname">${esc(r.label||r.rule_id)}</div>
+              <div class="tsub"><span class="code">${esc(r.rule_id)}</span></div></td>
+          <td><span class="sev ${esc(r.severity||"LOW")}">${esc(r.severity||"—")}</span></td>
+          <td><b>${r.calls}</b></td>
+          <td>${cmModuleCell(r)}</td>
+          <td>${r.their_progress ? statusPill(r.their_progress)
+                : `<span class="tsub">${a.enrolled?"—":"not enrolled"}</span>`}</td>
+          <td>${a.enrolled && r.module_slug
+                ? (r.open_coaching
+                    ? `<span class="pill prog">Coaching open</span>`
+                    : `<button class="btn line sm" data-coach="${esc(r.module_slug)}"
+                         data-rule="${esc(r.rule_id)}">Assign module</button>`)
+                : ""}</td>
+        </tr>`).join("") || `<tr><td colspan="6"><span class="tsub">No flags in this period.</span></td></tr>`}
+      </tbody></table>
+    </div>
+
+    ${(a.missed_opportunities||[]).length ? `
+      <div class="section-h"><h2>Opportunities they missed</h2></div>
+      <div class="card" style="overflow-x:auto">
+        <table><thead><tr><th>Opportunity</th><th>Missed</th><th>Module</th><th></th></tr></thead>
+        <tbody>${a.missed_opportunities.map(o=>`<tr>
+          <td><div class="tname">${esc(o.label||o.opportunity_id)}</div></td>
+          <td><b>${o.missed}</b></td>
+          <td>${cmModuleCell(o)}</td>
+          <td>${a.enrolled && o.module_slug
+                ? `<button class="btn line sm" data-coach="${esc(o.module_slug)}"
+                     data-rule="${esc(o.opportunity_id)}">Assign module</button>` : ""}</td>
+        </tr>`).join("")}</tbody></table>
+      </div>` : ""}
+
+    <div class="section-h"><h2>Recent calls</h2>
+      <span class="note">Open one to read the transcript and the evidence behind each flag</span></div>
+    <div class="card" style="overflow-x:auto">
+      <table><thead><tr>
+        <th>When</th><th>Type</th><th class="hide-sm">Length</th><th>Score</th><th>Flags</th>
+      </tr></thead><tbody>
+        ${(a.calls||[]).map(c=>`<tr class="clk" data-cmcall="${c.recording_id}">
+          <td><div class="tname">${sdate(c.started_at)}</div>
+              <div class="tsub">${new Date(c.started_at).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
+                · ${esc(c.direction)}</div></td>
+          <td><span class="tsub">${esc((c.call_type||"—").replace(/_/g," "))}${
+                c.relationship?`<br>${esc(c.relationship.replace(/_/g," "))}`:""}</span></td>
+          <td class="hide-sm"><span class="tsub">${Math.floor((c.duration_seconds||0)/60)}m ${(c.duration_seconds||0)%60}s</span></td>
+          <td><b style="color:${cmScoreColour(c.score_total)}">${c.score_total ?? "—"}</b>
+              ${c.hard_fail?`<div><span class="pill fail">Hard fail</span></div>`:""}
+              ${c.rubric_version && CM.scope==="all"?`<div class="tsub">${esc(c.rubric_version)}</div>`:""}</td>
+          <td>${(c.top_flags||[]).length
+                ? `<div class="chips">${c.top_flags.slice(0,3).map(f=>
+                     `<span class="chip">${esc(f)}</span>`).join("")}${
+                     c.top_flags.length>3?`<span class="chip">+${c.top_flags.length-3}</span>`:""}</div>`
+                : `<span class="pill done">Clean</span>`}</td>
+        </tr>`).join("")}
+      </tbody></table>
+    </div>`;
+
+  $("#cmClose").addEventListener("click", ()=>{ selCallAgent=null; CMA=null; mgrCall(); });
+  box.querySelectorAll("[data-coach]").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation();
+    await cmAssign(b.dataset.coach, b.dataset.rule, null);
+  }));
+  box.querySelectorAll("tr[data-cmcall]").forEach(r=>r.addEventListener("click",
+    ()=>openCallDetail(r.dataset.cmcall)));
+  box.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+
+async function cmAssign(moduleSlug, ruleId, recordingId){
+  if(!selCallAgent) return;
+  try{
+    await rpc("training_call_coach",{p_code:CODE, p_call_name:selCallAgent,
+      p_module_slug:moduleSlug, p_rule_id:ruleId||null,
+      p_recording_id:recordingId||null, p_note:null});
+    toast("Coaching item raised");
+    CMA = await rpc("training_call_agent_detail",
+      {p_code:CODE,p_call_name:selCallAgent,p_days:cmDays,p_scope:cmScope,p_limit:40});
+    await loadCallMonitor();
+    if($("#modal") && !$("#modal").classList.contains("hidden")) closeModal();
+    mgrCall();
+  }catch(ex){ toast(ex.message); }
+}
+
+/* ---- one call, in full ---- */
+async function openCallDetail(recordingId){
+  let d;
+  try{ d = await rpc("training_call_detail",{p_code:CODE,p_recording_id:recordingId}); }
+  catch(ex){ toast(ex.message); return; }
+
+  const tx = (d.transcript||"").replace(/\[([^\]]+)\]/g, (m,who)=>`<b>${esc(who)}</b>`);
+  const co = d.coaching||{};
+
+  $("#modal").innerHTML = `
+    <div class="sheet wide">
+      <div class="sheet-h">
+        <div style="flex:1">
+          <h3>${esc(d.display_name||d.call_name||"Call")} — ${sdate(d.started_at)}</h3>
+          <div class="tsub">${esc(d.direction)} · ${Math.floor((d.duration_seconds||0)/60)}m
+            ${(d.duration_seconds||0)%60}s · ${esc(d.queue||"direct")}
+            ${d.is_current_rubric?"":` · scored on retired rubric ${esc(d.rubric_version||"")}`}</div>
+        </div>
+        <button class="x" id="cmdClose">×</button>
+      </div>
+      <div class="sheet-b">
+        <div style="display:flex;gap:22px;align-items:center;flex-wrap:wrap;margin-bottom:18px">
+          <div><div class="k tsub">Score</div>
+            <div class="cm-score" style="color:${cmScoreColour(d.score_total)}">${d.score_total ?? "—"}</div></div>
+          ${Object.entries(d.score_components||{}).filter(([k,v])=>typeof v === "number")
+            .map(([k,v])=>`<div><div class="k tsub">${esc(k.replace(/_/g," "))}</div>
+              <div style="font-size:17px;font-weight:650">${v}</div></div>`).join("")}
+          ${d.hard_fail?`<span class="pill fail">Hard fail</span>`:""}
+        </div>
+
+        <h4 style="margin-bottom:9px">Flags — ${(d.flags||[]).length}</h4>
+        ${(d.flags||[]).map(f=>`
+          <div class="card pad" style="margin-bottom:11px">
+            <div style="display:flex;gap:9px;align-items:baseline;flex-wrap:wrap">
+              <span class="sev ${esc(f.severity||"LOW")}">${esc(f.severity||"—")}</span>
+              <b style="font-size:14.5px">${esc(f.label||f.rule_id)}</b>
+              <span class="code">${esc(f.rule_id)}</span>
+            </div>
+            <div class="cm-note" style="margin-top:7px">${esc(f.description||"")}</div>
+            ${(f.evidence_spans||[]).map(e=>`<div class="ev">“${esc(e.quote)}”</div>`).join("")}
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:9px">
+              ${f.module_slug
+                ? `<span class="tsub">Taught in <b>${esc(f.module_title||f.module_slug)}</b></span>
+                   ${d.person_id
+                     ? `<button class="btn line sm" data-coach2="${esc(f.module_slug)}"
+                          data-rule2="${esc(f.rule_id)}">Assign this module</button>`
+                     : `<span class="tsub">— enrol them to assign it</span>`}`
+                : `<span class="modlink none">No module covers this rule yet</span>`}
+            </div>
+          </div>`).join("") || `<div class="empty">No flags on this call.</div>`}
+
+        ${(co.strengths||co.improvements||co.coaching_suggestions) ? `
+          <h4 style="margin:20px 0 9px">Evaluator notes</h4>
+          <div class="cm-grid2">
+            ${[["What went well",co.strengths],["What to improve",co.improvements],
+               ["Coaching suggestions",co.coaching_suggestions]]
+              .filter(([,v])=>v&&v.length).map(([t,v])=>`
+              <div class="card pad"><b style="font-size:13.5px">${t}</b>
+                <ul style="margin:8px 0 0;padding-left:18px;font-size:13px;color:var(--ink-2);line-height:1.65">
+                  ${v.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>`).join("")}
+          </div>` : ""}
+
+        <h4 style="margin:20px 0 9px">Transcript</h4>
+        <div class="tscript">${tx || "<span class='tsub'>No transcript stored for this call.</span>"}</div>
+        ${d.transcript_truncated?`<div class="tsub" style="margin-top:7px">Transcript shortened for display.</div>`:""}
+      </div>
+    </div>`;
+  $("#modal").classList.remove("hidden");
+  $("#cmdClose").addEventListener("click", closeModal);
+  $("#modal").querySelectorAll("[data-coach2]").forEach(b=>b.addEventListener("click", ()=>
+    cmAssign(b.dataset.coach2, b.dataset.rule2, recordingId)));
+}
+
+/* ---- coaching raised from calls ---- */
+function cmCoaching(){
+  const items = CM.open_coaching||[];
+  $("#cmBody").innerHTML = `
+    <div class="cm-banner">
+      <h4>What a coaching item does</h4>
+      <div class="cm-note">
+        It records that someone was asked to revisit a module because of a specific call. It does
+        <b>not</b> reset their progress and it cannot invalidate a certification.
+        ${CM.coaching_visible_to_agents
+          ? `Agents currently <b>can</b> see their own coaching items.`
+          : `Agents currently <b>cannot</b> see these — they are staff-only until you switch that on,
+             which keeps the position that call review is not yet rolled out.`}
+      </div>
+      <div style="margin-top:11px">
+        <label class="tgl" style="margin:0;display:inline-flex">
+          <input type="checkbox" id="cmVis" ${CM.coaching_visible_to_agents?"checked":""}>
+          <div><div class="tn">Let agents see their coaching items</div></div></label>
+      </div>
+    </div>
+    ${items.length ? `
+      <div class="card" style="overflow-x:auto">
+        <table><thead><tr>
+          <th>Person</th><th>Module</th><th>Raised for</th><th>Raised by</th><th>When</th><th></th>
+        </tr></thead><tbody>
+          ${items.map(c=>`<tr>
+            <td><div class="tname">${esc(c.person)}</div></td>
+            <td>${esc(c.module_title||c.module_slug||"—")}</td>
+            <td>${c.rule_id?`<span class="code">${esc(c.rule_id)}</span>`:"<span class='tsub'>—</span>"}
+                ${c.note?`<div class="tsub">${esc(c.note)}</div>`:""}</td>
+            <td><span class="tsub">${esc(c.assigned_by||"—")}</span></td>
+            <td><span class="tsub">${when(c.assigned_at)}</span></td>
+            <td><button class="btn line sm" data-resolve="${c.id}">Mark done</button></td>
+          </tr>`).join("")}
+        </tbody></table>
+      </div>`
+    : `<div class="card"><div class="empty">No open coaching items. Raise one from a flag on a call.</div></div>`}`;
+
+  $("#cmVis").addEventListener("change", async e=>{
+    e.target.disabled = true;
+    await rpc("training_set_setting",{p_code:CODE,p_key:"call_coaching_visible",
+      p_value:e.target.checked?"true":"false"});
+    await loadCallMonitor(); mgrCall(); toast("Saved");
+  });
+  $("#cmBody").querySelectorAll("[data-resolve]").forEach(b=>b.addEventListener("click", async ()=>{
+    b.disabled = true;
+    await rpc("training_call_coach_resolve",{p_code:CODE,p_id:b.dataset.resolve});
+    await loadCallMonitor(); mgrCall(); toast("Marked done");
+  }));
+}
+
+/* ---- the map itself, so it can be argued with ---- */
+function cmMapping(){
+  const rules = CM.by_rule||[], opps = CM.by_opportunity||[];
+  const seen = new Set(rules.concat(opps).map(r=>r.rule_id||r.opportunity_id));
+  $("#cmBody").innerHTML = `
+    <div class="cm-banner">
+      <h4>Every rule points at a module</h4>
+      <div class="cm-note">
+        This is the join between the two systems: a rule broken on a call names the module that
+        teaches it, so a pattern in the monitoring becomes a specific piece of content to fix or
+        reinforce. The mapping is a judgement call — it was seeded from rubric
+        <b>${esc(CM.rubric.version||"")}</b> and is meant to be argued with.
+        Rules showing <span class="modlink none">no module</span> are the content gaps.
+      </div>
+    </div>
+    <div class="card pad">
+      <div class="cm-note">
+        <b>Two findings from the seeding worth knowing.</b>
+        The two most-flagged rules agency-wide are <span class="code">EO_PROMISE_03</span>
+        (no effective date given when confirming a change) and <span class="code">EO_PROMISE_04</span>
+        (no carrier named). Both are endorsement-confirmation discipline, and no module teaches that
+        squarely — they are mapped to <b>Sales Practices, Quoting &amp; Binding</b> as the closest fit.
+        That is the strongest argument yet for the Agency Matrix and TurboRater workflow module in
+        section 9 of the Go-Live Checklist.
+        Separately, <span class="code">TASK_15</span> — asking address and rent-or-own — maps onto
+        <b>More Than Just an Auto Agency</b>, which already teaches exactly that as its anchor example.
+      </div>
+    </div>
+    ${seen.size ? "" : `<div class="card" style="margin-top:16px"><div class="empty">
+      No rules have fired in this period, so there is nothing to list here yet.</div></div>`}`;
 }
 
 /* ================= content editor ================= */
