@@ -1,0 +1,1895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Metro Insurance — Training Portal</title>
+<style>
+:root{
+  /* brand navy sampled straight from the Metro Insurance logo artwork */
+  --navy:#1F204F; --navy-2:#2A2B66; --navy-3:#3B3D80;
+  --gold:#c8952b; --gold-soft:#f3e2bd; --gold-deep:#7a5710;
+  --bg:#f5f6fa; --card:#ffffff; --line:#e3e5ee; --line-2:#c8cbdb;
+  --ink:#16182e; --ink-2:#4a4e66; --ink-3:#7c80a1;
+  --ok:#1a7f52; --ok-bg:#e6f5ee; --warn:#b0700d; --warn-bg:#fdf3e0;
+  --bad:#b3261e; --bad-bg:#fdecea; --info:#3B3D80; --info-bg:#ecedf7;
+  --r:12px; --shadow:0 1px 2px rgba(20,22,54,.06),0 8px 24px rgba(20,22,54,.06);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{margin:0;line-height:1.25;font-weight:650;letter-spacing:-.01em}
+a{color:var(--navy-3)}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+.hidden{display:none !important}
+
+/* ---------- shell ---------- */
+.topbar{background:var(--navy);color:#fff;padding:0 22px;position:sticky;top:0;z-index:40;
+  box-shadow:0 2px 12px rgba(15,16,45,.2)}
+.topbar-in{max-width:1180px;margin:0 auto;display:flex;align-items:center;gap:16px;height:62px}
+.brand{display:flex;align-items:center;gap:14px;min-width:0}
+.brand .logo{--logo-1:#fff;--logo-2:#fff;--logo-3:#fff;width:116px;height:35px;flex:none;display:block}
+.brand .rule{width:1px;height:26px;background:rgba(255,255,255,.24);flex:none}
+.brand .prog{font-size:13.5px;font-weight:600;color:#d3d5ea;letter-spacing:.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topbar .spacer{flex:1}
+.who{display:flex;align-items:center;gap:10px;font-size:13px;color:#c3c6e0}
+.who b{color:#fff;font-weight:600}
+.btn-ghost{color:#c3c6e0;border:1px solid rgba(255,255,255,.22);padding:6px 12px;border-radius:8px;font-size:13px}
+.btn-ghost:hover{background:rgba(255,255,255,.1);color:#fff}
+.wrap{max-width:1180px;margin:0 auto;padding:26px 22px 80px}
+
+/* ---------- login ---------- */
+.login-wrap{min-height:100vh;display:grid;place-items:center;padding:24px;
+  background:radial-gradient(1100px 600px at 50% -12%,#3a3c80 0%,var(--navy) 55%,#0d0e26 100%)}
+.login-card{width:100%;max-width:440px;background:#fff;border-radius:18px;padding:34px 32px;
+  box-shadow:0 24px 70px rgba(8,9,26,.45)}
+.login-card .logo{width:206px;height:62px;display:block;margin:0 0 20px -4px}
+.login-card h1{font-size:21px}
+.login-card p.sub{color:var(--ink-2);font-size:14px;margin:8px 0 22px}
+label{display:block;font-size:12.5px;font-weight:650;color:var(--ink-2);
+  text-transform:uppercase;letter-spacing:.05em;margin-bottom:7px}
+input[type=text],input[type=email],input[type=date],textarea,select{
+  width:100%;padding:11px 13px;border:1px solid var(--line-2);border-radius:9px;font:inherit;
+  background:#fff;color:var(--ink)}
+input:focus,textarea:focus,select:focus{outline:2px solid var(--navy-3);outline-offset:1px;border-color:transparent}
+.btn{background:var(--navy);color:#fff;padding:11px 18px;border-radius:9px;font-weight:600;font-size:14.5px;
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:background .15s}
+.btn:hover{background:var(--navy-2)}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.btn.wide{width:100%}
+.btn.gold{background:var(--gold);color:#1b1405}.btn.gold:hover{background:#b6851f}
+.btn.sm{padding:7px 13px;font-size:13.5px;border-radius:8px}
+.btn.line{background:#fff;color:var(--navy);border:1px solid var(--line-2)}
+.btn.line:hover{background:#f1f3f8}
+.err{background:var(--bad-bg);color:var(--bad);border:1px solid #f3c9c5;padding:10px 13px;
+  border-radius:9px;font-size:13.5px;margin-bottom:16px}
+.login-hint{margin-top:20px;padding-top:18px;border-top:1px solid var(--line);
+  font-size:12.5px;color:var(--ink-3);line-height:1.6}
+
+/* ---------- shared bits ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+.pad{padding:20px 22px}
+.grid-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:14px;margin-bottom:22px}
+.stat{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;box-shadow:var(--shadow)}
+.stat .k{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);font-weight:650}
+.stat .v{font-size:27px;font-weight:700;letter-spacing:-.02em;margin-top:5px}
+.stat .v small{font-size:14px;font-weight:600;color:var(--ink-3)}
+
+.hero{background:linear-gradient(135deg,var(--navy) 0%,var(--navy-3) 100%);color:#fff;
+  border-radius:16px;padding:26px 28px;margin-bottom:22px;box-shadow:var(--shadow)}
+.hero h1{font-size:23px;margin-bottom:6px}
+.hero p{margin:0;color:#c3c6e0;font-size:14px}
+.hero-row{display:flex;align-items:center;gap:26px;flex-wrap:wrap}
+.hero-row>div:first-child{flex:1;min-width:230px}
+.ring{position:relative;width:104px;height:104px;flex:none}
+.ring svg{transform:rotate(-90deg)}
+.ring .lbl{position:absolute;inset:0;display:grid;place-items:center;text-align:center}
+.ring .lbl b{font-size:23px;font-weight:700;letter-spacing:-.02em;display:block;line-height:1}
+.ring .lbl span{font-size:10.5px;color:#b2b5d4;text-transform:uppercase;letter-spacing:.07em}
+
+.bar{height:7px;background:var(--line);border-radius:99px;overflow:hidden}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--navy-3),var(--gold));border-radius:99px;
+  transition:width .5s ease}
+.bar.on-dark{background:rgba(255,255,255,.2)}
+
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:650;padding:3px 9px;
+  border-radius:99px;letter-spacing:.02em;white-space:nowrap}
+.pill.done{background:var(--ok-bg);color:var(--ok)}
+.pill.prog{background:var(--warn-bg);color:var(--warn)}
+.pill.todo{background:#eef0f6;color:var(--ink-3)}
+.pill.score{background:var(--info-bg);color:var(--info)}
+.pill.fail{background:var(--bad-bg);color:var(--bad)}
+.pill.sign{background:var(--gold-soft);color:var(--gold-deep)}
+.pill.ext{background:#ecedf7;color:var(--navy-3)}
+.pill.req{background:#eef0f6;color:var(--ink-3);text-transform:uppercase;font-size:10px;letter-spacing:.06em}
+
+.section-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:26px 0 13px}
+.section-h h2{font-size:17px}
+.section-h .note{font-size:13px;color:var(--ink-3)}
+
+/* ---------- certification cards ---------- */
+.certs{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:12px}
+.cert{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:#fff;
+  box-shadow:var(--shadow);position:relative;overflow:hidden}
+.cert:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--line-2)}
+.cert.earned:before{background:var(--gold)}
+.cert.expired:before{background:var(--bad)}
+.cert .seal{font-size:17px;line-height:1}
+.cert .cn{font-size:13.5px;font-weight:650;margin:7px 0 3px}
+.cert .cm{font-size:12px;color:var(--ink-3)}
+.cert .cnum{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--ink-3);margin-top:6px}
+.cert .cbtn{margin-top:10px}
+
+/* ---------- tracks ---------- */
+.track{background:#fff;border:1px solid var(--line);border-radius:14px;margin-bottom:14px;
+  box-shadow:var(--shadow);overflow:hidden}
+.track-head{display:flex;gap:15px;padding:17px 20px;align-items:center;width:100%;text-align:left}
+.track-head:hover{background:#fafbfd}
+.track-head .tk{flex:1;min-width:0}
+.track-head h3{font-size:16px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.track-head .tl{color:var(--ink-2);font-size:13.5px;margin-top:3px}
+.track-prog{display:flex;align-items:center;gap:11px;flex:none;width:180px}
+.track-prog b{font-size:13px;width:38px;text-align:right}
+.track-body{border-top:1px solid var(--line);padding:14px 16px 16px;background:#fafbfd}
+@media(max-width:640px){ .track-prog{width:120px} }
+
+/* ---------- modules ---------- */
+.mod{background:#fff;border:1px solid var(--line);border-radius:10px;margin-bottom:9px;overflow:hidden}
+.mod:last-child{margin-bottom:0}
+.mod.is-done{border-color:#bfe3d1}
+.mod-head{display:flex;gap:13px;padding:14px 16px;align-items:flex-start;cursor:pointer;width:100%;text-align:left}
+.mod-head:hover{background:#fafbfd}
+.num{width:28px;height:28px;border-radius:8px;background:#eef0f7;color:var(--navy-3);display:grid;
+  place-items:center;font-weight:700;font-size:13px;flex:none;margin-top:1px}
+.mod.is-done .num{background:var(--ok-bg);color:var(--ok)}
+.mod-head .txt{flex:1;min-width:0}
+.mod-head h4{font-size:14.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:650}
+.mod-head .sub{color:var(--ink-2);font-size:13px;margin-top:3px}
+.mod-head .meta{color:var(--ink-3);font-size:11.5px;margin-top:5px;display:flex;gap:11px;flex-wrap:wrap}
+.chev{color:var(--ink-3);font-size:11px;margin-top:5px;flex:none;transition:transform .2s}
+.mod.open .chev{transform:rotate(180deg)}
+.mod-body{border-top:1px solid var(--line);padding:16px 18px 18px;background:#fbfcfe}
+.mod-body .ov{color:var(--ink-2);font-size:13.5px;margin:0 0 14px}
+.items{list-style:none;padding:0;margin:0 0 16px}
+.items li{display:flex;gap:11px;padding:8px 0;border-bottom:1px dashed var(--line);align-items:flex-start}
+.items li:last-child{border-bottom:0}
+.ico{width:19px;height:19px;border-radius:5px;flex:none;display:grid;place-items:center;
+  font-size:11px;font-weight:700;margin-top:2px}
+.ico.point{background:var(--info-bg);color:var(--navy-3)}
+.ico.doc{background:var(--gold-soft);color:var(--gold-deep)}
+.ico.task{background:var(--ok-bg);color:var(--ok)}
+.items .l{font-weight:600;font-size:13.5px}
+.items .d{color:var(--ink-2);font-size:13px;margin-top:2px}
+.items .d mark{background:#fdf3e0;color:var(--warn);padding:1px 5px;border-radius:4px;font-weight:650}
+.items a.docl{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:13.5px;
+  text-decoration:none;border-bottom:1px solid var(--line-2)}
+.items a.docl:hover{border-color:var(--navy-3)}
+.actions{display:flex;gap:9px;flex-wrap:wrap;align-items:center;padding-top:2px}
+.extbox{background:var(--info-bg);border:1px solid #d5d8ee;border-radius:10px;padding:13px 15px;margin-bottom:14px}
+.extbox .et{font-weight:650;font-size:13.5px;margin-bottom:3px}
+.extbox .ed{font-size:13px;color:var(--ink-2)}
+
+/* ---------- modal / quiz ---------- */
+.ov-back{position:fixed;inset:0;background:rgba(10,11,30,.62);z-index:60;display:grid;
+  place-items:start center;padding:34px 18px;overflow:auto}
+.sheet{background:#fff;border-radius:16px;width:100%;max-width:720px;box-shadow:0 30px 80px rgba(6,8,24,.5)}
+.sheet.wide{max-width:900px}
+.sheet-h{display:flex;align-items:center;gap:14px;padding:20px 24px;border-bottom:1px solid var(--line);
+  position:sticky;top:0;background:#fff;border-radius:16px 16px 0 0;z-index:2}
+.sheet-h h3{font-size:17px;flex:1}
+.sheet-b{padding:22px 24px}
+.sheet-f{padding:16px 24px 22px;border-top:1px solid var(--line);display:flex;gap:10px;
+  align-items:center;flex-wrap:wrap}
+.x{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--ink-3);font-size:19px}
+.x:hover{background:#f1f3f8;color:var(--ink)}
+.q{padding:17px 0;border-bottom:1px solid var(--line)}
+.q:last-of-type{border-bottom:0}
+.q .qp{font-weight:620;font-size:14.5px;margin-bottom:11px;display:flex;gap:9px}
+.q .qp i{color:var(--ink-3);font-style:normal;font-weight:700;flex:none}
+.opt{display:flex;gap:10px;padding:9px 12px;border:1px solid var(--line);border-radius:9px;
+  margin-bottom:7px;cursor:pointer;font-size:14px;align-items:flex-start;background:#fff}
+.opt:hover{border-color:var(--navy-3);background:#f8f9fc}
+.opt input{margin-top:3px;accent-color:var(--navy-3);flex:none}
+.opt.correct{border-color:#8fd0ae;background:var(--ok-bg)}
+.opt.wrong{border-color:#efb5b0;background:var(--bad-bg)}
+.expl{font-size:13px;color:var(--ink-2);background:#f1f3f8;border-left:3px solid var(--navy-3);
+  padding:9px 12px;border-radius:0 8px 8px 0;margin-top:9px}
+.result{text-align:center;padding:8px 0 20px}
+.result .big{font-size:46px;font-weight:700;letter-spacing:-.03em;line-height:1}
+.result .msg{margin-top:8px;font-size:14.5px;color:var(--ink-2)}
+.result.pass .big{color:var(--ok)} .result.fail .big{color:var(--bad)}
+
+/* ---------- certificate ---------- */
+.certdoc{border:2px solid var(--navy);border-radius:6px;padding:38px 44px;text-align:center;
+  background:#fff;position:relative}
+.certdoc:after{content:"";position:absolute;inset:9px;border:1px solid var(--gold);border-radius:3px;
+  pointer-events:none}
+.certdoc .logo{width:230px;height:70px;margin:0 auto 22px;display:block}
+.certdoc .ct{font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--ink-3);font-weight:650}
+.certdoc .cwho{font-size:32px;font-weight:700;letter-spacing:-.02em;margin:16px 0 6px;color:var(--navy)}
+.certdoc .cfor{font-size:14px;color:var(--ink-2);margin-bottom:18px}
+.certdoc .cname{font-size:21px;font-weight:700;color:var(--navy);margin-bottom:6px}
+.certdoc .cmeta{font-size:13px;color:var(--ink-2)}
+.certdoc .crule{height:1px;background:var(--line);margin:24px 0 18px}
+.certdoc .cfoot{display:flex;justify-content:space-between;gap:20px;font-size:12px;color:var(--ink-3);
+  text-align:left;flex-wrap:wrap}
+.certdoc .cfoot b{display:block;color:var(--ink);font-size:13px;font-weight:650}
+
+/* ---------- manager ---------- */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:20px;flex-wrap:wrap}
+.tab{padding:10px 15px;font-size:14px;font-weight:600;color:var(--ink-3);
+  border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab.on{color:var(--navy);border-bottom-color:var(--gold)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3);
+  font-weight:650;padding:10px 14px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:13px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+tbody tr:last-child td{border-bottom:0}
+tbody tr.clk{cursor:pointer}
+tbody tr.clk:hover{background:#f8f9fc}
+.tname{font-weight:640}
+.tsub{font-size:12.5px;color:var(--ink-3)}
+.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:#eef0f7;
+  padding:3px 8px;border-radius:6px;color:var(--navy)}
+.mini-bar{width:112px}
+.chips{display:flex;gap:5px;flex-wrap:wrap}
+.chip{font-size:11px;font-weight:650;padding:2px 8px;border-radius:99px;background:#eef0f6;color:var(--ink-3)}
+.chip.gold{background:var(--gold-soft);color:var(--gold-deep)}
+.chip.bad{background:var(--bad-bg);color:var(--bad)}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px}
+.mcell{border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:#fff}
+.mcell .mt{font-size:13.5px;font-weight:620;margin-bottom:7px}
+.mcell .mr{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.empty{text-align:center;padding:44px 20px;color:var(--ink-3);font-size:14px}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(80px);
+  background:var(--navy);color:#fff;padding:12px 20px;border-radius:10px;font-size:14px;z-index:90;
+  box-shadow:0 12px 34px rgba(6,8,24,.42);opacity:0;transition:.28s;pointer-events:none}
+.toast.on{transform:translateX(-50%) translateY(0);opacity:1}
+/* these are <label> elements, so undo the global form-label typography */
+.tgl{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);
+  border-radius:10px;background:#fff;margin-bottom:8px;cursor:pointer;
+  text-transform:none;letter-spacing:normal;font-size:15px;font-weight:400;color:var(--ink)}
+.tgl:hover{border-color:var(--navy-3);background:#fafbfd}
+.tgl input{accent-color:var(--navy-3);width:16px;height:16px;flex:none}
+.tgl .tn{font-weight:620;font-size:14px}
+.tgl .td{font-size:12.5px;color:var(--ink-3)}
+.trackgrp{margin-bottom:22px}
+.trackgrp>h4{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3);margin-bottom:9px}
+
+@media(max-width:640px){
+  .form-row{grid-template-columns:1fr}
+  .hide-sm{display:none}
+  .wrap{padding:18px 14px 60px}
+  .hero{padding:20px}
+  .topbar{padding:0 14px}
+  .brand .rule,.brand .prog{display:none}
+  .brand .logo{width:104px;height:31px}
+  .who,.btn-ghost{white-space:nowrap}
+  .who{font-size:12.5px}
+  .btn-ghost{padding:6px 10px}
+  .track-head{flex-wrap:wrap}
+  .certdoc{padding:24px 20px}
+  .certdoc .cwho{font-size:24px}
+}
+
+/* ---------- print: certificate only ---------- */
+@media print{
+  body{background:#fff}
+  body>*{display:none !important}
+  #modal{display:block !important;position:static;padding:0;background:none;overflow:visible}
+  #modal .sheet{box-shadow:none;max-width:none;border-radius:0}
+  #modal .sheet-h,#modal .sheet-f{display:none !important}
+  #modal .sheet-b{padding:0}
+  .certdoc{border-width:3px}
+  @page{size:landscape;margin:12mm}
+}
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<div id="view-login" class="login-wrap">
+  <div class="login-card">
+    <svg class="logo" role="img" aria-label="Metro Insurance"><use href="#mia-logo"/></svg>
+    <h1>Training Portal</h1>
+    <p class="sub">Metro Insurance Agencies, LLC — enter your access code to open your training and certifications.</p>
+    <div id="loginErr" class="err hidden"></div>
+    <form id="loginForm">
+      <label for="code">Access code</label>
+      <input id="code" type="text" placeholder="MIA-XXXXXX" autocomplete="off" spellcheck="false" required>
+      <div style="height:16px"></div>
+      <button class="btn wide" type="submit" id="loginBtn">Open my training</button>
+    </form>
+    <div class="login-hint">
+      Your Senior Manager issues your access code. Progress and certifications save automatically
+      and are visible to management as you go.
+    </div>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="view-app" class="hidden">
+  <div class="topbar">
+    <div class="topbar-in">
+      <div class="brand">
+        <svg class="logo" role="img" aria-label="Metro Insurance"><use href="#mia-logo"/></svg>
+        <div class="rule"></div>
+        <div class="prog">Training Portal</div>
+      </div>
+      <div class="spacer"></div>
+      <div class="who"><span class="hide-sm">Signed in as</span> <b id="whoName"></b></div>
+      <button class="btn-ghost hidden" id="modeToggle"></button>
+      <button class="btn-ghost" id="signOut">Sign out</button>
+    </div>
+  </div>
+  <div class="wrap">
+    <div id="paneTrainee" class="hidden"></div>
+    <div id="paneManager" class="hidden"></div>
+  </div>
+</div>
+
+<!-- Metro Insurance logo, vectorised from the supplied .eps. Colours are driven by
+     --logo-1 (Metro wordmark), --logo-2 (INSURANCE), --logo-3 (swoosh) so the same
+     artwork renders full-colour on white and knocked-out white on the navy bar. -->
+<svg width="0" height="0" aria-hidden="true" focusable="false"
+     style="position:absolute;overflow:hidden"><symbol id="mia-logo" viewBox="0 0 409.57 123.9"><defs><clipPath id="clip-0"><path d="M 316 0.015625 L 409.140625 0.015625 L 409.140625 93 L 316 93 Z M 316 0.015625 "/></clipPath><clipPath id="clip-1"><path d="M 318 0.015625 L 408 0.015625 L 408 89 L 318 89 Z M 318 0.015625 "/></clipPath><clipPath id="clip-2"><path d="M 322 0.015625 L 397 0.015625 L 397 83 L 322 83 Z M 322 0.015625 "/></clipPath><clipPath id="clip-3"><path d="M 323 0.015625 L 387 0.015625 L 387 78 L 323 78 Z M 323 0.015625 "/></clipPath><clipPath id="clip-4"><path d="M 323 0.015625 L 377 0.015625 L 377 71 L 323 71 Z M 323 0.015625 "/></clipPath><clipPath id="clip-5"><path d="M 322 0.015625 L 367 0.015625 L 367 67 L 322 67 Z M 322 0.015625 "/></clipPath><clipPath id="clip-6"><path d="M 320 0.015625 L 358 0.015625 L 358 63 L 320 63 Z M 320 0.015625 "/></clipPath><clipPath id="clip-7"><path d="M 0 85 L 409.140625 85 L 409.140625 123.785156 L 0 123.785156 Z M 0 85 "/></clipPath></defs><g clip-path="url(#clip-0)"><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 3989.574813 1164.032557 L 3295.878528 442.846504 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/></g><g clip-path="url(#clip-1)"><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 3944.918604 1236.061224 L 3316.759803 478.743527 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/></g><g clip-path="url(#clip-2)"><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 3838.674364 1236.061224 L 3357.15373 546.744532 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/></g><g clip-path="url(#clip-3)"><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 3738.72579 1219.012093 L 3363.684016 598.40027 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/></g><g clip-path="url(#clip-4)"><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 3635.101486 1164.032557 L 3366.577676 664.367893 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/></g><g clip-path="url(#clip-5)"><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 3539.532505 1121.370627 L 3355.120347 708.633068 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/></g><g clip-path="url(#clip-6)"><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 3446.03601 1100.489352 L 3337.367353 745.85961 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/></g><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 3380.107491 1082.931875 L 3300.68826 776.125728 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 3311.089794 1052.313826 L 3265.37779 798.258315 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 3240.312439 1048.481682 L 3217.436885 822.111457 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 3182.321932 1028.734409 L 3176.808337 841.506798 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 3127.029568 1024.041988 L 3131.448264 851.243573 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 3073.379551 1017.785426 L 3093.596066 852.846816 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 3009.015171 1010.238448 L 3045.537851 862.036142 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 2951.884942 1002.261332 L 2993.451974 869.661326 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 2894.793816 999.093948 L 2942.265478 875.409542 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 2841.182902 986.776342 L 2888.967393 887.922666 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 2784.521915 990.061037 L 2834.652616 891.168257 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 2720.939606 992.915593 L 2780.259632 901.921723 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 2670.456973 983.139715 L 2724.77175 910.91553 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 2614.147917 982.514059 L 2662.127925 914.943192 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 2555.570858 973.559355 L 2606.522733 922.177341 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 2508.529334 975.670945 L 2550.878437 928.433903 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 2461.135879 968.397691 L 2500.434907 930.545493 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 2404.12296 972.38625 L 2440.411018 939.187369 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 2350.942185 971.252248 L 2386.995622 940.555992 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill="none" stroke-width="9.21443" stroke-linecap="butt" stroke-linejoin="miter" stroke="var(--logo-3,#211D1D)" stroke-miterlimit="10" d="M 2297.839617 971.017627 L 2331.234015 945.013792 " transform="matrix(0.0998951, 0, 0, -0.0998951, 0, 123.78508)"/><path fill-rule="nonzero" fill="var(--logo-1,#1F204F)" d="M 295.257812 55.472656 L 291.480469 70.363281 C 291.480469 70.363281 291.035156 71.992188 291.035156 72.433594 C 291.035156 72.433594 291.035156 74.507812 294.519531 74.507812 L 299.777344 74.507812 C 299.777344 74.507812 302 74.507812 302.890625 73.964844 C 302.890625 73.964844 303.777344 73.398438 304.296875 71.398438 L 308 57.324219 C 308 57.324219 308.445312 55.691406 308.445312 54.804688 C 308.445312 54.804688 308.445312 52.285156 304.742188 52.285156 L 300.222656 52.285156 C 300.222656 52.285156 297.851562 52.285156 296.964844 52.804688 C 296.964844 52.804688 295.777344 53.472656 295.257812 55.472656 Z M 293.035156 45.25 L 315.113281 45.25 C 315.113281 45.25 319.261719 45.25 321.484375 46.507812 C 321.484375 46.507812 326 49.101562 326 54.65625 C 326 54.65625 326 56.433594 325.410156 58.804688 L 321.925781 72.140625 C 321.925781 72.140625 320.667969 77.101562 317.777344 79.324219 C 317.777344 79.324219 314.890625 81.546875 307.410156 81.546875 L 285.480469 81.546875 C 285.480469 81.546875 281.925781 81.546875 280.960938 81.398438 C 280.960938 81.398438 278.515625 81.101562 276.886719 79.769531 C 276.886719 79.769531 273.40625 77.027344 273.40625 72.433594 C 273.40625 72.433594 273.40625 71.25 273.921875 69.398438 L 278 53.472656 C 278 53.472656 279.332031 48.285156 283.703125 46.507812 C 283.703125 46.507812 286.664062 45.25 293.035156 45.25 Z M 257.921875 45.25 C 257.921875 45.25 257.847656 47.324219 257.476562 51.398438 C 257.476562 51.398438 259.402344 47.839844 261.527344 46.558594 C 261.527344 46.558594 263.625 45.25 267.625 45.25 L 277.703125 45.25 L 274.589844 57.101562 C 274.589844 57.101562 272.515625 55.25 268.515625 55.25 L 262.292969 55.25 C 262.292969 55.25 258.144531 55.25 257.402344 58.359375 L 253.035156 75.027344 C 253.035156 75.027344 252.589844 76.878906 252.589844 78.953125 C 252.589844 78.953125 252.589844 80.140625 253.035156 81.546875 L 232.144531 81.546875 C 232.144531 81.546875 234.515625 78.066406 235.773438 73.101562 L 241.328125 51.769531 C 241.328125 51.769531 241.773438 49.988281 241.773438 47.839844 C 241.773438 47.839844 241.773438 46.65625 241.253906 45.25 Z M 237.550781 45.25 L 235.699219 52.285156 L 221.328125 52.285156 L 216.585938 70.65625 C 216.585938 70.65625 216.4375 71.25 216.4375 71.769531 C 216.4375 71.769531 216.4375 74.507812 221.476562 74.507812 L 226.214844 74.507812 C 226.214844 74.507812 229.476562 74.507812 232.363281 73.398438 L 230.289062 81.546875 L 212.214844 81.546875 C 212.214844 81.546875 205.105469 81.546875 202.734375 79.992188 C 202.734375 79.992188 198.660156 77.25 198.660156 72.507812 C 198.660156 72.507812 198.660156 71.25 199.101562 69.546875 L 203.546875 52.285156 L 196.066406 52.285156 L 197.917969 45.25 L 205.398438 45.25 L 207.179688 38.359375 L 225.253906 37.246094 L 223.179688 45.25 Z M 162.878906 59.917969 L 174.878906 59.917969 L 175.917969 55.765625 C 175.917969 55.765625 176.214844 54.730469 176.214844 54.136719 C 176.214844 54.136719 176.214844 52.285156 173.621094 52.285156 L 167.988281 52.285156 C 167.988281 52.285156 165.914062 52.285156 165.175781 52.953125 C 165.175781 52.953125 164.433594 53.621094 163.914062 55.765625 Z M 188.511719 73.769531 L 185.324219 81.546875 L 153.691406 81.546875 C 153.691406 81.546875 148.953125 81.546875 145.839844 79.398438 C 145.839844 79.398438 142.285156 76.953125 142.285156 72.363281 C 142.285156 72.363281 142.285156 71.027344 142.652344 69.472656 L 146.804688 53.472656 C 146.804688 53.472656 148.953125 45.25 158.359375 45.25 L 181.027344 45.25 C 181.027344 45.25 187.992188 45.25 190.660156 47.542969 C 190.660156 47.542969 193.621094 50.210938 193.621094 54.285156 C 193.621094 54.285156 193.621094 56.0625 193.175781 57.914062 L 190.878906 66.953125 L 161.027344 66.953125 L 160.136719 70.289062 C 160.136719 70.289062 159.839844 71.546875 159.839844 72.289062 C 159.839844 72.289062 159.839844 73.84375 161.324219 74.214844 C 161.324219 74.214844 162.210938 74.507812 164.582031 74.507812 L 182.066406 74.507812 C 182.066406 74.507812 186.289062 74.507812 188.511719 73.769531 Z M 105.171875 59.175781 L 120.800781 32.136719 L 147.097656 32.136719 C 147.097656 32.136719 144.730469 35.691406 143.46875 40.582031 L 134.578125 75.027344 C 134.578125 75.027344 134.136719 76.878906 134.136719 78.953125 C 134.136719 78.953125 134.136719 80.066406 134.578125 81.546875 L 112.429688 81.546875 C 112.429688 81.546875 114.800781 78.066406 116.058594 73.101562 L 123.914062 42.582031 L 101.464844 81.546875 L 88.058594 81.546875 L 85.464844 42.730469 L 77.167969 75.027344 C 77.167969 75.027344 76.648438 77.027344 76.648438 78.953125 C 76.648438 78.953125 76.648438 80.140625 77.167969 81.546875 L 65.910156 81.546875 C 65.910156 81.546875 68.203125 78.066406 69.539062 73.101562 L 78.425781 38.65625 C 78.425781 38.65625 78.871094 36.878906 78.871094 34.804688 C 78.871094 34.804688 78.871094 33.617188 78.425781 32.136719 L 103.390625 32.136719 L 105.171875 59.175781 "/><g clip-path="url(#clip-7)"><path fill-rule="nonzero" fill="var(--logo-2,#100E0D)" d="M 375.136719 92.449219 L 375.136719 123.785156 L 409.140625 123.785156 L 409.140625 117.859375 L 382.695312 117.859375 L 382.695312 110.304688 L 397.957031 110.304688 L 397.957031 104.746094 L 382.695312 104.746094 L 382.695312 98.003906 L 408.769531 98.003906 L 408.769531 92.449219 Z M 362.621094 112.746094 L 355.0625 111.191406 L 355.0625 117.859375 L 334.246094 117.859375 L 334.246094 98.375 L 355.0625 98.375 L 355.0625 104.15625 L 362.621094 103.042969 L 362.621094 99.859375 C 362.621094 99.859375 362.621094 98.375 362.371094 96.695312 C 362.371094 96.695312 362.101562 95.042969 360.839844 93.929688 C 360.839844 93.929688 360.101562 93.265625 358.617188 92.84375 C 358.617188 92.84375 357.136719 92.449219 354.398438 92.449219 L 334.839844 92.449219 C 334.839844 92.449219 330.171875 92.449219 328.46875 93.929688 C 328.46875 93.929688 327.210938 95.042969 326.960938 96.695312 C 326.960938 96.695312 326.691406 98.375 326.691406 99.859375 L 326.691406 116.378906 C 326.691406 116.378906 326.691406 117.859375 326.960938 119.488281 C 326.960938 119.488281 327.210938 121.117188 328.394531 122.230469 C 328.394531 122.230469 329.429688 123.191406 331.183594 123.488281 C 331.183594 123.488281 332.914062 123.785156 334.839844 123.785156 L 354.398438 123.785156 C 354.398438 123.785156 357.136719 123.785156 358.617188 123.367188 C 358.617188 123.367188 360.101562 122.96875 360.839844 122.304688 C 360.839844 122.304688 362.101562 121.191406 362.371094 119.511719 C 362.371094 119.511719 362.621094 117.859375 362.621094 116.378906 Z M 279.945312 92.449219 L 274.6875 92.449219 L 274.6875 123.785156 L 281.648438 123.785156 L 281.648438 102.671875 L 308.171875 123.785156 L 313.429688 123.785156 L 313.429688 92.449219 L 306.46875 92.449219 L 306.46875 113.265625 Z M 236.609375 111.339844 L 244.019531 98.300781 L 251.351562 111.339844 Z M 240.683594 92.449219 L 222.089844 123.785156 L 229.722656 123.785156 L 233.648438 116.894531 L 254.390625 116.894531 L 258.316406 123.785156 L 266.910156 123.785156 L 248.019531 92.449219 Z M 203.792969 98.003906 C 203.792969 98.003906 204.386719 98.003906 205.125 98.105469 C 205.125 98.105469 205.867188 98.226562 206.386719 98.597656 C 206.386719 98.597656 206.976562 99.042969 207.050781 99.585938 C 207.050781 99.585938 207.125 100.15625 207.125 100.523438 L 207.125 104.003906 C 207.125 104.003906 207.125 104.523438 207.027344 105.070312 C 207.027344 105.070312 206.902344 105.636719 206.3125 106.007812 C 206.3125 106.007812 206.089844 106.152344 205.496094 106.328125 C 205.496094 106.328125 204.902344 106.523438 203.644531 106.523438 L 186.234375 106.523438 L 186.234375 98.003906 Z M 178.679688 92.449219 L 178.679688 123.785156 L 186.234375 123.785156 L 186.234375 112.082031 L 193.570312 112.082031 L 206.535156 123.785156 L 217.496094 123.785156 L 202.753906 112.082031 L 206.902344 112.082031 C 206.902344 112.082031 208.164062 112.082031 209.644531 111.808594 C 209.644531 111.808594 211.125 111.5625 212.164062 110.894531 C 212.164062 110.894531 213.644531 109.859375 213.941406 108.476562 C 213.941406 108.476562 214.238281 107.117188 214.238281 106.082031 L 214.238281 98.523438 C 214.238281 98.523438 214.238281 97.488281 213.941406 96.152344 C 213.941406 96.152344 213.644531 94.820312 212.386719 93.785156 C 212.386719 93.785156 211.792969 93.265625 210.535156 92.84375 C 210.535156 92.84375 209.273438 92.449219 206.902344 92.449219 Z M 135.195312 92.449219 L 127.640625 92.449219 L 127.640625 116.601562 C 127.640625 116.601562 127.640625 117.785156 127.910156 119.488281 C 127.910156 119.488281 128.15625 121.191406 129.417969 122.304688 C 129.417969 122.304688 131.121094 123.785156 135.789062 123.785156 L 156.53125 123.785156 C 156.53125 123.785156 159.269531 123.785156 160.753906 123.367188 C 160.753906 123.367188 162.234375 122.96875 162.976562 122.304688 C 162.976562 122.304688 163.566406 121.710938 164.160156 120.453125 C 164.160156 120.453125 164.753906 119.191406 164.753906 116.675781 L 164.753906 92.449219 L 157.195312 92.449219 L 157.195312 117.859375 L 135.195312 117.859375 Z M 107.339844 98.003906 L 107.339844 101.339844 L 113.933594 99.933594 L 113.933594 99.265625 C 113.933594 99.265625 113.933594 98.078125 113.6875 96.621094 C 113.6875 96.621094 113.414062 95.191406 112.378906 94.152344 C 112.378906 94.152344 111.785156 93.5625 110.453125 92.992188 C 110.453125 92.992188 109.121094 92.449219 106.527344 92.449219 L 86.96875 92.449219 C 86.96875 92.449219 85.265625 92.449219 83.460938 92.671875 C 83.460938 92.671875 81.636719 92.894531 80.523438 93.929688 C 80.523438 93.929688 79.859375 94.523438 79.535156 95.289062 C 79.535156 95.289062 79.191406 96.078125 79.019531 96.894531 C 79.019531 96.894531 78.820312 97.710938 78.796875 98.402344 C 78.796875 98.402344 78.746094 99.117188 78.746094 99.5625 L 78.746094 103.933594 C 78.746094 103.933594 78.746094 105.636719 79.238281 107.042969 C 79.238281 107.042969 79.710938 108.453125 80.523438 109.191406 C 80.523438 109.191406 81.117188 109.710938 82.5 110.179688 C 82.5 110.179688 83.859375 110.675781 86.96875 110.675781 L 107.339844 110.675781 L 107.339844 117.859375 L 84.523438 117.859375 L 84.523438 114.15625 L 77.5625 115.414062 L 77.5625 116.894531 C 77.5625 116.894531 77.5625 119.117188 78.128906 120.402344 C 78.128906 120.402344 78.671875 121.710938 79.339844 122.304688 C 79.339844 122.304688 79.933594 122.820312 81.316406 123.292969 C 81.316406 123.292969 82.671875 123.785156 85.785156 123.785156 L 106.304688 123.785156 C 106.304688 123.785156 108.230469 123.785156 109.984375 123.488281 C 109.984375 123.488281 111.710938 123.191406 112.75 122.230469 C 112.75 122.230469 114.007812 121.117188 114.230469 119.488281 C 114.230469 119.488281 114.453125 117.859375 114.453125 116.378906 L 114.453125 112.152344 C 114.453125 112.152344 114.453125 110.675781 114.230469 108.992188 C 114.230469 108.992188 114.007812 107.339844 112.75 106.226562 C 112.75 106.226562 111.191406 104.746094 106.304688 104.746094 L 85.859375 104.746094 L 85.859375 98.003906 Z M 30.890625 92.449219 L 25.632812 92.449219 L 25.632812 123.785156 L 32.59375 123.785156 L 32.59375 102.671875 L 59.117188 123.785156 L 64.375 123.785156 L 64.375 92.449219 L 57.410156 92.449219 L 57.410156 113.265625 Z M 8.890625 85.558594 L 0 85.558594 L 0 123.785156 L 8.890625 123.785156 L 8.890625 85.558594 "/></g></symbol></svg>
+
+<div id="modal" class="ov-back hidden"></div>
+<div id="toast" class="toast"></div>
+
+<script>
+/* ================= config ================= */
+const SUPABASE_URL = "https://rpxspsmsvkosdaxabhxj.supabase.co";
+const SUPABASE_KEY = "sb_publishable_NoJmcZHNCtjjkrBlHNJL3w__X_lSAPv";
+
+/* ================= state ================= */
+let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, lastAdded=null,
+    PREVIEW=null, MODE=null,
+    selCE=null,
+    openMods=new Set(), openTracks=null, mgrTab="roster", selTrainee=null,
+    openCat=new Set(), draft=null;
+
+/* ================= helpers ================= */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+// authored review flags like [NEEDS REVIEW — ...] get highlighted rather than hidden
+const flag = s => esc(s).replace(/\[(NEEDS REVIEW|VERIFY)([^\]]*)\]/g,
+  (m,a,b)=>`<mark>${a}${esc0(b)}</mark>`);
+const esc0 = s => String(s ?? "");
+
+async function rpc(fn, params){
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method:"POST",
+    headers:{ "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}`,
+              "Content-Type":"application/json" },
+    body: JSON.stringify(params||{})
+  });
+  const txt = await r.text();
+  let data=null; try{ data = txt ? JSON.parse(txt) : null; }catch(e){ data = txt; }
+  if(!r.ok){
+    const m = (data && (data.message||data.hint)) || "Request failed";
+    throw new Error(
+      /INVALID_CODE/.test(m) ? "That access code was not recognized." :
+      /NOT_MANAGER/.test(m)  ? "That code does not have manager access." :
+      /TRACK_IS_REQUIRED_FOR_ALL/.test(m) ? "That track is required for everyone and cannot be removed." :
+      /NO_CERT/.test(m) ? "No certification on file for that track yet." : m);
+  }
+  return data;
+}
+function toast(msg){
+  const t=$("#toast"); t.textContent=msg; t.classList.add("on");
+  clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("on"),2600);
+}
+function when(ts){
+  if(!ts) return "—";
+  const d=new Date(ts), diff=(new Date()-d)/1000;
+  if(diff<60) return "just now";
+  if(diff<3600) return Math.floor(diff/60)+" min ago";
+  if(diff<86400) return Math.floor(diff/3600)+" hr ago";
+  if(diff<604800) return Math.floor(diff/86400)+"d ago";
+  return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+}
+function fdate(s){
+  if(!s) return "—";
+  const d = s.length<=10 ? new Date(s+"T12:00:00") : new Date(s);
+  return d.toLocaleDateString(undefined,{month:"long",day:"numeric",year:"numeric"});
+}
+function sdate(s){
+  if(!s) return "—";
+  const d = s.length<=10 ? new Date(s+"T12:00:00") : new Date(s);
+  return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+}
+function ring(pct){
+  const R=44, C=2*Math.PI*R, off=C*(1-pct/100);
+  return `<div class="ring"><svg width="104" height="104" viewBox="0 0 104 104">
+      <circle cx="52" cy="52" r="${R}" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="9"/>
+      <circle cx="52" cy="52" r="${R}" fill="none" stroke="#c8952b" stroke-width="9"
+        stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${off}"/></svg>
+    <div class="lbl"><div><b>${pct}%</b><span>Complete</span></div></div></div>`;
+}
+const statusPill = s => s==="completed" ? '<span class="pill done">✓ Complete</span>'
+  : s==="in_progress" ? '<span class="pill prog">● In progress</span>'
+  : '<span class="pill todo">Not started</span>';
+const pct = (d,t) => t ? Math.round(d*100/t) : 0;
+
+// What to call someone. An explicit "goes by" wins; otherwise take the first name that is a
+// name rather than an initial, so "W. Braden Garrett" greets as Braden, not W.
+function firstName(person){
+  if(!person) return "";
+  const pref = (person.preferred_name||"").trim();
+  if(pref) return pref;
+  const parts = String(person.full_name||"").trim().split(/\s+/);
+  const real = parts.find(x=>!/^[A-Za-z]\.?$/.test(x));
+  return real || parts[0] || "";
+}
+
+/* ================= auth ================= */
+$("#loginForm").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const btn=$("#loginBtn"), err=$("#loginErr");
+  const code=$("#code").value.trim().toUpperCase();
+  if(!code) return;
+  btn.disabled=true; btn.textContent="Checking…"; err.classList.add("hidden");
+  try{
+    ME = await rpc("training_login",{p_code:code}); CODE=code;
+    location.hash = "#c="+encodeURIComponent(code);
+    await boot();
+  }catch(ex){ err.textContent=ex.message; err.classList.remove("hidden"); }
+  finally{ btn.disabled=false; btn.textContent="Open my training"; }
+});
+$("#signOut").addEventListener("click", ()=>{
+  if(PREVIEW){ exitPreview(); return; }
+  CODE=ME=STATE=MGR=null; selTrainee=null; lastAdded=null; MODE=null;
+  openMods.clear(); openTracks=null; location.hash="";
+  $("#modeToggle").classList.add("hidden");
+  $("#view-app").classList.add("hidden");
+  $("#view-login").classList.remove("hidden");
+  $("#code").value="";
+});
+// Managers and owners are agents too. They get both halves of the portal and a header
+// toggle between them, rather than being locked into one. Everyone else only ever has
+// their own training, so no toggle is shown.
+const isStaff = r => r === "manager" || r === "owner";
+
+async function boot(){
+  $("#view-login").classList.add("hidden");
+  $("#view-app").classList.remove("hidden");
+  $("#whoName").textContent = ME.full_name;
+  const staff = isStaff(ME.role);
+  $("#modeToggle").classList.toggle("hidden", !staff);
+  // Staff land on the dashboard because that is the job they logged in to do;
+  // their own training is one click away.
+  await setMode(staff ? "manager" : "training");
+}
+
+// The single place that decides which half of the portal is on screen. Switching into
+// "training" always refetches, so nothing left over from a preview can leak into a
+// manager's real record.
+async function setMode(mode){
+  MODE = mode;
+  PREVIEW = null;
+  if(mode === "manager"){
+    $("#paneTrainee").classList.add("hidden");
+    $("#paneManager").classList.remove("hidden");
+    $("#modeToggle").textContent = "My training";
+    await loadManager();
+  }else{
+    $("#paneManager").classList.add("hidden");
+    $("#paneTrainee").classList.remove("hidden");
+    $("#modeToggle").textContent = isStaff(ME.role) ? "Manager dashboard" : "";
+    STATE = null; openTracks = null; openMods.clear();
+    await loadTrainee();
+  }
+  window.scrollTo(0,0);
+}
+
+$("#modeToggle").addEventListener("click", async ()=>{
+  const btn = $("#modeToggle");
+  btn.disabled = true;
+  try{ await setMode(MODE === "manager" ? "training" : "manager"); }
+  finally{ btn.disabled = false; }
+});
+
+/* ================= trainee ================= */
+async function loadTrainee(){
+  STATE = await rpc("training_state",{p_code:CODE});
+  if(openTracks === null){
+    // first load: open whatever still needs work, so nobody has to hunt for it
+    openTracks = new Set();
+    for(const t of STATE.tracks){
+      const done = t.modules.filter(m=>m.status==="completed").length;
+      if(done < t.modules.length) openTracks.add(t.slug);
+    }
+    if(!openTracks.size && STATE.tracks[0]) openTracks.add(STATE.tracks[0].slug);
+  }
+  renderTrainee();
+}
+
+function renderTrainee(){
+  const tracks = STATE.tracks || [];
+  const all = tracks.flatMap(t=>t.modules);
+  const done = all.filter(m=>m.status==="completed").length;
+  const overall = pct(done, all.length);
+  const earned = tracks.filter(t=>t.certification && !t.certification.expired).length;
+  // an expired certification is the loudest signal here, so count it alongside near-expiry
+  const recertDue = tracks.filter(t=>t.certification && (t.certification.expired
+      || (t.certification.days_left !== null && t.certification.days_left <= 45))).length;
+  const mins = all.filter(m=>m.status!=="completed").reduce((a,m)=>a+(m.estimated_minutes||0),0);
+  const notices = STATE.notices || [];
+  const unread = notices.filter(n=>!n.is_read).length;
+  const mgr = STATE.manager;
+  const next = all.find(m=>m.status!=="completed");
+
+  $("#paneTrainee").innerHTML = `
+    <div class="hero">
+      <div class="hero-row">
+        <div>
+          <h1>${PREVIEW ? "Agent view" : "Welcome, "+esc(firstName(ME))}</h1>
+          <p>${done===all.length && all.length
+              ? "Every module in your assigned training is complete."
+              : `Next up: <b style="color:#fff">${esc(next?next.title:"—")}</b>`}</p>
+          <p style="margin-top:10px;font-size:13px;color:#b2b5d4">
+            ${ME.location?esc(ME.location)+" · ":""}Start date ${sdate(ME.start_date)}
+            ${mgr?` · ${mgr.role==="owner"?"Agency Owner":"Senior Manager"}: `+esc(mgr.full_name):""}
+          </p>
+        </div>
+        ${ring(overall)}
+      </div>
+    </div>
+
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Modules complete</div><div class="v">${done}<small> / ${all.length}</small></div></div>
+      <div class="stat"><div class="k">Certifications held</div><div class="v">${earned}<small> / ${tracks.length}</small></div></div>
+      <div class="stat"><div class="k">Recertification due</div><div class="v" style="${recertDue?'color:var(--warn)':''}">${recertDue}</div></div>
+      <div class="stat"><div class="k">Est. time remaining</div><div class="v">${Math.round(mins/60*10)/10}<small> hrs</small></div></div>
+    </div>
+
+    ${previewBanner()}
+    ${ceBanner()}
+
+    <div class="section-h"><h2>My certifications</h2>
+      <span class="note">Complete every module in a track to earn its certification.</span></div>
+    <div class="certs">${tracks.map(certCard).join("")}</div>
+
+    <div class="section-h">
+      <h2>Progress updates</h2>
+      ${unread?`<button class="btn line sm" id="markRead">Mark all read</button>`:`<span class="note">No new updates</span>`}
+    </div>
+    <div class="card">
+      ${notices.length ? notices.slice(0,6).map(n=>`
+        <div class="notice ${n.is_read?"read":""}" style="display:flex;gap:12px;padding:13px 16px;
+             border-bottom:1px solid var(--line);align-items:flex-start">
+          <div style="width:8px;height:8px;border-radius:99px;margin-top:7px;flex:none;
+               background:${n.is_read?"var(--line-2)":"var(--gold)"}"></div>
+          <div style="flex:1">
+            <div style="font-weight:620;font-size:14px">${esc(n.title)}</div>
+            ${n.body?`<div style="color:var(--ink-2);font-size:13.5px;margin-top:2px">${esc(n.body)}</div>`:""}
+            <div style="font-size:11.5px;color:var(--ink-3);margin-top:4px">${when(n.created_at)}</div>
+          </div>
+        </div>`).join("")
+        : `<div class="empty">Your progress updates will appear here as you complete modules and quizzes.</div>`}
+    </div>
+
+    <div class="section-h"><h2>Training tracks</h2>
+      <span class="note">Read the material, then pass the quiz at 80% to complete a module.</span></div>
+    <div id="trackList">${tracks.map(trackCard).join("")}</div>`;
+
+  if(unread) $("#markRead").addEventListener("click", async ()=>{
+    await rpc("training_notices_read",{p_code:CODE,p_audience:"trainee"});
+    await loadTrainee(); toast("Updates marked read");
+  });
+  wireTrainee();
+}
+
+function certCard(t){
+  const c = t.certification;
+  const done = t.modules.filter(m=>m.status==="completed").length;
+  const cls = !c ? "" : (c.expired ? "expired" : "earned");
+  return `<div class="cert ${cls}">
+    <div class="seal">${!c?"○":(c.expired?"⚠":"★")}</div>
+    <div class="cn">${esc(t.cert_name)}</div>
+    ${c ? `<div class="cm">${c.expired
+              ? `Expired ${sdate(c.expires_at)}`
+              : `Earned ${sdate(c.earned_at)}${c.expires_at?` · expires ${sdate(c.expires_at)}`:""}`}</div>
+           <div class="cnum">${esc(c.cert_number)}</div>
+           <div class="cbtn"><button class="btn line sm" data-cert="${esc(t.slug)}">View certificate</button></div>`
+        : `<div class="cm">${done} of ${t.modules.length} modules complete</div>
+           <div class="bar" style="margin-top:9px"><i style="width:${pct(done,t.modules.length)}%"></i></div>`}
+  </div>`;
+}
+
+function trackCard(t){
+  const open = openTracks.has(t.slug);
+  const done = t.modules.filter(m=>m.status==="completed").length;
+  const p = pct(done, t.modules.length);
+  const c = t.certification;
+  return `<div class="track">
+    <button class="track-head" data-track="${esc(t.slug)}">
+      <div class="tk">
+        <h3>${esc(t.name)}
+          <span class="pill req">${esc(AUD[t.audience]||t.audience)}</span>
+          ${c && !c.expired ? `<span class="pill sign">★ Certified</span>`:""}
+          ${c && c.expired ? `<span class="pill fail">Expired</span>`:""}
+        </h3>
+        <div class="tl">${esc(t.tagline||"")}</div>
+      </div>
+      <div class="track-prog">
+        <div class="bar" style="flex:1"><i style="width:${p}%"></i></div><b>${p}%</b>
+      </div>
+      <div class="chev">▼</div>
+    </button>
+    ${open?`<div class="track-body">${t.modules.map((m,i)=>modCard(m,i)).join("")}</div>`:""}
+  </div>`;
+}
+
+function modCard(m,i){
+  const open = openMods.has(m.slug);
+  const ba = m.best_attempt;
+  const ext = m.format === "external";
+  return `<div class="mod ${m.status==="completed"?"is-done":""} ${open?"open":""}">
+    <button class="mod-head" data-toggle="${esc(m.slug)}">
+      <div class="num">${m.status==="completed"?"✓":i+1}</div>
+      <div class="txt">
+        <h4>${esc(m.title)} ${statusPill(m.status)}
+          ${ext?`<span class="pill ext">External ↗</span>`:""}
+          ${ba?`<span class="pill ${ba.passed?"score":"fail"}">Quiz ${ba.score_pct}%</span>`:""}
+          ${m.signoff?`<span class="pill sign">★ Signed off</span>`:""}
+        </h4>
+        <div class="sub">${esc(m.subtitle||"")}</div>
+        <div class="meta">
+          <span>≈ ${m.estimated_minutes} min</span>
+          <span>${(m.items||[]).length} key points</span>
+          ${m.quiz?`<span>${m.quiz.question_count}-question quiz · pass ${m.quiz.pass_pct}%</span>`:""}
+          ${m.completed_at?`<span>Completed ${when(m.completed_at)}</span>`:""}
+        </div>
+      </div>
+      <div class="chev">▼</div>
+    </button>
+    ${open?`<div class="mod-body">
+      ${m.overview?`<p class="ov">${esc(m.overview)}</p>`:""}
+      ${ext?`<div class="extbox">
+          <div class="et">This training is hosted outside the portal</div>
+          <div class="ed">${m.external_provider?esc(m.external_provider)+". ":""}Open it, complete it,
+            then confirm below so it counts toward your certification.</div>
+          ${m.external_url?`<div style="margin-top:10px">
+            <a class="btn gold sm" href="${esc(m.external_url)}" target="_blank" rel="noopener"
+               style="text-decoration:none">Open the training ↗</a></div>`:""}
+        </div>`:""}
+      <ul class="items">
+        ${(m.items||[]).map(it=>`<li>
+            <div class="ico ${it.kind}">${it.kind==="doc"?"📄":it.kind==="task"?"✓":"•"}</div>
+            <div style="flex:1">
+              ${it.url?`<a class="docl" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.label)} ↗</a>`
+                      :`<div class="l">${esc(it.label)}</div>`}
+              ${it.detail?`<div class="d">${flag(it.detail)}</div>`:""}
+            </div></li>`).join("")}
+      </ul>
+      ${m.signoff?`<div class="expl" style="margin-bottom:14px">
+          <b>Signed off by ${esc(m.signoff.manager_name||"your Senior Manager")}</b> — ${when(m.signoff.signed_at)}
+          ${m.signoff.note?`<br>${esc(m.signoff.note)}`:""}</div>`:""}
+      <div class="actions">
+        ${m.quiz?`<button class="btn gold sm" data-quiz="${esc(m.slug)}">
+            ${ba&&ba.passed?"Retake quiz":"Take the quiz"}</button>`:""}
+        ${ext && m.status!=="completed"
+          ? `<button class="btn sm" data-attest="${esc(m.slug)}">I completed this training</button>`:""}
+        ${m.status!=="completed"
+          ? `<button class="btn line sm" data-status="in_progress" data-slug="${esc(m.slug)}">Mark in progress</button>
+             ${!m.quiz && !ext?`<button class="btn sm" data-status="completed" data-slug="${esc(m.slug)}">Mark complete</button>`:""}`
+          : `<button class="btn line sm" data-status="in_progress" data-slug="${esc(m.slug)}">Reopen</button>`}
+      </div>
+    </div>`:""}
+  </div>`;
+}
+
+function wireTrainee(){
+  const root = $("#paneTrainee");
+  if(PREVIEW){
+    // reading only: keep the expand/collapse, disable everything that would write
+    root.querySelectorAll("[data-track]").forEach(b=>b.addEventListener("click",()=>{
+      const s=b.dataset.track; openTracks.has(s)?openTracks.delete(s):openTracks.add(s); renderTrainee();
+    }));
+    root.querySelectorAll("[data-toggle]").forEach(b=>b.addEventListener("click",e=>{
+      e.stopPropagation();
+      const s=b.dataset.toggle; openMods.has(s)?openMods.delete(s):openMods.add(s); renderTrainee();
+    }));
+    root.querySelectorAll("[data-status],[data-attest],[data-quiz],[data-cert]").forEach(b=>{
+      b.disabled = true; b.title = "Disabled while previewing";
+      b.style.opacity = ".5"; b.style.cursor = "not-allowed";
+    });
+    const sw = root.querySelector("#pvSwap"), ex = root.querySelector("#pvExit");
+    if(sw) sw.addEventListener("click", ()=>startPreview(
+      PREVIEW.license === "licensed" ? "unlicensed" : "licensed"));
+    if(ex) ex.addEventListener("click", exitPreview);
+    return;
+  }
+  root.querySelectorAll("[data-track]").forEach(b=>b.addEventListener("click",()=>{
+    const s=b.dataset.track; openTracks.has(s)?openTracks.delete(s):openTracks.add(s); renderTrainee();
+  }));
+  root.querySelectorAll("[data-toggle]").forEach(b=>b.addEventListener("click",e=>{
+    e.stopPropagation();
+    const s=b.dataset.toggle; openMods.has(s)?openMods.delete(s):openMods.add(s); renderTrainee();
+  }));
+  root.querySelectorAll("[data-status]").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation(); b.disabled=true;
+    const r=await rpc("training_set_module_status",
+      {p_code:CODE,p_slug:b.dataset.slug,p_status:b.dataset.status});
+    await loadTrainee();
+    toast(b.dataset.status==="completed"?`Module complete — ${r.percent}% overall`:"Marked in progress");
+  }));
+  root.querySelectorAll("[data-attest]").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation(); b.disabled=true;
+    await rpc("training_attest",{p_code:CODE,p_slug:b.dataset.attest});
+    await loadTrainee(); toast("Recorded — thanks for confirming");
+  }));
+  root.querySelectorAll("[data-quiz]").forEach(b=>b.addEventListener("click",e=>{
+    e.stopPropagation(); openQuiz(b.dataset.quiz);
+  }));
+  root.querySelectorAll("[data-cert]").forEach(b=>b.addEventListener("click",()=>
+    openCertificate(b.dataset.cert, null)));
+}
+
+/* ================= quiz ================= */
+async function openQuiz(slug){
+  const mod = (STATE.tracks.flatMap(t=>t.modules)).find(m=>m.slug===slug);
+  const quiz = await rpc("training_quiz_get",{p_code:CODE,p_slug:slug});
+  const answers = {};
+  const modal = $("#modal"); modal.classList.remove("hidden");
+
+  const draw = () => {
+    modal.innerHTML = `<div class="sheet">
+      <div class="sheet-h"><h3>${esc(quiz.title)}</h3><button class="x" id="qClose">×</button></div>
+      <div class="sheet-b">
+        <p style="margin:0 0 6px;color:var(--ink-2);font-size:14px">
+          ${quiz.questions.length} questions · you need ${quiz.pass_pct}% to complete
+          <b>${esc(mod.title)}</b>.</p>
+        ${quiz.questions.map((q,i)=>`
+          <div class="q" data-q="${q.id}">
+            <div class="qp"><i>${i+1}.</i><span>${esc(q.prompt)}</span></div>
+            ${q.options.map((o,oi)=>`<label class="opt">
+                <input type="radio" name="q${q.id}" value="${oi}"><span>${esc(o)}</span></label>`).join("")}
+          </div>`).join("")}
+      </div>
+      <div class="sheet-f">
+        <button class="btn" id="qSubmit" disabled>Submit answers</button>
+        <span id="qCount" style="font-size:13.5px;color:var(--ink-3)">0 of ${quiz.questions.length} answered</span>
+      </div></div>`;
+    modal.scrollTop = 0;
+    modal.querySelectorAll("input[type=radio]").forEach(r=>r.addEventListener("change",()=>{
+      answers[r.closest(".q").dataset.q] = Number(r.value);
+      const n = Object.keys(answers).length;
+      modal.querySelector("#qCount").textContent = `${n} of ${quiz.questions.length} answered`;
+      modal.querySelector("#qSubmit").disabled = n < quiz.questions.length;
+    }));
+    modal.querySelector("#qClose").addEventListener("click", closeModal);
+    modal.querySelector("#qSubmit").addEventListener("click", submit);
+  };
+
+  async function submit(){
+    const btn = modal.querySelector("#qSubmit");
+    btn.disabled=true; btn.textContent="Grading…";
+    const res = await rpc("training_quiz_submit",{p_code:CODE,p_slug:slug,p_answers:answers});
+    modal.innerHTML = `<div class="sheet">
+      <div class="sheet-h"><h3>Results — ${esc(mod.title)}</h3><button class="x" id="qClose2">×</button></div>
+      <div class="sheet-b">
+        <div class="result ${res.passed?"pass":"fail"}">
+          <div class="big">${res.score_pct}%</div>
+          <div class="msg">${res.correct_count} of ${res.question_count} correct.
+            ${res.passed
+              ? `You passed — <b>${esc(mod.title)}</b> is complete and your Senior Manager has been notified.`
+              : `You need ${res.pass_pct}% to pass. Review the explanations below and try again.`}</div>
+        </div>
+        ${res.detail.map((d,i)=>`<div class="q">
+            <div class="qp"><i>${i+1}.</i><span>${esc(d.prompt)}</span></div>
+            ${d.options.map((o,oi)=>{
+              const isC=oi===d.correct_index, isS=oi===d.selected;
+              return `<div class="opt ${isC?"correct":(isS?"wrong":"")}" style="cursor:default">
+                <span style="flex:none;width:16px;font-weight:700">${isC?"✓":(isS?"✕":"")}</span>
+                <span>${esc(o)}</span></div>`;}).join("")}
+            ${d.explanation?`<div class="expl">${esc(d.explanation)}</div>`:""}
+          </div>`).join("")}
+      </div>
+      <div class="sheet-f">
+        <button class="btn" id="qDone">Back to my training</button>
+        ${!res.passed?`<button class="btn line" id="qRetry">Try again</button>`:""}
+      </div></div>`;
+    modal.scrollTop = 0;
+    modal.querySelector("#qClose2").addEventListener("click", finish);
+    modal.querySelector("#qDone").addEventListener("click", finish);
+    const rt = modal.querySelector("#qRetry");
+    if(rt) rt.addEventListener("click", ()=>{ for(const k in answers) delete answers[k]; draw(); });
+  }
+  async function finish(){ closeModal(); await loadTrainee(); }
+  draw();
+}
+function closeModal(){ $("#modal").classList.add("hidden"); $("#modal").innerHTML=""; }
+
+/* ================= certificate ================= */
+async function openCertificate(trackSlug, personId){
+  let c;
+  try{ c = await rpc("training_certificate",
+        {p_code:CODE, p_track_slug:trackSlug, p_person_id:personId}); }
+  catch(ex){ toast(ex.message); return; }
+  const modal = $("#modal"); modal.classList.remove("hidden");
+  modal.innerHTML = `<div class="sheet wide">
+    <div class="sheet-h"><h3>Certificate</h3><button class="x" id="cClose">×</button></div>
+    <div class="sheet-b">
+      <div class="certdoc">
+        <svg class="logo" role="img" aria-label="Metro Insurance"><use href="#mia-logo"/></svg>
+        <div class="ct">Certificate of Completion</div>
+        <div class="cwho">${esc(c.full_name)}</div>
+        <div class="cfor">has successfully completed all ${c.module_count} modules of</div>
+        <div class="cname">${esc(c.cert_name)}</div>
+        <div class="cmeta">Metro Insurance Agencies, LLC${c.location?" · "+esc(c.location):""}</div>
+        <div class="crule"></div>
+        <div class="cfoot">
+          <div>Awarded<b>${fdate(c.earned_at)}</b></div>
+          ${c.expires_at?`<div>Valid through<b>${fdate(c.expires_at)}</b></div>`:""}
+          <div>Certificate number<b>${esc(c.cert_number)}</b></div>
+          ${c.manager_name?`<div>Senior Manager<b>${esc(c.manager_name)}</b></div>`:""}
+        </div>
+      </div>
+    </div>
+    <div class="sheet-f">
+      <button class="btn" id="cPrint">Print or save as PDF</button>
+      <button class="btn line" id="cDone">Close</button>
+    </div></div>`;
+  modal.scrollTop = 0;
+  modal.querySelector("#cClose").addEventListener("click", closeModal);
+  modal.querySelector("#cDone").addEventListener("click", closeModal);
+  modal.querySelector("#cPrint").addEventListener("click", ()=>window.print());
+}
+
+/* ================= manager ================= */
+async function loadManager(){
+  MGR = await rpc("training_manager_overview",{p_code:CODE});
+  renderManager();
+}
+function renderManager(){
+  const ts = MGR.trainees||[], tracks = MGR.tracks||[];
+  const notices = MGR.notices||[], unread = notices.filter(n=>!n.is_read).length;
+  const avg = ts.length ? Math.round(ts.reduce((a,t)=>a+pct(t.completed,t.total_modules),0)/ts.length) : 0;
+  const certs = ts.reduce((a,t)=>a+t.certs.filter(c=>!c.expired).length,0);
+  const attention = ts.filter(t=>{
+    if(t.certs.some(c=>c.expired || (c.days_left!==null && c.days_left<=45))) return true;
+    if(t.completed >= t.total_modules) return false;
+    if(!t.last_activity) return true;
+    return (Date.now()-new Date(t.last_activity))/86400000 > 7;
+  }).length;
+
+  $("#paneManager").innerHTML = `
+    <div class="hero">
+      <div class="hero-row">
+        <div>
+          <h1>${ME.role==="owner"?"Agency Owner dashboard":"Senior Manager dashboard"}</h1>
+          <p>Live training and certification status across the agency.</p>
+          <p style="margin-top:10px;font-size:13px;color:#b2b5d4">
+            ${ts.length} agent${ts.length===1?"":"s"} · ${tracks.length} tracks ·
+            ${tracks.reduce((a,t)=>a+t.module_count,0)} modules
+            ${unread?` · <b style="color:#f3e2bd">${unread} new update${unread===1?"":"s"}</b>`:""}
+          </p>
+          <div style="display:flex;gap:9px;margin-top:14px;flex-wrap:wrap">
+            <button class="btn gold sm" data-preview="licensed">View as a licensed agent</button>
+            <button class="btn line sm" data-preview="unlicensed">View as an unlicensed hire</button>
+          </div>
+        </div>
+        ${ring(avg)}
+      </div>
+    </div>
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Active agents</div><div class="v">${ts.length}</div></div>
+      <div class="stat"><div class="k">Average completion</div><div class="v">${avg}<small>%</small></div></div>
+      <div class="stat"><div class="k">Certifications current</div><div class="v">${certs}</div></div>
+      <div class="stat"><div class="k">Needs attention</div><div class="v" style="${attention?'color:var(--warn)':''}">${attention}</div></div>
+    </div>
+    <div class="tabs">
+      <button class="tab ${mgrTab==="roster"?"on":""}" data-tab="roster">Roster</button>
+      <button class="tab ${mgrTab==="ce"?"on":""}" data-tab="ce">Licensing &amp; CE</button>
+      <button class="tab ${mgrTab==="content"?"on":""}" data-tab="content">Content editor</button>
+      <button class="tab ${mgrTab==="tracks"?"on":""}" data-tab="tracks">Track catalog</button>
+      <button class="tab ${mgrTab==="activity"?"on":""}" data-tab="activity">Activity${unread?` (${unread})`:""}</button>
+      <button class="tab ${mgrTab==="add"?"on":""}" data-tab="add">Add an agent</button>
+    </div>
+    <div id="mgrBody"></div>`;
+  $("#paneManager").querySelectorAll("[data-preview]").forEach(b=>b.addEventListener("click",
+    ()=>startPreview(b.dataset.preview)));
+  $("#paneManager").querySelectorAll("[data-tab]").forEach(b=>b.addEventListener("click", async ()=>{
+    mgrTab=b.dataset.tab; selTrainee=null;
+    if(mgrTab==="content" && !CAT) await loadCatalog();
+    if(mgrTab==="ce" && !CE) await loadCE();
+    renderManager();
+  }));
+  ({roster:mgrRoster, ce:mgrCE, content:mgrContent, tracks:mgrTracks,
+    activity:mgrActivity, add:mgrAdd})[mgrTab]();
+}
+
+function mgrRoster(){
+  const ts = MGR.trainees||[];
+  const body = $("#mgrBody");
+  if(!ts.length){
+    body.innerHTML = `<div class="card"><div class="empty">
+      No agents enrolled yet. Use <b>Add an agent</b> to create the first access code.</div></div>`;
+    return;
+  }
+  body.innerHTML = `
+    <div class="card" style="overflow-x:auto">
+      <table><thead><tr>
+        <th>Agent</th><th>Licence</th><th>Progress</th><th>Certifications</th>
+        <th class="hide-sm">Last activity</th><th>Access code</th>
+      </tr></thead><tbody>${ts.map(t=>{
+        const p = pct(t.completed,t.total_modules);
+        return `<tr class="clk" data-t="${t.id}">
+          <td><div class="tname">${esc(t.full_name)}${
+                t.preferred_name && t.preferred_name !== firstName({full_name:t.full_name})
+                  ? ` <span class="tsub">(${esc(t.preferred_name)})</span>` : ""}</div>
+              <div class="tsub">${esc(t.location||"—")} · started ${sdate(t.start_date)}</div></td>
+          <td><span class="pill ${t.license_status==="licensed"?"done"
+                : t.license_status==="in_progress"?"prog":"todo"}">${esc(LIC[t.license_status]||"—")}</span></td>
+          <td><div style="display:flex;align-items:center;gap:10px">
+                <div class="bar mini-bar"><i style="width:${p}%"></i></div><b style="font-size:13px">${p}%</b></div>
+              <div class="tsub">${t.completed} of ${t.total_modules} modules</div></td>
+          <td>${t.certs.length
+                ? `<div class="chips">${t.certs.map(c=>`<span class="chip ${c.expired?"bad":"gold"}"
+                     title="${esc(c.name)} · ${esc(c.cert_number)}">${esc(c.track.toUpperCase())}${c.expired?" ✕":""}</span>`).join("")}</div>`
+                : `<span class="tsub">None yet</span>`}</td>
+          <td class="hide-sm">${when(t.last_activity)}</td>
+          <td><span class="code">${esc(t.access_code)}</span></td>
+        </tr>`;}).join("")}</tbody></table>
+    </div><div id="detail"></div>`;
+  body.querySelectorAll("tr[data-t]").forEach(r=>r.addEventListener("click",()=>{
+    selTrainee=r.dataset.t; renderDetail();
+  }));
+  if(selTrainee) renderDetail();
+}
+
+function renderDetail(){
+  const t = (MGR.trainees||[]).find(x=>x.id===selTrainee);
+  const box = $("#detail"); if(!t||!box) return;
+  const tracks = MGR.tracks||[];
+  const vis = t.visible_tracks || [];
+  const visible = tracks.filter(k=>vis.includes(k.slug));
+  const assignable = tracks.filter(k=>k.audience==="assigned");
+
+  box.innerHTML = `
+    <div class="section-h"><h2>${esc(t.full_name)}</h2>
+      <div style="display:flex;gap:8px">
+        <button class="btn line sm" id="rmTrainee">Remove from program</button>
+        <button class="btn line sm" id="closeDetail">Close</button>
+      </div></div>
+
+    <div class="card pad" style="margin-bottom:16px">
+      <h4 style="font-size:14px;margin-bottom:4px">Goes by</h4>
+      <p style="font-size:13px;color:var(--ink-2);margin:0 0 10px">
+        How the portal greets them. Leave blank to use ${esc(firstName({full_name:t.full_name}))}.</p>
+      <div style="display:flex;gap:9px;max-width:420px;margin-bottom:20px">
+        <input id="prefName" type="text" value="${esc(t.preferred_name||"")}"
+          placeholder="${esc(firstName({full_name:t.full_name}))}">
+        <button class="btn line sm" id="prefSave">Save</button>
+      </div>
+
+      <h4 style="font-size:14px;margin-bottom:4px">Licence standing</h4>
+      <p style="font-size:13px;color:var(--ink-2);margin:0 0 12px">
+        This drives which tracks they see. Recording a licence retires the pre-licensing track and
+        opens the ones that need a licence.</p>
+      <select id="licSel" style="max-width:340px">
+        ${Object.entries(LIC).map(([k,v])=>
+          `<option value="${k}" ${t.license_status===k?"selected":""}>${esc(v)}</option>`).join("")}
+      </select>
+    </div>
+
+    <div class="card pad" style="margin-bottom:16px">
+      <h4 style="font-size:14px;margin-bottom:4px">Assigned product tracks</h4>
+      <p style="font-size:13px;color:var(--ink-2);margin:0 0 13px">
+        Core tracks are required for everyone. Tick the product tracks this agent needs.</p>
+      ${assignable.map(k=>`
+        <label class="tgl">
+          <input type="checkbox" data-assign="${esc(k.slug)}" ${t.assigned_tracks.includes(k.slug)?"checked":""}>
+          <div><div class="tn">${esc(k.name)}</div>
+            <div class="td">${k.module_count} modules · earns ${esc(k.cert_name)}</div></div>
+        </label>`).join("")}
+    </div>
+
+    ${visible.map(k=>{
+      const tp = t.track_progress[k.slug] || {done:0,total:k.module_count};
+      const cert = t.certs.find(c=>c.track===k.slug);
+      return `<div class="trackgrp">
+        <div class="section-h" style="margin:0 0 9px">
+          <h2 style="font-size:15px">${esc(k.name)}
+            <span class="tsub" style="font-weight:400"> — ${tp.done} of ${tp.total}</span>
+            ${cert?`<span class="pill ${cert.expired?"fail":"sign"}">${cert.expired?"Expired":"★ "+esc(cert.cert_number)}</span>`:""}
+          </h2>
+          <div style="display:flex;gap:8px">
+            ${cert?`<button class="btn line sm" data-viewcert="${esc(k.slug)}">Certificate</button>`:""}
+            ${tp.done>0?`<button class="btn line sm" data-reset="${esc(k.slug)}">Reset for recert</button>`:""}
+          </div>
+        </div>
+        <div class="mgrid">${k.modules.map(m=>{
+          const st = t.module_status[m.slug] || {status:"not_started"};
+          return `<div class="mcell">
+            <div class="mt">${esc(m.title)}</div>
+            <div class="mr">${statusPill(st.status)}
+              ${st.score!=null?`<span class="pill score">Quiz ${st.score}%</span>`:""}
+              ${st.signed?`<span class="pill sign">★ Signed</span>`:""}</div>
+            ${!st.signed && st.status==="completed"
+              ? `<button class="btn line sm" style="margin-top:9px" data-sign="${esc(m.slug)}">Sign off</button>`:""}
+          </div>`;}).join("")}</div>
+      </div>`;}).join("")}`;
+
+  box.querySelector("#closeDetail").addEventListener("click",()=>{ selTrainee=null; mgrRoster(); });
+  box.querySelector("#prefSave").addEventListener("click", async ()=>{
+    const b = box.querySelector("#prefSave"); b.disabled = true;
+    await rpc("training_set_preferred_name",
+      {p_code:CODE, p_person_id:t.id, p_name:box.querySelector("#prefName").value});
+    await loadManager(); renderDetail(); toast("Saved");
+  });
+  box.querySelector("#licSel").addEventListener("change", async e=>{
+    e.target.disabled = true;
+    await rpc("training_set_license",{p_code:CODE,p_person_id:t.id,p_status:e.target.value});
+    await loadManager(); renderDetail();
+    toast(`Licence standing updated — ${LIC[e.target.value]}`);
+  });
+  box.querySelector("#rmTrainee").addEventListener("click", async ()=>{
+    const b = box.querySelector("#rmTrainee");
+    if(b.dataset.armed!=="1"){
+      b.dataset.armed="1"; b.textContent="Click again to confirm";
+      b.style.color="var(--bad)"; b.style.borderColor="#efb5b0";
+      setTimeout(()=>{ if(b.isConnected&&b.dataset.armed==="1"){
+        b.dataset.armed=""; b.textContent="Remove from program"; b.style.color=""; b.style.borderColor=""; }},5000);
+      return;
+    }
+    b.disabled=true;
+    await rpc("training_remove_trainee",{p_code:CODE,p_person_id:t.id});
+    selTrainee=null; await loadManager();
+    toast(`${t.full_name} removed — their access code no longer works`);
+  });
+  box.querySelectorAll("[data-assign]").forEach(cb=>cb.addEventListener("change", async ()=>{
+    cb.disabled=true;
+    try{
+      await rpc("training_assign_track",
+        {p_code:CODE,p_person_id:t.id,p_track_slug:cb.dataset.assign,p_on:cb.checked});
+      await loadManager();
+      toast(cb.checked?"Track assigned":"Track removed");
+    }catch(ex){ toast(ex.message); cb.checked=!cb.checked; cb.disabled=false; }
+  }));
+  box.querySelectorAll("[data-sign]").forEach(b=>b.addEventListener("click", async ()=>{
+    b.disabled=true;
+    await rpc("training_signoff",{p_code:CODE,p_person_id:t.id,p_slug:b.dataset.sign,p_note:null});
+    await loadManager(); toast("Signed off — the agent has been notified");
+  }));
+  box.querySelectorAll("[data-viewcert]").forEach(b=>b.addEventListener("click",()=>
+    openCertificate(b.dataset.viewcert, t.id)));
+  box.querySelectorAll("[data-reset]").forEach(b=>b.addEventListener("click", async ()=>{
+    if(b.dataset.armed!=="1"){
+      b.dataset.armed="1"; b.textContent="Click again to reset";
+      setTimeout(()=>{ if(b.isConnected&&b.dataset.armed==="1"){
+        b.dataset.armed=""; b.textContent="Reset for recert"; }},5000);
+      return;
+    }
+    b.disabled=true;
+    await rpc("training_reset_track",{p_code:CODE,p_person_id:t.id,p_track_slug:b.dataset.reset});
+    await loadManager(); toast("Track reset — the agent has been notified");
+  }));
+  box.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+
+function mgrTracks(){
+  const tracks = MGR.tracks||[];
+  const groups = Object.entries(CATS);
+  $("#mgrBody").innerHTML = groups.map(([cat,label])=>{
+    const list = tracks.filter(t=>t.category===cat);
+    if(!list.length) return "";
+    return `<div class="trackgrp"><h4>${esc(label)}</h4>
+      ${list.map(t=>`<div class="card pad" style="margin-bottom:10px">
+        <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap">
+          <h3 style="font-size:15.5px">${esc(t.name)}</h3>
+          <span class="pill req">${esc(AUD[t.audience]||t.audience)}</span>
+          <span class="tsub">${t.module_count} modules · recert every ${t.recert_months} months</span>
+        </div>
+        <div style="font-size:13.5px;color:var(--ink-2);margin:6px 0 10px">${esc(t.tagline||"")}</div>
+        <div class="chips">${t.modules.map(m=>`<span class="chip">${esc(m.title)}</span>`).join("")}</div>
+      </div>`).join("")}</div>`;
+  }).join("");
+}
+
+function mgrActivity(){
+  const notices = MGR.notices||[];
+  const unread = notices.filter(n=>!n.is_read).length;
+  $("#mgrBody").innerHTML = `
+    ${unread?`<div style="margin-bottom:12px"><button class="btn line sm" id="mr">Mark all read</button></div>`:""}
+    <div class="card">${notices.length ? notices.map(n=>`
+        <div style="display:flex;gap:12px;padding:13px 16px;border-bottom:1px solid var(--line);align-items:flex-start">
+          <div style="width:8px;height:8px;border-radius:99px;margin-top:7px;flex:none;
+               background:${n.is_read?"var(--line-2)":"var(--gold)"}"></div>
+          <div style="flex:1">
+            <div style="font-weight:620;font-size:14px">${esc(n.title)}</div>
+            ${n.body?`<div style="color:var(--ink-2);font-size:13.5px;margin-top:2px">${esc(n.body)}</div>`:""}
+            <div style="font-size:11.5px;color:var(--ink-3);margin-top:4px">${when(n.created_at)}</div>
+          </div></div>`).join("")
+      : `<div class="empty">No activity yet. Updates appear the moment an agent finishes a module, passes a quiz, or earns a certification.</div>`}
+    </div>`;
+  const mr = $("#mr");
+  if(mr) mr.addEventListener("click", async ()=>{
+    await rpc("training_notices_read",{p_code:CODE,p_audience:"manager"});
+    await loadManager(); toast("Activity marked read");
+  });
+}
+
+function mgrAdd(){
+  $("#mgrBody").innerHTML = `
+    <div class="card pad" style="max-width:640px">
+      <h3 style="font-size:16px;margin-bottom:4px">Add an agent to the training portal</h3>
+      <p style="color:var(--ink-2);font-size:14px;margin:0 0 20px">
+        This generates a personal access code. What they see is driven by their licence standing;
+        product tracks are assigned afterwards from the roster.</p>
+      <div id="addErr" class="err hidden"></div>
+      <form id="addForm">
+        <div class="form-row">
+          <div><label for="nName">Full name</label><input id="nName" type="text" required></div>
+          <div><label for="nPref">Goes by <span style="text-transform:none;letter-spacing:normal;
+            font-weight:400;color:var(--ink-3)">(optional)</span></label>
+            <input id="nPref" type="text" placeholder="Leave blank to use their first name"></div>
+        </div>
+        <div class="form-row">
+          <div><label for="nEmail">Work email</label><input id="nEmail" type="email"></div>
+          <div><label for="nLoc">Location</label>
+            <select id="nLoc"><option value="">Select…</option>
+              <option>Oklahoma City</option><option>Tulsa</option></select></div>
+          <div><label for="nStart">Start date</label><input id="nStart" type="date"></div>
+        </div>
+        <div class="form-row">
+          <div><label for="nLic">Licence standing</label>
+            <select id="nLic">
+              <option value="licensed">Licensed — new to Metro, already holds a licence</option>
+              <option value="unlicensed">Unlicensed — brand new to the business</option>
+              <option value="in_progress">Licensing in progress</option>
+            </select>
+            <div class="tsub" style="margin-top:5px">An unlicensed hire gets the pre-licensing
+              track alongside Metro Insurance Basics.</div></div>
+          <div></div>
+        </div>
+        <button class="btn" type="submit" id="addBtn">Create access code</button>
+      </form>
+      <div id="addOut">${lastAdded?`
+        <div style="margin-top:20px;padding:16px 18px;background:var(--ok-bg);border:1px solid #bfe3d1;border-radius:10px">
+          <div style="font-weight:650">${esc(lastAdded.name)} has been added.</div>
+          <div style="margin-top:9px;font-size:14px">Access code:
+            <span class="code" style="font-size:16px;padding:6px 12px">${esc(lastAdded.code)}</span>
+            <button class="btn line sm" id="copyCode" style="margin-left:8px">Copy</button></div>
+          <div style="margin-top:9px;font-size:13px;color:var(--ink-2)">
+            Give this code to the agent along with the link to this site. They sign in with it — there is no password.</div>
+        </div>`:""}</div>
+    </div>`;
+  const cc = $("#copyCode");
+  if(cc) cc.addEventListener("click",()=>navigator.clipboard.writeText(lastAdded.code)
+    .then(()=>toast("Access code copied"),()=>toast("Copy failed — select it manually")));
+  $("#addForm").addEventListener("submit", async e=>{
+    e.preventDefault();
+    const b=$("#addBtn"), name=$("#nName").value.trim();
+    b.disabled=true; b.textContent="Creating…";
+    try{
+      const r = await rpc("training_add_trainee",{p_code:CODE,p_name:name,p_email:$("#nEmail").value,
+        p_location:$("#nLoc").value,p_start:$("#nStart").value||null,
+        p_license:$("#nLic").value, p_preferred:$("#nPref").value});
+      lastAdded = {name, code:r.access_code};
+      await loadManager();
+    }catch(ex){
+      const bb=$("#addBtn"); if(bb){bb.disabled=false; bb.textContent="Create access code";}
+      const e2=$("#addErr"); e2.textContent=ex.message; e2.classList.remove("hidden");
+    }
+  });
+}
+
+/* ================= preview as an agent ================= */
+async function startPreview(license){
+  PREVIEW = {license};
+  STATE = await rpc("training_agent_preview",{p_code:CODE, p_license:license});
+  openTracks = new Set(STATE.tracks.map(t=>t.slug));   // open everything for reviewing
+  openMods = new Set();
+  $("#paneManager").classList.add("hidden");
+  $("#paneTrainee").classList.remove("hidden");
+  // Hide the mode toggle while previewing so "reviewing content" and "doing my own
+  // training" can never be confused for each other — preview records nothing.
+  $("#modeToggle").classList.add("hidden");
+  renderTrainee();
+  window.scrollTo(0,0);
+}
+function exitPreview(){
+  PREVIEW = null; STATE = null; openTracks = null; openMods.clear();
+  MODE = "manager";
+  $("#modeToggle").classList.toggle("hidden", !isStaff(ME && ME.role));
+  $("#modeToggle").textContent = "My training";
+  $("#paneTrainee").classList.add("hidden");
+  $("#paneManager").classList.remove("hidden");
+  renderManager();
+  window.scrollTo(0,0);
+}
+function previewBanner(){
+  if(!PREVIEW) return "";
+  return `<div class="card pad" style="margin-bottom:20px;border-left:4px solid var(--gold);
+       display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+    <div style="flex:1;min-width:240px">
+      <h3 style="font-size:15.5px">Previewing as ${PREVIEW.license==="licensed"
+        ? "a licensed agent" : "an unlicensed new hire"}</h3>
+      <div style="font-size:13.5px;color:var(--ink-2);margin-top:5px">
+        This is the published content exactly as an agent sees it. Nothing here is saved and no
+        progress is recorded. Product tracks are shown so you can review them, though an agent
+        only sees those once Belinda assigns them.</div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn line sm" id="pvSwap">Switch to ${PREVIEW.license==="licensed"
+        ? "unlicensed" : "licensed"}</button>
+      <button class="btn sm" id="pvExit">Back to dashboard</button>
+    </div>
+  </div>`;
+}
+
+/* ================= licence & CE ================= */
+function ceBanner(){
+  const c = STATE.ce;
+  if(!c || !c.stage || c.stage==="ok" || c.stage==="complete" || c.stage==="unknown") return "";
+  const st = CE_STAGE[c.stage] || CE_STAGE.unknown;
+  const bad = c.stage==="lapsed" || c.stage==="urgent";
+  return `<div class="card pad" style="margin-bottom:22px;border-left:4px solid ${
+      bad?"var(--bad)":"var(--warn)"}">
+    <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap">
+      <h3 style="font-size:15.5px">Licence renewal</h3>
+      <span class="pill ${st.cls}">${esc(st.label)}</span>
+      <span class="tsub">Due ${sdate(c.renewal_due)}${
+        c.days_left!=null ? ` · ${c.days_left < 0 ? Math.abs(c.days_left)+" days ago"
+                                                  : c.days_left+" days away"}` : ""}</span>
+    </div>
+    <div style="font-size:13.5px;color:var(--ink-2);margin-top:8px">${
+      c.stage==="lapsed"
+        ? "Your renewal date has passed with no renewal recorded. Speak to Belinda today — you cannot quote, sell, bind or advise on coverage without an active licence."
+      : c.stage==="awaiting_nipr"
+        ? "Your CE is complete. Belinda still has to file the renewal through NIPR, so you are not renewed yet."
+        : "You need 24 hours of continuing education before your licence renews. Belinda signs you up for the WebCE package that covers Oklahoma's requirement — ask her to get you started."}</div>
+  </div>`;
+}
+
+async function loadCE(){
+  CE = await rpc("training_ce_overview",{p_code:CODE});
+  EMAILST = await rpc("training_email_status",{p_code:CODE});
+}
+
+function mgrCE(){
+  const people = (CE && CE.people) || [];
+  const set = (CE && CE.settings) || {};
+  const live = set.email_enabled === "true" && EMAILST && EMAILST.api_key_present;
+  const attention = people.filter(p=>["due","urgent","lapsed","awaiting_nipr"].includes(p.stage)).length;
+
+  $("#mgrBody").innerHTML = `
+    <div class="card pad" style="margin-bottom:16px;border-left:4px solid ${live?"var(--ok)":"var(--warn)"}">
+      <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap">
+        <h3 style="font-size:15.5px">Automatic email reminders</h3>
+        <span class="pill ${live?"done":"prog"}">${live?"Sending":"Not sending yet"}</span>
+        <span class="tsub">${EMAILST?EMAILST.queued:0} queued · ${EMAILST?EMAILST.sent_total:0} sent</span>
+      </div>
+      <div style="font-size:13.5px;color:var(--ink-2);margin-top:8px">
+        ${live
+          ? `A daily job checks renewals, congratulates agents on new certifications and flags anyone who has stalled. Sending from <b>${esc(set.email_from||"")}</b>.`
+          : `Reminders are being calculated and queued, but nothing is being sent. ${
+              EMAILST && !EMAILST.api_key_present
+                ? "The Resend API key still needs adding to Supabase Vault as <b>resend_api_key</b>."
+                : "Switch sending on below once you are ready."}`}
+      </div>
+      <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:12px">
+        <label class="tgl" style="margin:0">
+          <input type="checkbox" id="emOn" ${set.email_enabled==="true"?"checked":""}>
+          <div><div class="tn">Send emails</div></div></label>
+        <label class="tgl" style="margin:0">
+          <input type="checkbox" id="emCongrats" ${set.congrats_enabled!=="false"?"checked":""}>
+          <div><div class="tn">Congratulate on certifications</div></div></label>
+        <label class="tgl" style="margin:0">
+          <input type="checkbox" id="emStall" ${set.stall_alerts_enabled!=="false"?"checked":""}>
+          <div><div class="tn">Alert me when an agent stalls</div></div></label>
+      </div>
+    </div>
+
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Licences tracked</div><div class="v">${people.filter(p=>p.renewal_due).length}</div></div>
+      <div class="stat"><div class="k">Need attention</div><div class="v" style="${attention?'color:var(--warn)':''}">${attention}</div></div>
+      <div class="stat"><div class="k">Lapsed</div><div class="v" style="${people.some(p=>p.stage==='lapsed')?'color:var(--bad)':''}">${people.filter(p=>p.stage==='lapsed').length}</div></div>
+      <div class="stat"><div class="k">No licence recorded</div><div class="v">${people.filter(p=>!p.renewal_due).length}</div></div>
+    </div>
+
+    <div class="card" style="overflow-x:auto">
+      <table><thead><tr>
+        <th>Person</th><th>Licence</th><th>Renewal due</th><th>Status</th><th class="hide-sm">CE progress</th>
+      </tr></thead><tbody>${people.map(p=>{
+        const st = CE_STAGE[p.stage] || CE_STAGE.unknown;
+        return `<tr class="clk" data-ce="${p.id}">
+          <td><div class="tname">${esc(p.full_name)}</div>
+              <div class="tsub">${p.role==="trainee"?esc(p.location||"—"):esc(p.role==="owner"?"Agency Owner":"Senior Manager")}</div></td>
+          <td>${p.license_number?`<span class="code">${esc(p.license_number)}</span>`:`<span class="tsub">Not recorded</span>`}
+              ${p.npn?`<div class="tsub" style="margin-top:3px">NPN ${esc(p.npn)}</div>`:""}</td>
+          <td>${p.renewal_due?`<b style="font-size:13.5px">${sdate(p.renewal_due)}</b>
+                <div class="tsub">${p.days_left<0?Math.abs(p.days_left)+" days ago":p.days_left+" days"}</div>`
+              :`<span class="tsub">—</span>`}</td>
+          <td><span class="pill ${st.cls}">${esc(st.label)}</span></td>
+          <td class="hide-sm"><span class="tsub">${
+             p.courses_completed_at ? "CE complete "+when(p.courses_completed_at)
+             : p.webce_enrolled_at ? "Enrolled "+when(p.webce_enrolled_at)
+             : p.renewal_due ? "Not started" : "—"}</span></td>
+        </tr>`;}).join("")}</tbody></table>
+    </div>
+    <div id="ceDetail"></div>`;
+
+  $("#mgrBody").querySelectorAll("tr[data-ce]").forEach(r=>r.addEventListener("click",()=>{
+    selCE = r.dataset.ce; renderCEDetail();
+  }));
+  const flip = async (el,key)=>{
+    el.disabled = true;
+    await rpc("training_set_setting",{p_code:CODE,p_key:key,p_value:el.checked?"true":"false"});
+    await loadCE(); mgrCE(); toast("Saved");
+  };
+  $("#emOn").addEventListener("change",e=>flip(e.target,"email_enabled"));
+  $("#emCongrats").addEventListener("change",e=>flip(e.target,"congrats_enabled"));
+  $("#emStall").addEventListener("change",e=>flip(e.target,"stall_alerts_enabled"));
+  if(selCE) renderCEDetail();
+}
+
+function renderCEDetail(){
+  const p = ((CE&&CE.people)||[]).find(x=>x.id===selCE);
+  const box = $("#ceDetail"); if(!p||!box) return;
+  const stage = p.stage;
+  box.innerHTML = `
+    <div class="section-h"><h2>${esc(p.full_name)} — licence record</h2>
+      <button class="btn line sm" id="ceClose">Close</button></div>
+    <div class="card pad" style="max-width:720px">
+      <div id="ceErr" class="err hidden"></div>
+      <div class="form-row">
+        <div><label for="cNum">Oklahoma licence number</label>
+          <input id="cNum" type="text" value="${esc(p.license_number||"")}"></div>
+        <div><label for="cNpn">NPN</label>
+          <input id="cNpn" type="text" value="${esc(p.npn||"")}"></div>
+      </div>
+      <div class="form-row">
+        <div><label for="cInit">Initial licence date</label>
+          <input id="cInit" type="date" value="${p.initial_license_date||""}">
+          <div class="tsub" style="margin-top:5px">Renewal falls at the end of this month, every two years.</div></div>
+        <div><label for="cDue">Renewal due</label>
+          <input id="cDue" type="date" value="${p.renewal_due||""}">
+          <div class="tsub" style="margin-top:5px">Leave blank to calculate it from the initial date.</div></div>
+      </div>
+      <button class="btn" id="ceSave">Save licence record</button>
+      ${p.renewal_due?`
+      <div style="margin-top:22px;padding-top:18px;border-top:1px solid var(--line)">
+        <h4 style="font-size:14px;margin-bottom:4px">This renewal cycle</h4>
+        <p style="font-size:13px;color:var(--ink-2);margin:0 0 12px">
+          Record each step as it happens. Completing the CE courses is only the first half —
+          the licence still has to be filed through NIPR.</p>
+        <div style="display:flex;gap:9px;flex-wrap:wrap">
+          <button class="btn line sm" data-ce-event="enrolled" ${p.webce_enrolled_at?"disabled":""}>
+            ${p.webce_enrolled_at?"✓ Enrolled on WebCE":"Mark enrolled on WebCE"}</button>
+          <button class="btn line sm" data-ce-event="courses_complete" ${p.courses_completed_at?"disabled":""}>
+            ${p.courses_completed_at?"✓ CE courses complete":"Mark CE courses complete"}</button>
+          <button class="btn gold sm" data-ce-event="renewed">Mark licence renewed in NIPR</button>
+        </div>
+        ${stage==="awaiting_nipr"?`<div class="expl" style="margin-top:12px">
+          CE is done. File the renewal through NIPR and pay the fee, then mark it renewed here.</div>`:""}
+        ${stage==="lapsed"?`<div class="expl" style="margin-top:12px;border-left-color:var(--bad)">
+          The renewal date has passed with nothing recorded. Confirm the real licence status —
+          the portal will not change their standing on its own.</div>`:""}
+      </div>`:`<div class="tsub" style="margin-top:14px">Add an initial licence date to start tracking renewals.</div>`}
+    </div>`;
+
+  box.querySelector("#ceClose").addEventListener("click",()=>{ selCE=null; mgrCE(); });
+  box.querySelector("#ceSave").addEventListener("click", async ()=>{
+    const b = box.querySelector("#ceSave"); b.disabled=true; b.textContent="Saving…";
+    try{
+      await rpc("training_ce_set_license",{p_code:CODE,p_person_id:p.id,
+        p_license_number:box.querySelector("#cNum").value,
+        p_npn:box.querySelector("#cNpn").value,
+        p_initial:box.querySelector("#cInit").value||null,
+        p_renewal_due:box.querySelector("#cDue").value||null});
+      await loadCE(); mgrCE(); toast("Licence record saved");
+    }catch(ex){
+      b.disabled=false; b.textContent="Save licence record";
+      const e2=box.querySelector("#ceErr"); e2.textContent=ex.message; e2.classList.remove("hidden");
+    }
+  });
+  box.querySelectorAll("[data-ce-event]").forEach(b=>b.addEventListener("click", async ()=>{
+    b.disabled=true;
+    await rpc("training_ce_mark",{p_code:CODE,p_person_id:p.id,p_event:b.dataset.ceEvent,p_note:null});
+    await loadCE(); mgrCE();
+    toast(b.dataset.ceEvent==="renewed"?"Licence renewed — next cycle opened":"Recorded");
+  }));
+  box.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+
+/* ================= content editor ================= */
+async function loadCatalog(){ CAT = await rpc("training_author_catalog",{p_code:CODE}); }
+
+const CATS = {core:"Core", licensing:"Licensing & credentials", skills:"Skills",
+              products:"Product knowledge"};
+// who a track is for — this is what makes a dual track work
+const AUD = {all:"Everyone", unlicensed:"Unlicensed only", licensed:"Licensed only",
+             assigned:"Assigned"};
+const LIC = {unlicensed:"Unlicensed", in_progress:"Licensing in progress", licensed:"Licensed"};
+const CE_STAGE = {
+  ok:        {label:"On track",            cls:"todo"},
+  due:       {label:"CE due",              cls:"prog"},
+  urgent:    {label:"Urgent",              cls:"fail"},
+  awaiting_nipr:{label:"Awaiting NIPR filing", cls:"score"},
+  lapsed:    {label:"LAPSED",              cls:"fail"},
+  complete:  {label:"Renewed",             cls:"done"},
+  unknown:   {label:"No licence on file",  cls:"todo"}
+};
+const draftPill = s => s==="draft" ? `<span class="pill prog">Draft</span>`
+                                   : `<span class="pill done">Published</span>`;
+
+function mgrContent(){
+  const tracks = (CAT && CAT.tracks) || [];
+  $("#mgrBody").innerHTML = `
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+      <button class="btn sm" id="newTrack">+ New category</button>
+      <span class="note" style="font-size:13px;color:var(--ink-3)">
+        New categories and modules start as <b>Draft</b> — agents cannot see them until you publish.</span>
+    </div>
+    ${tracks.map(catTrack).join("")}
+    <div class="section-h"><h2>Recent content changes</h2></div>
+    <div class="card">${(CAT.log||[]).length ? (CAT.log||[]).slice(0,12).map(l=>`
+      <div style="display:flex;gap:12px;padding:11px 16px;border-bottom:1px solid var(--line);font-size:13.5px">
+        <div style="flex:1"><b>${esc(l.actor||"—")}</b> ${esc(l.action)} ${esc(l.kind)}
+          ${l.slug?`<span class="code">${esc(l.slug)}</span>`:""}
+          ${l.detail?`<span style="color:var(--ink-3)"> — ${esc(l.detail)}</span>`:""}</div>
+        <div style="color:var(--ink-3);white-space:nowrap">${when(l.at)}</div>
+      </div>`).join("") : `<div class="empty">No content changes recorded yet.</div>`}</div>`;
+
+  $("#newTrack").addEventListener("click", ()=>openTrackEditor(null));
+  const body = $("#mgrBody");
+  body.querySelectorAll("[data-cat]").forEach(b=>b.addEventListener("click",()=>{
+    const s=b.dataset.cat; openCat.has(s)?openCat.delete(s):openCat.add(s); mgrContent();
+  }));
+  body.querySelectorAll("[data-edittrack]").forEach(b=>b.addEventListener("click",e=>{
+    e.stopPropagation(); openTrackEditor(b.dataset.edittrack); }));
+  body.querySelectorAll("[data-editmod]").forEach(b=>b.addEventListener("click",e=>{
+    e.stopPropagation(); openModuleEditor(b.dataset.editmod, b.dataset.track); }));
+  body.querySelectorAll("[data-newmod]").forEach(b=>b.addEventListener("click",e=>{
+    e.stopPropagation(); openModuleEditor(null, b.dataset.newmod); }));
+  body.querySelectorAll("[data-pub]").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation(); b.disabled=true;
+    await rpc("training_publish",{p_code:CODE,p_kind:b.dataset.kind,
+      p_slug:b.dataset.pub,p_publish:b.dataset.to==="1"});
+    await loadCatalog(); mgrContent();
+    toast(b.dataset.to==="1"?"Published — agents can see it now":"Moved back to draft");
+  }));
+  body.querySelectorAll("[data-move]").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation();
+    const list = b.dataset.kind==="track"
+      ? tracks.map(t=>t.slug)
+      : tracks.find(t=>t.slug===b.dataset.track).modules.map(m=>m.slug);
+    const i = list.indexOf(b.dataset.move), j = i + (b.dataset.dir==="up"?-1:1);
+    if(j<0 || j>=list.length) return;
+    [list[i],list[j]] = [list[j],list[i]];
+    await rpc("training_reorder",{p_code:CODE,p_kind:b.dataset.kind,p_slugs:list});
+    await loadCatalog(); mgrContent();
+  }));
+}
+
+function catTrack(t){
+  const open = openCat.has(t.slug);
+  const drafts = t.modules.filter(m=>m.status==="draft").length;
+  return `<div class="track">
+    <button class="track-head" data-cat="${esc(t.slug)}">
+      <div class="tk">
+        <h3>${esc(t.name)} ${draftPill(t.status)}
+          <span class="pill req">${esc(AUD[t.audience]||t.audience)}</span>
+          ${drafts?`<span class="pill prog">${drafts} draft module${drafts===1?"":"s"}</span>`:""}</h3>
+        <div class="tl">${esc(t.tagline||"")} · ${t.modules.length} modules
+          ${t.in_use?` · in use by ${t.in_use} record${t.in_use===1?"":"s"}`:""}</div>
+      </div>
+      <div class="chev">▼</div>
+    </button>
+    ${open?`<div class="track-body">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        <button class="btn line sm" data-edittrack="${esc(t.slug)}">Edit category</button>
+        <button class="btn line sm" data-newmod="${esc(t.slug)}">+ Add module</button>
+        <button class="btn line sm" data-pub="${esc(t.slug)}" data-kind="track"
+          data-to="${t.status==="published"?"0":"1"}">${t.status==="published"?"Unpublish":"Publish category"}</button>
+        <button class="btn line sm" data-move="${esc(t.slug)}" data-kind="track" data-dir="up">↑</button>
+        <button class="btn line sm" data-move="${esc(t.slug)}" data-kind="track" data-dir="down">↓</button>
+      </div>
+      ${t.modules.length ? t.modules.map(m=>`
+        <div class="mod"><div class="mod-head" style="cursor:default">
+          <div class="num">${m.status==="draft"?"✎":"✓"}</div>
+          <div class="txt">
+            <h4>${esc(m.title)} ${draftPill(m.status)}
+              ${m.format==="external"?`<span class="pill ext">External ↗</span>`:""}</h4>
+            <div class="sub">${esc(m.subtitle||"")}</div>
+            <div class="meta">
+              <span>${(m.items||[]).length} key points</span>
+              <span>${m.quiz?(m.quiz.questions||[]).length:0} questions</span>
+              <span>${m.completions} completion${m.completions===1?"":"s"}</span>
+              <span>${m.attempts} quiz attempt${m.attempts===1?"":"s"}</span>
+            </div>
+            <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:10px">
+              <button class="btn line sm" data-editmod="${esc(m.slug)}" data-track="${esc(t.slug)}">Edit content</button>
+              <button class="btn line sm" data-pub="${esc(m.slug)}" data-kind="module"
+                data-to="${m.status==="published"?"0":"1"}">${m.status==="published"?"Unpublish":"Publish"}</button>
+              <button class="btn line sm" data-move="${esc(m.slug)}" data-kind="module"
+                data-track="${esc(t.slug)}" data-dir="up">↑</button>
+              <button class="btn line sm" data-move="${esc(m.slug)}" data-kind="module"
+                data-track="${esc(t.slug)}" data-dir="down">↓</button>
+            </div>
+          </div></div></div>`).join("")
+        : `<div class="empty" style="padding:24px">No modules yet. Use <b>+ Add module</b> to write the first one.</div>`}
+    </div>`:""}
+  </div>`;
+}
+
+/* ---------- category editor ---------- */
+function openTrackEditor(slug){
+  const t = slug ? CAT.tracks.find(x=>x.slug===slug)
+    : {slug:"",code:"",name:"",tagline:"",description:"",category:"products",
+       cert_name:"",recert_months:12,audience:"assigned",status:"draft",modules:[],in_use:0};
+  const modal = $("#modal"); modal.classList.remove("hidden");
+  modal.innerHTML = `<div class="sheet">
+    <div class="sheet-h"><h3>${slug?"Edit category":"New category"}</h3><button class="x" id="tClose">×</button></div>
+    <div class="sheet-b">
+      <div id="tErr" class="err hidden"></div>
+      <div class="form-row">
+        <div><label for="fName">Category name</label>
+          <input id="fName" type="text" value="${esc(t.name)}" placeholder="Life &amp; Health"></div>
+        <div><label for="fSlug">URL slug</label>
+          <input id="fSlug" type="text" value="${esc(t.slug)}" placeholder="life-health"
+            ${t.in_use?'readonly title="In use by existing records — slug is locked"':''}></div>
+      </div>
+      <div class="form-row">
+        <div><label for="fCode">Certificate code</label>
+          <input id="fCode" type="text" value="${esc(t.code)}" placeholder="LH" maxlength="5">
+          <div class="tsub" style="margin-top:5px">Used in certificate numbers, e.g. MIA-LH-2026-0012</div></div>
+        <div><label for="fCat">Group</label>
+          <select id="fCat">${Object.entries(CATS).map(([k,v])=>
+            `<option value="${k}" ${t.category===k?"selected":""}>${esc(v)}</option>`).join("")}</select></div>
+      </div>
+      <label for="fTag">Tagline</label>
+      <input id="fTag" type="text" value="${esc(t.tagline||"")}" placeholder="Cross-sell life and health products">
+      <div style="height:14px"></div>
+      <label for="fDesc">Description</label>
+      <textarea id="fDesc" rows="3">${esc(t.description||"")}</textarea>
+      <div style="height:14px"></div>
+      <div class="form-row">
+        <div><label for="fCert">Certification name</label>
+          <input id="fCert" type="text" value="${esc(t.cert_name||"")}" placeholder="Life &amp; Health Product Certified"></div>
+        <div><label for="fRecert">Recertify every (months)</label>
+          <input id="fRecert" type="text" value="${t.recert_months}" inputmode="numeric">
+          <div class="tsub" style="margin-top:5px">0 means it never expires</div></div>
+      </div>
+      <label for="fAud">Who gets this track</label>
+      <select id="fAud">
+        <option value="all" ${t.audience==="all"?"selected":""}>Everyone — every agent, licensed or not</option>
+        <option value="unlicensed" ${t.audience==="unlicensed"?"selected":""}>Unlicensed only — disappears once their licence is recorded</option>
+        <option value="licensed" ${t.audience==="licensed"?"selected":""}>Licensed only — appears when their licence is recorded</option>
+        <option value="assigned" ${t.audience==="assigned"?"selected":""}>Assigned — Belinda picks who gets it</option>
+      </select>
+      <div class="tsub" style="margin-top:6px">This is how a dual track works: an unlicensed hire
+        gets the Everyone tracks plus the Unlicensed-only ones, running side by side.</div>
+    </div>
+    <div class="sheet-f">
+      <button class="btn" id="tSave">Save${slug?"":" as draft"}</button>
+      <button class="btn line" id="tCancel">Cancel</button>
+      ${slug && !t.in_use ? `<button class="btn line" id="tRetire"
+        style="margin-left:auto;color:var(--bad)">Retire category</button>`:""}
+    </div></div>`;
+  modal.scrollTop = 0;
+  const close = ()=>closeModal();
+  modal.querySelector("#tClose").addEventListener("click", close);
+  modal.querySelector("#tCancel").addEventListener("click", close);
+  if(!slug) modal.querySelector("#fName").addEventListener("input", e=>{
+    const sl = modal.querySelector("#fSlug");
+    if(!sl.dataset.touched) sl.value = e.target.value.toLowerCase()
+      .replace(/&/g,"and").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+  });
+  modal.querySelector("#fSlug").addEventListener("input",e=>e.target.dataset.touched="1");
+
+  modal.querySelector("#tSave").addEventListener("click", async ()=>{
+    const b = modal.querySelector("#tSave"); b.disabled=true; b.textContent="Saving…";
+    try{
+      await rpc("training_save_track",{p_code:CODE, p_slug:slug, p_payload:{
+        slug:modal.querySelector("#fSlug").value.trim(),
+        code:modal.querySelector("#fCode").value.trim(),
+        name:modal.querySelector("#fName").value.trim(),
+        tagline:modal.querySelector("#fTag").value.trim(),
+        description:modal.querySelector("#fDesc").value.trim(),
+        category:modal.querySelector("#fCat").value,
+        cert_name:modal.querySelector("#fCert").value.trim(),
+        recert_months:parseInt(modal.querySelector("#fRecert").value,10)||0,
+        audience:modal.querySelector("#fAud").value}});
+      closeModal(); await loadCatalog(); mgrContent();
+      toast(slug?"Category saved":"Category created as a draft");
+    }catch(ex){
+      b.disabled=false; b.textContent="Save";
+      const e2=modal.querySelector("#tErr"); e2.textContent=ex.message; e2.classList.remove("hidden");
+    }
+  });
+  const rt = modal.querySelector("#tRetire");
+  if(rt) rt.addEventListener("click", async ()=>{
+    if(rt.dataset.armed!=="1"){ rt.dataset.armed="1"; rt.textContent="Click again to retire"; return; }
+    rt.disabled=true;
+    await rpc("training_retire",{p_code:CODE,p_kind:"track",p_slug:slug});
+    closeModal(); await loadCatalog(); mgrContent(); toast("Category retired");
+  });
+}
+
+/* ---------- module editor ---------- */
+function openModuleEditor(slug, trackSlug){
+  const src = slug ? CAT.tracks.flatMap(t=>t.modules).find(m=>m.slug===slug) : null;
+  draft = src ? JSON.parse(JSON.stringify(src)) : {
+    slug:"", title:"", subtitle:"", overview:"", estimated_minutes:30, status:"draft",
+    format:"internal", external_url:"", external_provider:"", items:[], quiz:null,
+    completions:0, attempts:0 };
+  draft.track = trackSlug;
+  const modal = $("#modal"); modal.classList.remove("hidden");
+  drawModuleEditor(slug);
+}
+
+function drawModuleEditor(slug){
+  const d = draft, modal = $("#modal");
+  const tracks = CAT.tracks;
+  modal.innerHTML = `<div class="sheet wide">
+    <div class="sheet-h"><h3>${slug?"Edit module":"New module"}</h3>
+      ${d.completions?`<span class="pill score">${d.completions} agent${d.completions===1?"":"s"} completed this</span>`:""}
+      <button class="x" id="mClose">×</button></div>
+    <div class="sheet-b">
+      <div id="mErr" class="err hidden"></div>
+      <div class="form-row">
+        <div><label for="gTitle">Module title</label>
+          <input id="gTitle" type="text" value="${esc(d.title)}" placeholder="Term Life"></div>
+        <div><label for="gSlug">URL slug</label>
+          <input id="gSlug" type="text" value="${esc(d.slug)}" placeholder="lh-term-life"
+            ${d.completions?'readonly title="Agents have completed this module — slug is locked"':''}></div>
+      </div>
+      <label for="gSub">Subtitle</label>
+      <input id="gSub" type="text" value="${esc(d.subtitle||"")}" placeholder="The simplest life conversation">
+      <div style="height:14px"></div>
+      <label for="gOv">Overview</label>
+      <textarea id="gOv" rows="3" placeholder="A short paragraph explaining why this module matters.">${esc(d.overview||"")}</textarea>
+      <div style="height:14px"></div>
+      <div class="form-row">
+        <div><label for="gTrack">Category</label>
+          <select id="gTrack">${tracks.map(t=>
+            `<option value="${esc(t.slug)}" ${d.track===t.slug?"selected":""}>${esc(t.name)}</option>`).join("")}</select></div>
+        <div><label for="gMin">Estimated minutes</label>
+          <input id="gMin" type="text" value="${d.estimated_minutes}" inputmode="numeric"></div>
+      </div>
+      <div class="form-row">
+        <div><label for="gFmt">Format</label>
+          <select id="gFmt">
+            <option value="internal" ${d.format==="internal"?"selected":""}>Internal — content and quiz in the portal</option>
+            <option value="external" ${d.format==="external"?"selected":""}>External — link out, agent confirms completion</option>
+          </select></div>
+        <div id="gExtWrap" class="${d.format==="external"?"":"hidden"}">
+          <label for="gExtUrl">Link to the external training</label>
+          <input id="gExtUrl" type="text" value="${esc(d.external_url||"")}" placeholder="https://…"></div>
+      </div>
+      <div id="gExtProv" class="${d.format==="external"?"":"hidden"}">
+        <label for="gProv">Where it is hosted</label>
+        <input id="gProv" type="text" value="${esc(d.external_provider||"")}"
+          placeholder="Hosted on the Progressive agent portal">
+        <div style="height:14px"></div>
+      </div>
+
+      <div class="section-h" style="margin:22px 0 10px">
+        <h2 style="font-size:15px">Key points</h2>
+        <button class="btn line sm" id="addItem">+ Add point</button>
+      </div>
+      <div id="itemList">${d.items.map(itemRow).join("") ||
+        `<div class="empty" style="padding:22px">No key points yet.</div>`}</div>
+
+      <div class="section-h" style="margin:24px 0 10px">
+        <h2 style="font-size:15px">Quiz</h2>
+        <div style="display:flex;gap:8px;align-items:center">
+          ${d.quiz?`<label style="text-transform:none;letter-spacing:normal;font-size:13px;
+              margin:0;display:flex;align-items:center;gap:7px;color:var(--ink-2)">Pass mark
+            <input id="gPass" type="text" value="${d.quiz.pass_pct}" inputmode="numeric"
+              style="width:62px;padding:6px 9px">%</label>
+          <button class="btn line sm" id="addQ">+ Add question</button>
+          <button class="btn line sm" id="noQuiz" style="color:var(--bad)">Remove quiz</button>`
+          :`<button class="btn line sm" id="mkQuiz">+ Add a quiz</button>`}
+        </div>
+      </div>
+      <div id="qList">${d.quiz ? (d.quiz.questions.map(qRow).join("") ||
+        `<div class="empty" style="padding:22px">No questions yet.</div>`)
+        : `<div class="empty" style="padding:22px">This module has no quiz. Agents complete it by
+             ${d.format==="external"?"confirming they finished the external training":"marking it complete"}.</div>`}</div>
+    </div>
+    <div class="sheet-f">
+      <button class="btn" id="mSave">Save${slug?"":" as draft"}</button>
+      <button class="btn line" id="mPreview">Preview as agent</button>
+      <button class="btn line" id="mCancel">Cancel</button>
+      ${slug && !d.completions ? `<button class="btn line" id="mRetire"
+        style="margin-left:auto;color:var(--bad)">Retire module</button>`:""}
+    </div></div>`;
+  wireModuleEditor(slug);
+}
+
+const KINDS = {point:"Key point", doc:"Document link", task:"Practical task"};
+function itemRow(it,i){
+  return `<div class="card pad" style="padding:13px 15px;margin-bottom:9px" data-item="${i}">
+    <div style="display:flex;gap:9px;align-items:center;margin-bottom:9px">
+      <select class="i-kind" style="width:auto;padding:6px 9px;font-size:13px">
+        ${Object.entries(KINDS).map(([k,v])=>
+          `<option value="${k}" ${it.kind===k?"selected":""}>${esc(v)}</option>`).join("")}</select>
+      <div style="flex:1"></div>
+      <button class="btn line sm i-up">↑</button>
+      <button class="btn line sm i-down">↓</button>
+      <button class="btn line sm i-del" style="color:var(--bad)">Remove</button>
+    </div>
+    <input class="i-label" type="text" value="${esc(it.label||"")}" placeholder="The point, stated plainly">
+    <div style="height:8px"></div>
+    <textarea class="i-detail" rows="2" placeholder="Supporting detail (optional)">${esc(it.detail||"")}</textarea>
+    <div style="height:8px"></div>
+    <input class="i-url" type="text" value="${esc(it.url||"")}" placeholder="Link (optional) — https://…">
+  </div>`;
+}
+function qRow(q,i){
+  const opts = q.options||[];
+  return `<div class="card pad" style="padding:13px 15px;margin-bottom:9px" data-q="${i}">
+    <div style="display:flex;gap:9px;align-items:center;margin-bottom:9px">
+      <b style="font-size:13px;color:var(--ink-3)">Question ${i+1}</b>
+      <div style="flex:1"></div>
+      <button class="btn line sm q-up">↑</button>
+      <button class="btn line sm q-down">↓</button>
+      <button class="btn line sm q-del" style="color:var(--bad)">Remove</button>
+    </div>
+    <input class="q-prompt" type="text" value="${esc(q.prompt||"")}" placeholder="The question">
+    <div style="height:9px"></div>
+    <div class="tsub" style="margin-bottom:6px">Tick the correct answer</div>
+    ${[0,1,2,3].map(n=>`
+      <div style="display:flex;gap:9px;align-items:center;margin-bottom:6px">
+        <input type="radio" name="correct${i}" class="q-correct" value="${n}"
+          ${q.correct_index===n?"checked":""} style="accent-color:var(--navy-3);flex:none">
+        <input class="q-opt" type="text" value="${esc(opts[n]||"")}" placeholder="Option ${n+1}">
+      </div>`).join("")}
+    <div style="height:6px"></div>
+    <textarea class="q-expl" rows="2" placeholder="Explanation shown after answering (optional)">${esc(q.explanation||"")}</textarea>
+  </div>`;
+}
+
+function collectModule(){
+  const modal = $("#modal"), g = s => modal.querySelector(s);
+  const items = [...modal.querySelectorAll("[data-item]")].map(el=>({
+    kind: el.querySelector(".i-kind").value,
+    label: el.querySelector(".i-label").value.trim(),
+    detail: el.querySelector(".i-detail").value.trim(),
+    url: el.querySelector(".i-url").value.trim()
+  })).filter(x=>x.label);
+  let quiz = null;
+  if(g("#gPass")){
+    const questions = [...modal.querySelectorAll("[data-q]")].map(el=>{
+      const opts = [...el.querySelectorAll(".q-opt")].map(o=>o.value.trim()).filter(Boolean);
+      const picked = el.querySelector(".q-correct:checked");
+      return { prompt: el.querySelector(".q-prompt").value.trim(), options: opts,
+               correct_index: picked ? Number(picked.value) : 0,
+               explanation: el.querySelector(".q-expl").value.trim() };
+    }).filter(q=>q.prompt && q.options.length>=2);
+    quiz = { pass_pct: parseInt(g("#gPass").value,10)||80, questions };
+  }
+  return {
+    slug: g("#gSlug").value.trim(), title: g("#gTitle").value.trim(),
+    subtitle: g("#gSub").value.trim(), overview: g("#gOv").value.trim(),
+    track: g("#gTrack").value, estimated_minutes: parseInt(g("#gMin").value,10)||30,
+    format: g("#gFmt").value,
+    external_url: g("#gExtUrl") ? g("#gExtUrl").value.trim() : "",
+    external_provider: g("#gProv") ? g("#gProv").value.trim() : "",
+    items, quiz
+  };
+}
+
+function wireModuleEditor(slug){
+  const modal = $("#modal"), g = s => modal.querySelector(s);
+  modal.scrollTop = 0;
+  const stash = () => { const c = collectModule(); Object.assign(draft, c); };
+
+  g("#mClose").addEventListener("click", closeModal);
+  g("#mCancel").addEventListener("click", closeModal);
+  if(!slug) g("#gTitle").addEventListener("input", e=>{
+    const sl = g("#gSlug");
+    if(!sl.dataset.touched) sl.value = e.target.value.toLowerCase()
+      .replace(/&/g,"and").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+  });
+  g("#gSlug").addEventListener("input", e=>e.target.dataset.touched="1");
+  g("#gFmt").addEventListener("change", ()=>{ stash(); draft.format=g("#gFmt").value; drawModuleEditor(slug); });
+
+  g("#addItem").addEventListener("click", ()=>{
+    stash(); draft.items.push({kind:"point",label:"",detail:"",url:""}); drawModuleEditor(slug);
+  });
+  modal.querySelectorAll("[data-item]").forEach(el=>{
+    const i = Number(el.dataset.item);
+    el.querySelector(".i-del").addEventListener("click",()=>{
+      stash(); draft.items.splice(i,1); drawModuleEditor(slug); });
+    el.querySelector(".i-up").addEventListener("click",()=>{
+      stash(); if(i>0){ [draft.items[i-1],draft.items[i]]=[draft.items[i],draft.items[i-1]];
+        drawModuleEditor(slug);} });
+    el.querySelector(".i-down").addEventListener("click",()=>{
+      stash(); if(i<draft.items.length-1){ [draft.items[i+1],draft.items[i]]=[draft.items[i],draft.items[i+1]];
+        drawModuleEditor(slug);} });
+  });
+
+  const mk = g("#mkQuiz");
+  if(mk) mk.addEventListener("click",()=>{
+    stash(); draft.quiz = {pass_pct:80, questions:[{prompt:"",options:["","","",""],correct_index:0,explanation:""}]};
+    drawModuleEditor(slug);
+  });
+  const nq = g("#noQuiz");
+  if(nq) nq.addEventListener("click",()=>{ stash(); draft.quiz=null; drawModuleEditor(slug); });
+  const aq = g("#addQ");
+  if(aq) aq.addEventListener("click",()=>{
+    stash(); draft.quiz.questions.push({prompt:"",options:["","","",""],correct_index:0,explanation:""});
+    drawModuleEditor(slug);
+  });
+  modal.querySelectorAll("[data-q]").forEach(el=>{
+    const i = Number(el.dataset.q);
+    el.querySelector(".q-del").addEventListener("click",()=>{
+      stash(); draft.quiz.questions.splice(i,1); drawModuleEditor(slug); });
+    el.querySelector(".q-up").addEventListener("click",()=>{
+      stash(); const q=draft.quiz.questions;
+      if(i>0){ [q[i-1],q[i]]=[q[i],q[i-1]]; drawModuleEditor(slug);} });
+    el.querySelector(".q-down").addEventListener("click",()=>{
+      stash(); const q=draft.quiz.questions;
+      if(i<q.length-1){ [q[i+1],q[i]]=[q[i],q[i+1]]; drawModuleEditor(slug);} });
+  });
+
+  g("#mPreview").addEventListener("click",()=>{ stash(); previewModule(slug); });
+
+  g("#mSave").addEventListener("click", async ()=>{
+    const b = g("#mSave"); b.disabled=true; b.textContent="Saving…";
+    const payload = collectModule();
+    try{
+      const r = await rpc("training_save_module",{p_code:CODE,p_slug:slug,p_payload:payload});
+      closeModal(); await loadCatalog(); mgrContent();
+      toast(`Saved — ${r.item_count} key points, ${r.question_count} questions`);
+    }catch(ex){
+      b.disabled=false; b.textContent="Save";
+      const e2=g("#mErr"); e2.textContent=ex.message; e2.classList.remove("hidden"); modal.scrollTop=0;
+    }
+  });
+  const rt = g("#mRetire");
+  if(rt) rt.addEventListener("click", async ()=>{
+    if(rt.dataset.armed!=="1"){ rt.dataset.armed="1"; rt.textContent="Click again to retire"; return; }
+    rt.disabled=true;
+    await rpc("training_retire",{p_code:CODE,p_kind:"module",p_slug:slug});
+    closeModal(); await loadCatalog(); mgrContent(); toast("Module retired");
+  });
+}
+
+/* Render the draft exactly as an agent would see it, without saving anything */
+function previewModule(slug){
+  const d = draft, modal = $("#modal");
+  const key = d.slug || "__preview__";
+  const fake = {...d, slug:key, status:"not_started", best_attempt:null, signoff:null, completed_at:null,
+    quiz: d.quiz && d.quiz.questions.length
+      ? {question_count:d.quiz.questions.length, pass_pct:d.quiz.pass_pct} : null};
+  // modCard reads openMods to decide whether to draw the body, so open it just for this render
+  const had = openMods.has(key); openMods.add(key);
+  const html = modCard(fake, 0);
+  if(!had) openMods.delete(key);
+
+  modal.innerHTML = `<div class="sheet wide">
+    <div class="sheet-h"><h3>Preview — how an agent sees this</h3><button class="x" id="pClose">×</button></div>
+    <div class="sheet-b" style="background:var(--bg)">
+      <div style="pointer-events:none">${html}</div>
+    </div>
+    <div class="sheet-f"><button class="btn" id="pBack">Back to editing</button></div></div>`;
+  modal.scrollTop = 0;
+  modal.querySelector("#pClose").addEventListener("click", closeModal);
+  modal.querySelector("#pBack").addEventListener("click", ()=>drawModuleEditor(slug));
+}
+
+/* ================= restore from url ================= */
+(async function init(){
+  const m = location.hash.match(/c=([^&]+)/);
+  if(m){
+    const code = decodeURIComponent(m[1]).toUpperCase();
+    try{ ME = await rpc("training_login",{p_code:code}); CODE=code; await boot(); }
+    catch(e){ location.hash=""; }
+  }
+})();
+</script>
+</body>
+</html>
