@@ -397,6 +397,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     openCat=new Set(), draft=null,
     CM=null, cmSub="patterns", cmScope="current", cmDays=90,
     selCallAgent=null, CMA=null,
+    OFFICES=null,
     CMS=null, CMF=null, cmPage=0, cmBusy=false,
     cmQ={q:"",from:"",to:"",direction:"",call_type:"",agent:"",rule:"",
          min_score:"",max_score:"",flagged:""};
@@ -425,7 +426,12 @@ async function rpc(fn, params){
       /INVALID_CODE/.test(m) ? "That access code was not recognized." :
       /NOT_MANAGER/.test(m)  ? "That code does not have manager access." :
       /TRACK_IS_REQUIRED_FOR_ALL/.test(m) ? "That track is required for everyone and cannot be removed." :
-      /NO_CERT/.test(m) ? "No certification on file for that track yet." : m);
+      /NO_CERT/.test(m) ? "No certification on file for that track yet." :
+      /NO_OFFICE/.test(m) ? "That is not one of the agency's locations." :
+      /NOT_ENROLLED/.test(m) ? "That person is not enrolled in the portal yet — add them under Add an agent first." :
+      /NO_MODULE/.test(m) ? "That module no longer exists." :
+      /NO_CALL_ACCESS/.test(m) ? "Your code does not have call monitoring access." :
+      /NO_CALL_DETAIL/.test(m) ? "Your code sees agency patterns only, not individual agents." : m);
   }
   return data;
 }
@@ -896,6 +902,11 @@ async function openCertificate(trackSlug, personId){
 /* ================= manager ================= */
 async function loadManager(){
   MGR = await rpc("training_manager_overview",{p_code:CODE});
+  // Office list drives the roster's office picker. Fetched once and cached.
+  if(!OFFICES){
+    try{ OFFICES = await rpc("training_offices",{p_code:CODE}); }
+    catch(e){ OFFICES = []; }
+  }
   renderManager();
 }
 function renderManager(){
@@ -1024,6 +1035,18 @@ function renderDetail(){
         <button class="btn line sm" id="prefSave">Save</button>
       </div>
 
+      <h4 style="font-size:14px;margin-bottom:4px">Office</h4>
+      <p style="font-size:13px;color:var(--ink-2);margin:0 0 10px">
+        Which location they work from. Chosen from the agency's location list rather than typed, so
+        the roster cannot drift.</p>
+      <div style="display:flex;gap:9px;max-width:420px;margin-bottom:20px">
+        <select id="offSel">
+          <option value="">Not recorded</option>
+          ${(OFFICES||[]).map(o=>`<option value="${esc(o.name)}"
+            ${t.location===o.name?"selected":""}>${esc(o.name)}${o.is_active?"":" (closed)"}</option>`).join("")}
+        </select>
+      </div>
+
       <h4 style="font-size:14px;margin-bottom:4px">Licence standing</h4>
       <p style="font-size:13px;color:var(--ink-2);margin:0 0 12px">
         This drives which tracks they see. Recording a licence retires the pre-licensing track and
@@ -1078,6 +1101,14 @@ function renderDetail(){
     await rpc("training_set_preferred_name",
       {p_code:CODE, p_person_id:t.id, p_name:box.querySelector("#prefName").value});
     await loadManager(); renderDetail(); toast("Saved");
+  });
+  box.querySelector("#offSel").addEventListener("change", async e=>{
+    e.target.disabled = true;
+    try{
+      await rpc("training_set_office",{p_code:CODE,p_person_id:t.id,p_location:e.target.value});
+      await loadManager(); renderDetail();
+      toast(e.target.value ? `Office set to ${e.target.value}` : "Office cleared");
+    }catch(ex){ e.target.disabled = false; toast(ex.message); }
   });
   box.querySelector("#licSel").addEventListener("change", async e=>{
     e.target.disabled = true;
@@ -1320,7 +1351,9 @@ function mgrCE(){
       <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap">
         <h3 style="font-size:15.5px">Automatic email reminders</h3>
         <span class="pill ${live?"done":"prog"}">${live?"Sending":"Not sending yet"}</span>
-        <span class="tsub">${EMAILST?EMAILST.queued:0} queued · ${EMAILST?EMAILST.sent_total:0} sent</span>
+        <span class="tsub">${EMAILST?EMAILST.queued:0} queued · ${EMAILST?EMAILST.sent_total:0} sent${
+          EMAILST&&EMAILST.pending?` · ${EMAILST.pending} awaiting confirmation`:""}${
+          EMAILST&&EMAILST.failed?` · <b style="color:var(--bad)">${EMAILST.failed} failed</b>`:""}</span>
       </div>
       <div style="font-size:13.5px;color:var(--ink-2);margin-top:8px">
         ${live
@@ -1330,6 +1363,23 @@ function mgrCE(){
                 ? "The Resend API key still needs adding to Supabase Vault as <b>resend_api_key</b>."
                 : "Switch sending on below once you are ready."}`}
       </div>
+      ${EMAILST && EMAILST.failed ? `
+        <div style="margin-top:12px;padding:11px 13px;background:var(--bad-bg);
+                    border:1px solid #efb5b0;border-radius:10px">
+          <b style="font-size:13.5px;color:var(--bad)">${EMAILST.failed} message${EMAILST.failed===1?"":"s"} rejected</b>
+          <div style="font-size:13px;color:var(--ink-2);margin-top:5px">
+            The provider refused ${EMAILST.failed===1?"it":"these"} and nothing was delivered.
+            ${EMAILST.last_error?`Most recent reason: <b>${esc(EMAILST.last_error)}</b>`:""}
+          </div>
+          <button class="btn line sm" id="emRetry" style="margin-top:9px">Try sending again</button>
+        </div>` : ""}
+      ${EMAILST && EMAILST.api_key_present && EMAILST.api_key_looks_valid === false ? `
+        <div style="margin-top:12px;padding:11px 13px;background:var(--warn-bg);
+                    border:1px solid #eddcbb;border-radius:10px;font-size:13px;color:var(--ink-2)">
+          <b style="color:var(--warn)">The stored API key does not look like a real key.</b>
+          A key is present but it is not in the expected format — most often a placeholder saved by
+          mistake. Nothing will send until it is replaced.
+        </div>` : ""}
       <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:12px">
         <label class="tgl" style="margin:0">
           <input type="checkbox" id="emOn" ${set.email_enabled==="true"?"checked":""}>
@@ -1380,6 +1430,13 @@ function mgrCE(){
     await rpc("training_set_setting",{p_code:CODE,p_key:key,p_value:el.checked?"true":"false"});
     await loadCE(); mgrCE(); toast("Saved");
   };
+  if($("#emRetry")) $("#emRetry").addEventListener("click", async e=>{
+    e.target.disabled = true; e.target.textContent = "Requeueing…";
+    try{
+      const r = await rpc("training_email_retry",{p_code:CODE,p_kind:null});
+      await loadCE(); mgrCE(); toast(`${r.requeued} message${r.requeued===1?"":"s"} requeued`);
+    }catch(ex){ toast(ex.message); e.target.disabled = false; e.target.textContent = "Try sending again"; }
+  });
   $("#emOn").addEventListener("change",e=>flip(e.target,"email_enabled"));
   $("#emCongrats").addEventListener("change",e=>flip(e.target,"congrats_enabled"));
   $("#emStall").addEventListener("change",e=>flip(e.target,"stall_alerts_enabled"));
