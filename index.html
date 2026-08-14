@@ -613,8 +613,11 @@ function openFeedback(){
         note is worth more than nothing.</p>
       <div id="fbErr" class="err hidden"></div>
       <label for="fbSubject">What is this about</label>
-      <select id="fbSubject">${FB_SUBJECTS.map(([v,l])=>
-        `<option value="${v}">${esc(l)}</option>`).join("")}</select>
+      <!-- Deliberately no default. A dropdown that starts on the first real option gets
+           left there, and every hurried submission arrives filed as that one. -->
+      <select id="fbSubject">
+        <option value="" selected>Choose one…</option>
+        ${FB_SUBJECTS.map(([v,l])=>`<option value="${v}">${esc(l)}</option>`).join("")}</select>
       <div style="height:15px"></div>
       <label for="fbWhere">Where in the portal <span style="text-transform:none;
         letter-spacing:normal;font-weight:400;color:var(--ink-3)">(edit if this is wrong)</span></label>
@@ -632,11 +635,14 @@ function openFeedback(){
   modal.scrollTop = 0;
 
   const g = s => modal.querySelector(s);
-  const body = g("#fbBody"), send = g("#fbSend");
-  body.addEventListener("input", ()=>{ send.disabled = !body.value.trim(); });
+  const body = g("#fbBody"), send = g("#fbSend"), subj = g("#fbSubject");
+  // Both a subject and something to say, or there is nothing useful to send.
+  const check = ()=>{ send.disabled = !body.value.trim() || !subj.value; };
+  body.addEventListener("input", check);
+  subj.addEventListener("change", check);
   g("#fbClose").addEventListener("click", closeModal);
   g("#fbCancel").addEventListener("click", closeModal);
-  body.focus();
+  subj.focus();
 
   send.addEventListener("click", async ()=>{
     const err = g("#fbErr");
