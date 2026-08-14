@@ -38,6 +38,13 @@ button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
 .who b{color:#fff;font-weight:600}
 .btn-ghost{color:#c3c6e0;border:1px solid rgba(255,255,255,.22);padding:6px 12px;border-radius:8px;font-size:13px}
 .btn-ghost:hover{background:rgba(255,255,255,.1);color:#fff}
+/* Feedback lives in the header on every page deliberately: someone who has just hit the
+   thing they want to report should not have to go looking for where to say so. */
+.btn-feed{background:var(--gold);color:#241a06;border:0;padding:7px 13px;border-radius:8px;
+  font-size:13px;font-weight:650;display:inline-flex;align-items:center;gap:7px;flex:none}
+.btn-feed:hover{background:#d9a63c}
+.btn-feed svg{width:15px;height:15px;flex:none;stroke:currentColor;fill:none;stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round}
 .wrap{max-width:1180px;margin:0 auto;padding:26px 22px 80px}
 
 /* ---------- login ---------- */
@@ -270,6 +277,9 @@ tbody tr.clk:hover{background:#f8f9fc}
   .who,.btn-ghost{white-space:nowrap}
   .who{font-size:12.5px}
   .btn-ghost{padding:6px 10px}
+  /* the icon still reads as "say something" once the word is gone */
+  .btn-feed{padding:7px 9px}
+  .btn-feed .lbl{display:none}
   .track-head{flex-wrap:wrap}
   .certdoc{padding:24px 20px}
   .certdoc .cwho{font-size:24px}
@@ -365,6 +375,10 @@ tbody tr.clk:hover{background:#f8f9fc}
       </div>
       <div class="spacer"></div>
       <div class="who"><span class="hide-sm">Signed in as</span> <b id="whoName"></b></div>
+      <button class="btn-feed" id="feedBtn" title="Tell Braden about a problem or an idea">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4
+          a8.9 8.9 0 0 1-3.8-.8L3 21l1.9-4.1A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z"/></svg>
+        <span class="lbl">Feedback</span></button>
       <button class="btn-ghost hidden" id="modeToggle"></button>
       <button class="btn-ghost" id="signOut">Sign out</button>
     </div>
@@ -397,7 +411,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     openCat=new Set(), draft=null,
     CM=null, cmSub="patterns", cmScope="current", cmDays=90,
     selCallAgent=null, CMA=null,
-    OFFICES=null,
+    OFFICES=null, FB=null, fbFilter="open",
     CMS=null, CMF=null, cmPage=0, cmBusy=false,
     cmQ={q:"",from:"",to:"",direction:"",call_type:"",agent:"",rule:"",
          min_score:"",max_score:"",flagged:""};
@@ -549,6 +563,103 @@ $("#modeToggle").addEventListener("click", async ()=>{
   try{ await setMode(MODE === "manager" ? "training" : "manager"); }
   finally{ btn.disabled = false; }
 });
+
+/* ================= feedback ================= */
+// The labels here are only what the agent reads. The value posted is what the database
+// validates, and training_feedback_label() renders the same words into the email and the
+// manager tab — so the two never drift apart even if an old browser tab is still open.
+const FB_SUBJECTS = [
+  ["content_wrong",   "Content is wrong or out of date"],
+  ["content_missing", "Something is missing"],
+  ["quiz",            "Quiz question problem"],
+  ["technical",       "Portal or technical problem"],
+  ["question",        "A question I need answered"],
+  ["suggestion",      "Suggestion or idea"],
+  ["other",           "Something else"]
+];
+const MGR_TAB_NAMES = {roster:"Roster", ce:"Licensing & CE", content:"Content editor",
+  tracks:"Track catalog", calls:"Call monitoring", activity:"Activity",
+  add:"Add an agent", feedback:"Feedback"};
+
+// Set whenever a module is opened, so the dialog can answer "where were you" without
+// the agent having to describe it. Pre-filled, and editable, because a guess that is
+// close is more useful than an empty box and less annoying than a wrong one.
+let lastMod = null;
+
+function feedbackWhere(){
+  if(PREVIEW) return "Manager dashboard — previewing the agent view";
+  if(MODE === "manager") return "Manager dashboard — " + (MGR_TAB_NAMES[mgrTab] || mgrTab);
+  return lastMod || "My training";
+}
+
+// Turn a module slug into something a person would recognise in an email, naming the
+// track too because module titles alone are not always distinctive.
+function noteWhere(slug){
+  if(!STATE || !STATE.tracks) return;
+  for(const t of STATE.tracks){
+    const m = (t.modules||[]).find(x=>x.slug===slug);
+    if(m){ lastMod = t.name + " — " + m.title; return; }
+  }
+}
+
+function openFeedback(){
+  const modal = $("#modal"); modal.classList.remove("hidden");
+  modal.innerHTML = `<div class="sheet">
+    <div class="sheet-h"><h3>Send feedback</h3><button class="x" id="fbClose">×</button></div>
+    <div class="sheet-b">
+      <p style="margin:0 0 18px;color:var(--ink-2);font-size:14px">
+        This goes straight to Braden by email. If something here is wrong, out of date, or
+        missing, this is the place to say so — you do not have to be certain, and a rough
+        note is worth more than nothing.</p>
+      <div id="fbErr" class="err hidden"></div>
+      <label for="fbSubject">What is this about</label>
+      <select id="fbSubject">${FB_SUBJECTS.map(([v,l])=>
+        `<option value="${v}">${esc(l)}</option>`).join("")}</select>
+      <div style="height:15px"></div>
+      <label for="fbWhere">Where in the portal <span style="text-transform:none;
+        letter-spacing:normal;font-weight:400;color:var(--ink-3)">(edit if this is wrong)</span></label>
+      <input id="fbWhere" type="text" value="${esc(feedbackWhere())}" maxlength="200">
+      <div style="height:15px"></div>
+      <label for="fbBody">What would you like to say</label>
+      <textarea id="fbBody" rows="7" maxlength="5000"
+        placeholder="For example: the placement rule in this module is not how we do it now — Traders stopped writing this class in June."></textarea>
+    </div>
+    <div class="sheet-f">
+      <button class="btn" id="fbSend" disabled>Send to Braden</button>
+      <button class="btn line" id="fbCancel">Cancel</button>
+      <span style="font-size:13px;color:var(--ink-3)">Sent as ${esc(ME.full_name)}</span>
+    </div></div>`;
+  modal.scrollTop = 0;
+
+  const g = s => modal.querySelector(s);
+  const body = g("#fbBody"), send = g("#fbSend");
+  body.addEventListener("input", ()=>{ send.disabled = !body.value.trim(); });
+  g("#fbClose").addEventListener("click", closeModal);
+  g("#fbCancel").addEventListener("click", closeModal);
+  body.focus();
+
+  send.addEventListener("click", async ()=>{
+    const err = g("#fbErr");
+    send.disabled = true; send.textContent = "Sending…"; err.classList.add("hidden");
+    try{
+      await rpc("training_feedback_submit", {
+        p_code: CODE,
+        p_subject: g("#fbSubject").value,
+        p_body: body.value,
+        p_context: g("#fbWhere").value.trim() || null
+      });
+      closeModal();
+      toast("Thank you — that has gone to Braden");
+      // If a manager is sitting on the Feedback tab, show it immediately rather than
+      // leaving a stale list on screen.
+      if(MODE === "manager" && mgrTab === "feedback"){ await loadFeedback(); mgrFeedback(); }
+    }catch(ex){
+      err.textContent = ex.message; err.classList.remove("hidden");
+      send.disabled = false; send.textContent = "Send to Braden";
+    }
+  });
+}
+$("#feedBtn").addEventListener("click", openFeedback);
 
 /* ================= trainee ================= */
 async function loadTrainee(){
@@ -767,7 +878,9 @@ function wireTrainee(){
   }));
   root.querySelectorAll("[data-toggle]").forEach(b=>b.addEventListener("click",e=>{
     e.stopPropagation();
-    const s=b.dataset.toggle; openMods.has(s)?openMods.delete(s):openMods.add(s); renderTrainee();
+    const s=b.dataset.toggle; openMods.has(s)?openMods.delete(s):openMods.add(s);
+    if(openMods.has(s)) noteWhere(s);
+    renderTrainee();
   }));
   root.querySelectorAll("[data-status]").forEach(b=>b.addEventListener("click", async e=>{
     e.stopPropagation(); b.disabled=true;
@@ -907,6 +1020,10 @@ async function loadManager(){
     try{ OFFICES = await rpc("training_offices",{p_code:CODE}); }
     catch(e){ OFFICES = []; }
   }
+  // Loaded up front rather than on first click, so the count of unanswered feedback is
+  // visible on the tab the moment the dashboard opens. Feedback nobody notices is worse
+  // than no feedback button at all.
+  await loadFeedback();
   renderManager();
 }
 function renderManager(){
@@ -953,6 +1070,8 @@ function renderManager(){
       <button class="tab ${mgrTab==="tracks"?"on":""}" data-tab="tracks">Track catalog</button>
       ${cmHasCall() ? `<button class="tab ${mgrTab==="calls"?"on":""}" data-tab="calls">Call monitoring</button>` : ""}
       <button class="tab ${mgrTab==="activity"?"on":""}" data-tab="activity">Activity${unread?` (${unread})`:""}</button>
+      <button class="tab ${mgrTab==="feedback"?"on":""}" data-tab="feedback">Feedback${
+        FB && FB.open_count ? ` (${FB.open_count})` : ""}</button>
       <button class="tab ${mgrTab==="add"?"on":""}" data-tab="add">Add an agent</button>
     </div>
     <div id="mgrBody"></div>`;
@@ -963,12 +1082,13 @@ function renderManager(){
     if(mgrTab==="content" && !CAT) await loadCatalog();
     if(mgrTab==="ce" && !CE) await loadCE();
     if(mgrTab==="calls" && !CM) await loadCallMonitor();
+    if(mgrTab==="feedback") await loadFeedback();
     renderManager();
   }));
   // A tab a person cannot see must not be reachable by leftover state either.
   if(mgrTab === "calls" && !cmHasCall()) mgrTab = "roster";
   ({roster:mgrRoster, ce:mgrCE, content:mgrContent, tracks:mgrTracks,
-    activity:mgrActivity, add:mgrAdd, calls:mgrCall})[mgrTab]();
+    activity:mgrActivity, add:mgrAdd, calls:mgrCall, feedback:mgrFeedback})[mgrTab]();
 }
 
 function mgrRoster(){
@@ -1179,6 +1299,78 @@ function mgrTracks(){
   }).join("");
 }
 
+async function loadFeedback(){
+  // A failure here must not take the whole dashboard down with it — the tab can be empty,
+  // the roster still has to load.
+  try{ FB = await rpc("training_feedback_list",{p_code:CODE}); }
+  catch(e){ FB = {items:[], open_count:0, error:e.message}; }
+}
+
+function mgrFeedback(){
+  const all = (FB && FB.items) || [];
+  const items = fbFilter === "all" ? all : all.filter(f=>f.status === fbFilter);
+  const openN = all.filter(f=>f.status==="open").length;
+  const body = $("#mgrBody");
+
+  body.innerHTML = `
+    <div class="card pad" style="margin-bottom:12px">
+      <h3 style="font-size:16px;margin-bottom:4px">What agents have told us</h3>
+      <p style="color:var(--ink-2);font-size:14px;margin:0">
+        Sent from the <b>Feedback</b> button in the header. Every submission also goes to
+        Braden by email. Marking one resolved only clears it from this list — it does not
+        reply to anyone, so answer the person directly.</p>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        <button class="btn ${fbFilter==="open"?"":"line"} sm" data-fbf="open">Open${openN?` (${openN})`:""}</button>
+        <button class="btn ${fbFilter==="resolved"?"":"line"} sm" data-fbf="resolved">Resolved</button>
+        <button class="btn ${fbFilter==="all"?"":"line"} sm" data-fbf="all">All</button>
+      </div>
+    </div>
+    <div class="card">${items.length ? items.map(f=>`
+      <div style="padding:15px 17px;border-bottom:1px solid var(--line)">
+        <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px">
+            <div style="font-weight:650;font-size:14.5px">${esc(f.subject_label)}
+              ${f.status==="resolved"
+                ? `<span class="pill done">✓ Resolved</span>`
+                : `<span class="pill prog">● Open</span>`}</div>
+            <div style="font-size:13px;color:var(--ink-2);margin-top:3px">
+              ${esc(f.who)}${f.office?` · ${esc(f.office)}`:""} · ${when(f.created_at)}
+              ${f.context?` · <span style="color:var(--ink-3)">${esc(f.context)}</span>`:""}
+            </div>
+          </div>
+          <div style="display:flex;gap:7px;flex-wrap:wrap">
+            ${f.email?`<a class="btn line sm" href="mailto:${esc(f.email)}?subject=${
+              encodeURIComponent("Your feedback on the training portal")}">Reply</a>`:""}
+            <button class="btn line sm" data-fbr="${f.id}" data-fbv="${
+              f.status==="open"?"1":"0"}">${f.status==="open"?"Mark resolved":"Reopen"}</button>
+          </div>
+        </div>
+        <div style="margin-top:10px;font-size:14px;white-space:pre-wrap;background:#f7f8fc;
+             border-left:3px solid var(--navy-3);padding:11px 13px;border-radius:0 8px 8px 0">${esc(f.body)}</div>
+        ${f.status==="resolved" && f.resolved_by
+          ? `<div style="font-size:11.5px;color:var(--ink-3);margin-top:7px">Marked resolved by ${
+              esc(f.resolved_by)} ${when(f.resolved_at)}</div>` : ""}
+      </div>`).join("")
+    : `<div class="empty">${
+        FB && FB.error ? "Feedback could not be loaded: " + esc(FB.error)
+        : fbFilter==="open" ? "Nothing outstanding. Anything an agent sends from the Feedback button in the header lands here, and emails Braden at the same time."
+        : "Nothing here yet."}</div>`}
+    </div>`;
+
+  body.querySelectorAll("[data-fbf]").forEach(b=>b.addEventListener("click", ()=>{
+    fbFilter = b.dataset.fbf; mgrFeedback();
+  }));
+  body.querySelectorAll("[data-fbr]").forEach(b=>b.addEventListener("click", async ()=>{
+    b.disabled = true;
+    try{
+      await rpc("training_feedback_resolve",
+        {p_code:CODE, p_id:b.dataset.fbr, p_resolved: b.dataset.fbv === "1"});
+      await loadFeedback(); renderManager();
+      toast(b.dataset.fbv === "1" ? "Marked resolved" : "Reopened");
+    }catch(ex){ b.disabled = false; toast(ex.message); }
+  }));
+}
+
 function mgrActivity(){
   const notices = MGR.notices||[];
   const unread = notices.filter(n=>!n.is_read).length;
@@ -1220,8 +1412,11 @@ function mgrAdd(){
         <div class="form-row">
           <div><label for="nEmail">Work email</label><input id="nEmail" type="email"></div>
           <div><label for="nLoc">Location</label>
+            <!-- Was a hardcoded "Oklahoma City / Tulsa" pair, which is how one record was
+                 created with a bare "Tulsa" that matches no office. Same list as the roster. -->
             <select id="nLoc"><option value="">Select…</option>
-              <option>Oklahoma City</option><option>Tulsa</option></select></div>
+              ${(OFFICES||[]).map(o=>`<option value="${esc(o.name)}">${esc(o.name)}</option>`).join("")}
+            </select></div>
           <div><label for="nStart">Start date</label><input id="nStart" type="date"></div>
         </div>
         <div class="form-row">
