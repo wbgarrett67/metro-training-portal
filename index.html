@@ -412,7 +412,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     openCat=new Set(), draft=null,
     CM=null, cmSub="patterns", cmScope="current", cmDays=90,
     selCallAgent=null, CMA=null,
-    OFFICES=null, FB=null, fbFilter="open", LICTYPES=null,
+    OFFICES=null, FB=null, fbFilter="open", LICTYPES=null, UPG=null, UPGQ=null,
     CMS=null, CMF=null, cmPage=0, cmBusy=false,
     cmQ={q:"",from:"",to:"",direction:"",call_type:"",agent:"",rule:"",
          min_score:"",max_score:"",flagged:"",
@@ -697,6 +697,12 @@ $("#feedBtn").addEventListener("click", openFeedback);
 /* ================= trainee ================= */
 async function loadTrainee(){
   STATE = await rpc("training_state",{p_code:CODE});
+  // Kept out of training_state deliberately — that function is read by several things and
+  // this is a small, separable question.
+  if(!PREVIEW){
+    try{ UPG = await rpc("training_upgrade_status",{p_code:CODE}); }
+    catch(e){ UPG = null; }
+  }
   if(openTracks === null){
     // first load: open whatever still needs work, so nobody has to hunt for it
     openTracks = new Set();
@@ -750,6 +756,7 @@ function renderTrainee(){
 
     ${previewBanner()}
     ${ceBanner()}
+    ${upgradeCard()}
 
     <div class="section-h"><h2>My certifications</h2>
       <span class="note">Complete every module in a track to earn its certification.</span></div>
@@ -799,6 +806,47 @@ function certCard(t){
            <div class="cbtn"><button class="btn line sm" data-cert="${esc(t.slug)}">View certificate</button></div>`
         : `<div class="cm">${done} of ${t.modules.length} modules complete</div>
            <div class="bar" style="margin-top:9px"><i style="width:${pct(done,t.modules.length)}%"></i></div>`}
+  </div>`;
+}
+
+// A Personal Lines agent asking to be put forward for commercial authority. Shown only to
+// somebody it applies to, and only in their real view — a manager previewing the agent
+// experience should not be able to file a request as somebody else.
+function upgradeCard(){
+  if(PREVIEW || !UPG) return "";
+  const cur = UPG.current;
+  const open = cur && ["requested","webce","scheduled"].includes(cur.status);
+
+  if(open){
+    const steps = [["requested","Requested"],["webce","On the WebCE course"],["scheduled","Exam booked"]];
+    const at = steps.findIndex(s=>s[0]===cur.status);
+    return `<div class="card pad" style="margin-bottom:16px;border-left:3px solid var(--gold)">
+      <h3 style="font-size:15px;margin-bottom:4px">Adding commercial lines to your licence</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 8px">
+        ${steps.map(([k,l],i)=>`<span class="pill ${i<at?"done":i===at?"prog":"todo"}">${
+          i<at?"✓ ":i===at?"● ":""}${esc(l)}</span>`).join("")}
+      </div>
+      <div style="font-size:13.5px;color:var(--ink-2)">
+        ${cur.status==="requested"
+          ? "Belinda and Braden have your request. They will get you onto the WebCE course and book your exam."
+          : cur.status==="webce"
+            ? "You are enrolled on the WebCE course. Work through it at your own pace — the exam gets booked when you are ready."
+            : `Your exam is booked${cur.exam_date?` for <b>${fdate(cur.exam_date)}</b>`:""}. Once you pass, the Commercial Lines modules appear here automatically.`}
+        ${cur.staff_note?`<div class="expl" style="margin-top:9px">${esc(cur.staff_note)}</div>`:""}
+      </div></div>`;
+  }
+
+  if(!UPG.eligible) return "";
+
+  return `<div class="card pad" style="margin-bottom:16px">
+    <h3 style="font-size:15px;margin-bottom:4px">Want to write commercial too?</h3>
+    <p style="font-size:13.5px;color:var(--ink-2);margin:0 0 12px">
+      Your licence covers personal lines. If you would like to add commercial authority, say so
+      here — Belinda and Braden will get you onto the WebCE course and book your exam. Pass it and
+      the Commercial Lines modules open up in your training automatically.</p>
+    <textarea id="upgNote" rows="2" maxlength="600"
+      placeholder="Anything worth us knowing — optional"></textarea>
+    <div style="margin-top:10px"><button class="btn gold sm" id="upgAsk">Ask about commercial lines</button></div>
   </div>`;
 }
 
@@ -906,6 +954,27 @@ function wireTrainee(){
     if(ex) ex.addEventListener("click", exitPreview);
     return;
   }
+  const ask = root.querySelector("#upgAsk");
+  if(ask) ask.addEventListener("click", async ()=>{
+    ask.disabled = true; ask.textContent = "Sending…";
+    try{
+      const note = root.querySelector("#upgNote");
+      const r = await rpc("training_upgrade_request",
+        {p_code:CODE, p_note: note ? note.value : null});
+      if(r && r.ok === false){
+        toast(r.reason === "already_open" ? "You already have a request in progress."
+            : r.reason === "already_full" ? "Your licence already covers commercial lines."
+            : "That request could not be sent.");
+        ask.disabled = false; ask.textContent = "Ask about commercial lines";
+        return;
+      }
+      UPG = await rpc("training_upgrade_status",{p_code:CODE});
+      renderTrainee();
+      toast("Sent — Belinda and Braden have it");
+    }catch(ex){
+      toast(ex.message); ask.disabled = false; ask.textContent = "Ask about commercial lines";
+    }
+  });
   root.querySelectorAll("[data-track]").forEach(b=>b.addEventListener("click",()=>{
     const s=b.dataset.track; openTracks.has(s)?openTracks.delete(s):openTracks.add(s); renderTrainee();
   }));
@@ -1565,7 +1634,15 @@ function mgrAdd(){
             <span class="code" style="font-size:16px;padding:6px 12px">${esc(lastAdded.code)}</span>
             <button class="btn line sm" id="copyCode" style="margin-left:8px">Copy</button></div>
           <div style="margin-top:9px;font-size:13px;color:var(--ink-2)">
-            Give this code to the agent along with the link to this site. They sign in with it — there is no password.</div>
+            ${lastAdded.welcomed
+              ? "Their code and the link have been emailed to them — nothing else to send."
+              : "No email address on file, so nothing was sent. Add one on their roster panel and use <b>Resend welcome</b>."}</div>
+          ${(lastAdded.tracks||[]).length
+            ? `<div style="margin-top:7px;font-size:13px;color:var(--ink-2)">
+                 Product tracks assigned automatically from their licence:
+                 <b>${lastAdded.tracks.map(esc).join(", ")}</b>.</div>`
+            : `<div style="margin-top:7px;font-size:13px;color:var(--ink-2)">
+                 No product tracks yet — those come with a licence.</div>`}
         </div>`:""}</div>
     </div>`;
   const cc = $("#copyCode");
@@ -1578,18 +1655,18 @@ function mgrAdd(){
     try{
       // "Licensed — Personal Lines only" is one choice on screen but two things underneath:
       // the standing that drives which tracks they see, and the licence type recorded for
-      // compliance. Splitting it here keeps the standing values the rest of the portal reads
-      // unchanged.
+      // compliance. Both go in one call, so the person, their licence and their product
+      // tracks are created together rather than in three steps somebody has to remember.
       const pick = $("#nLic").value;
       const r = await rpc("training_add_trainee",{p_code:CODE,p_name:name,p_email:$("#nEmail").value,
         p_location:$("#nLoc").value,p_start:$("#nStart").value||null,
         p_license: pick === "licensed_personal" ? "licensed" : pick,
-        p_preferred:$("#nPref").value});
-      if(pick === "licensed" || pick === "licensed_personal"){
-        await rpc("training_set_license_type",{p_code:CODE, p_person_id:r.id,
-          p_type: pick === "licensed_personal" ? "personal_lines" : "pc"});
-      }
-      lastAdded = {name, code:r.access_code};
+        p_preferred:$("#nPref").value,
+        p_license_type: pick === "licensed_personal" ? "personal_lines"
+                      : pick === "licensed" ? "pc" : null});
+      lastAdded = {name, code:r.access_code,
+                   tracks:(r.tracks && r.tracks.added) || [],
+                   welcomed:!!(r.welcome && r.welcome.ok)};
       await loadManager();
     }catch(ex){
       const bb=$("#addBtn"); if(bb){bb.disabled=false; bb.textContent="Create access code";}
@@ -1669,6 +1746,75 @@ function ceBanner(){
 async function loadCE(){
   CE = await rpc("training_ce_overview",{p_code:CODE});
   EMAILST = await rpc("training_email_status",{p_code:CODE});
+  try{ UPGQ = await rpc("training_upgrade_list",{p_code:CODE, p_all:true}); }
+  catch(e){ UPGQ = {items:[], open_count:0}; }
+}
+
+// Personal Lines agents asking to add commercial authority. Sits on Licensing & CE because
+// it is the same kind of thing as the CE cycle: a real-world process the portal records
+// milestones for rather than runs. Passing the exam is the one step that does more than
+// record a date — it sets the licence type, which opens the Commercial Lines modules.
+function upgradeQueue(){
+  const items = (UPGQ && UPGQ.items) || [];
+  const open = items.filter(u=>["requested","webce","scheduled"].includes(u.status));
+  if(!items.length) return "";
+
+  const row = u => {
+    const isOpen = ["requested","webce","scheduled"].includes(u.status);
+    const next = u.status === "requested" ? [["webce","Enrolled on WebCE"]]
+               : u.status === "webce"     ? [["scheduled","Book the exam"]]
+               : u.status === "scheduled" ? [["passed","They passed"]]
+               : [];
+    return `<div style="padding:13px 16px;border-bottom:1px solid var(--line)">
+      <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px">
+          <div style="font-weight:650;font-size:14.5px">${esc(u.who)}
+            <span class="pill ${u.status==="passed"?"done":isOpen?"prog":"todo"}">${esc(u.label)}</span></div>
+          <div class="tsub">${esc(u.office||"—")} · asked ${when(u.requested_at)}${
+            u.exam_date?` · exam ${sdate(u.exam_date)}`:""}</div>
+          ${u.request_note?`<div class="expl" style="margin-top:8px">${esc(u.request_note)}</div>`:""}
+        </div>
+        ${isOpen?`<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center">
+          ${u.status==="scheduled"?`<input type="date" data-upgdate="${u.id}"
+             value="${esc(u.exam_date||"")}" style="width:150px">`:""}
+          ${u.status==="webce"?`<input type="date" data-upgdate="${u.id}"
+             placeholder="Exam date" style="width:150px">`:""}
+          ${next.map(([s,l])=>`<button class="btn ${s==="passed"?"gold":"line"} sm"
+             data-upg="${u.id}" data-upgs="${s}">${l}</button>`).join("")}
+          <button class="btn line sm" data-upg="${u.id}" data-upgs="declined">Not now</button>
+        </div>`:""}
+      </div></div>`;
+  };
+
+  return `<div class="card" style="margin-bottom:16px">
+    <div class="pad" style="padding-bottom:4px">
+      <h3 style="font-size:15.5px">Commercial lines requests${open.length?` — ${open.length} open`:""}</h3>
+      <p style="font-size:13px;color:var(--ink-2);margin:6px 0 0">
+        Personal Lines agents who have asked to add commercial authority. Get them onto WebCE,
+        book the exam, then mark them passed — that records the licence and opens the Commercial
+        Lines modules in the same step. They are emailed at every stage.</p>
+    </div>
+    ${items.map(row).join("")}
+  </div>`;
+}
+
+function wireUpgradeQueue(){
+  const body = $("#mgrBody");
+  body.querySelectorAll("[data-upg]").forEach(b=>b.addEventListener("click", async ()=>{
+    const id = b.dataset.upg, status = b.dataset.upgs;
+    const dateEl = body.querySelector(`[data-upgdate="${id}"]`);
+    const exam = dateEl && dateEl.value ? dateEl.value : null;
+    if(status === "scheduled" && !exam){ toast("Put the exam date in first"); return; }
+    b.disabled = true;
+    try{
+      const r = await rpc("training_upgrade_advance",
+        {p_code:CODE, p_id:id, p_status:status, p_exam_date:exam, p_note:null});
+      await loadCE(); renderManager();
+      toast(status === "passed"
+        ? "Recorded — commercial authority and the Commercial Lines track are on their record"
+        : "Updated, and they have been emailed");
+    }catch(ex){ b.disabled = false; toast(ex.message); }
+  }));
 }
 
 function mgrCE(){
@@ -1678,6 +1824,7 @@ function mgrCE(){
   const attention = people.filter(p=>["due","urgent","lapsed","awaiting_nipr"].includes(p.stage)).length;
 
   $("#mgrBody").innerHTML = `
+    ${upgradeQueue()}
     <div class="card pad" style="margin-bottom:16px;border-left:4px solid ${live?"var(--ok)":"var(--warn)"}">
       <div style="display:flex;gap:12px;align-items:baseline;flex-wrap:wrap">
         <h3 style="font-size:15.5px">Automatic email reminders</h3>
@@ -1771,6 +1918,7 @@ function mgrCE(){
   $("#emOn").addEventListener("change",e=>flip(e.target,"email_enabled"));
   $("#emCongrats").addEventListener("change",e=>flip(e.target,"congrats_enabled"));
   $("#emStall").addEventListener("change",e=>flip(e.target,"stall_alerts_enabled"));
+  wireUpgradeQueue();
   if(selCE) renderCEDetail();
 }
 
