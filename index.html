@@ -414,7 +414,8 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     OFFICES=null, FB=null, fbFilter="open", LICTYPES=null,
     CMS=null, CMF=null, cmPage=0, cmBusy=false,
     cmQ={q:"",from:"",to:"",direction:"",call_type:"",agent:"",rule:"",
-         min_score:"",max_score:"",flagged:""};
+         min_score:"",max_score:"",flagged:"",
+         phone:"",time_from:"",time_to:"",sort:"newest"};
 
 /* ================= helpers ================= */
 const $ = s => document.querySelector(s);
@@ -2308,12 +2309,24 @@ function cmSearch(){
             ${(f.call_types||[]).map(t=>`<option value="${esc(t)}"
               ${cmQ.call_type===t?"selected":""}>${esc(String(t).replace(/_/g," "))}</option>`).join("")}
           </select></div>
+        <div class="wide"><label for="csPhone">Phone number</label>
+          <input id="csPhone" type="text" placeholder="405-882-5411, or the last four"
+                 value="${esc(cmQ.phone)}" autocomplete="off" inputmode="tel"></div>
         <div><label for="csFrom">From</label>
           <input id="csFrom" type="date" value="${esc(cmQ.from)}"
                  ${range.first?`min="${esc(range.first)}"`:""} ${range.last?`max="${esc(range.last)}"`:""}></div>
         <div><label for="csTo">To</label>
           <input id="csTo" type="date" value="${esc(cmQ.to)}"
                  ${range.first?`min="${esc(range.first)}"`:""} ${range.last?`max="${esc(range.last)}"`:""}></div>
+        <div><label for="csTimeFrom">Between (time)</label>
+          <input id="csTimeFrom" type="time" value="${esc(cmQ.time_from)}"></div>
+        <div><label for="csTimeTo">and</label>
+          <input id="csTimeTo" type="time" value="${esc(cmQ.time_to)}"></div>
+        <div><label for="csSort">Order</label>
+          <select id="csSort">
+            ${[["newest","Newest first"],["oldest","Oldest first"]]
+              .map(([v,l])=>`<option value="${v}" ${cmQ.sort===v?"selected":""}>${l}</option>`).join("")}
+          </select></div>
         <div><label for="csDir">Direction</label>
           <select id="csDir">
             ${[["","Any"],["inbound","Inbound"],["outbound","Outbound"],["internal","Internal"]]
@@ -2360,6 +2373,9 @@ function cmSearch(){
     cmQ.direction = $("#csDir").value; cmQ.flagged = $("#csFlagged").value;
     cmQ.rule = $("#csRule").value;
     cmQ.min_score = $("#csMin").value; cmQ.max_score = $("#csMax").value;
+    cmQ.phone = $("#csPhone").value.trim();
+    cmQ.time_from = $("#csTimeFrom").value; cmQ.time_to = $("#csTimeTo").value;
+    cmQ.sort = $("#csSort").value;
   };
   const go = async (page) => {
     if(cmBusy) return;
@@ -2373,7 +2389,10 @@ function cmSearch(){
         p_rule:cmQ.rule||null,
         p_flagged: cmQ.flagged===""?null:cmQ.flagged==="true",
         p_min_score: cmQ.min_score===""?null:Number(cmQ.min_score),
-        p_max_score: cmQ.max_score===""?null:Number(cmQ.max_score)});
+        p_max_score: cmQ.max_score===""?null:Number(cmQ.max_score),
+        p_phone: cmQ.phone||null,
+        p_time_from: cmQ.time_from||null, p_time_to: cmQ.time_to||null,
+        p_sort: cmQ.sort||"newest"});
       cmSearch();
     }catch(ex){ toast(ex.message); }
     finally{ cmBusy = false; }
@@ -2388,12 +2407,24 @@ function cmSearch(){
   $("#csGo").addEventListener("click", ()=>go(0));
   $("#csClear").addEventListener("click", ()=>{
     cmQ = {q:"",from:"",to:"",direction:"",call_type:"",agent:"",rule:"",
-           min_score:"",max_score:"",flagged:""};
+           min_score:"",max_score:"",flagged:"",
+           phone:"",time_from:"",time_to:"",sort:"newest"};
     CMS = null; cmPage = 0; cmSearch();
   });
   $("#cmBody").querySelectorAll("input").forEach(i=>i.addEventListener("keydown", e=>{
     if(e.key === "Enter"){ e.preventDefault(); go(0); }
   }));
+}
+
+// Numbers arrive as +1XXXXXXXXXX, bare ten digits, or a three-digit extension. Show the
+// familiar shape where there is one and leave anything else exactly as the phone system
+// recorded it, rather than mangling it into a format it is not.
+function phoneFmt(n){
+  const d = String(n||"").replace(/\D/g,"");
+  const t = d.length === 11 && d.startsWith("1") ? d.slice(1) : d;
+  if(t.length === 10) return `(${t.slice(0,3)}) ${t.slice(3,6)}-${t.slice(6)}`;
+  if(t.length === 7)  return `${t.slice(0,3)}-${t.slice(3)}`;
+  return n || "—";
 }
 
 function cmSearchResults(){
@@ -2409,13 +2440,15 @@ function cmSearchResults(){
     ${total ? `
     <div class="card" style="overflow-x:auto">
       <table><thead><tr>
-        <th>When</th><th>Person</th><th>Type</th><th class="hide-sm">Length</th>
+        <th>When</th><th>Number</th><th>Person</th><th>Type</th><th class="hide-sm">Length</th>
         <th>Score</th><th>Flags</th>
       </tr></thead><tbody>
         ${(r.results||[]).map(c=>`<tr class="clk" data-cscall="${c.recording_id}">
           <td><div class="tname">${sdate(c.started_at)}</div>
               <div class="tsub">${new Date(c.started_at).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
                 · ${esc(c.direction)}</div></td>
+          <td><div class="tname" style="font-variant-numeric:tabular-nums">${esc(phoneFmt(c.customer_number))}</div>
+              <div class="tsub">${c.direction==="outbound"?"called":c.direction==="internal"?"internal":"calling in"}</div></td>
           <td><div class="tname">${esc(c.display_name||"—")}</div>
               <div class="tsub">${esc(c.office||c.queue||"—")}</div></td>
           <td><span class="tsub">${esc(String(c.call_type||"—").replace(/_/g," "))}${
@@ -2452,7 +2485,10 @@ function cmSearchResults(){
         p_rule:cmQ.rule||null,
         p_flagged: cmQ.flagged===""?null:cmQ.flagged==="true",
         p_min_score: cmQ.min_score===""?null:Number(cmQ.min_score),
-        p_max_score: cmQ.max_score===""?null:Number(cmQ.max_score)});
+        p_max_score: cmQ.max_score===""?null:Number(cmQ.max_score),
+        p_phone: cmQ.phone||null,
+        p_time_from: cmQ.time_from||null, p_time_to: cmQ.time_to||null,
+        p_sort: cmQ.sort||"newest"});
       cmPage = n; cmSearch(); window.scrollTo(0,0);
     }catch(ex){ toast(ex.message); }
     finally{ cmBusy = false; }
