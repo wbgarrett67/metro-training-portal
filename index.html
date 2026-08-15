@@ -1161,6 +1161,19 @@ function renderDetail(){
         <button class="btn line sm" id="prefSave">Save</button>
       </div>
 
+      <h4 style="font-size:14px;margin-bottom:4px">Work email</h4>
+      <p style="font-size:13px;color:var(--ink-2);margin:0 0 10px">
+        Where every automatic message goes, including their welcome. A wrong address fails
+        silently — nothing bounces back into the portal, the mail simply never arrives.</p>
+      <div style="display:flex;gap:9px;max-width:520px;margin-bottom:8px;flex-wrap:wrap">
+        <input id="emailIn" type="email" style="flex:1;min-width:240px"
+          value="${esc(t.email||"")}" placeholder="Not recorded">
+        <button class="btn line sm" id="emailSave">Save</button>
+        <button class="btn line sm" id="welcomeAgain"
+          title="Send the welcome email again, to whatever address is saved">Resend welcome</button>
+      </div>
+      <div id="emailMsg" style="font-size:13px;color:var(--ink-2);margin-bottom:20px"></div>
+
       <h4 style="font-size:14px;margin-bottom:4px">Office</h4>
       <p style="font-size:13px;color:var(--ink-2);margin:0 0 10px">
         Which location they work from. Chosen from the agency's location list rather than typed, so
@@ -1227,6 +1240,37 @@ function renderDetail(){
     await rpc("training_set_preferred_name",
       {p_code:CODE, p_person_id:t.id, p_name:box.querySelector("#prefName").value});
     await loadManager(); renderDetail(); toast("Saved");
+  });
+  box.querySelector("#emailSave").addEventListener("click", async ()=>{
+    const b = box.querySelector("#emailSave"), msg = box.querySelector("#emailMsg");
+    b.disabled = true; msg.textContent = "";
+    try{
+      const r = await rpc("training_set_email",
+        {p_code:CODE, p_person_id:t.id, p_email:box.querySelector("#emailIn").value});
+      await loadManager(); renderDetail();
+      toast(r.email ? "Email saved" : "Email cleared");
+      // Correcting an address almost always means the welcome went nowhere. Say so
+      // rather than leaving them to work out that it needs sending again.
+      if(r.email && r.welcomed_at){
+        const m2 = $("#emailMsg");
+        if(m2) m2.textContent =
+          "Saved. If the old address was wrong, their welcome never arrived — use Resend welcome.";
+      }
+    }catch(ex){
+      b.disabled = false;
+      msg.textContent = /BAD_EMAIL/.test(ex.message) ? "That does not look like an email address."
+        : /EMAIL_IN_USE/.test(ex.message) ? "Somebody else on the roster already has that address."
+        : ex.message;
+      msg.style.color = "var(--bad)";
+    }
+  });
+  box.querySelector("#welcomeAgain").addEventListener("click", async ()=>{
+    const b = box.querySelector("#welcomeAgain"); b.disabled = true; b.textContent = "Sending…";
+    try{
+      const r = await rpc("training_welcome_send",{p_code:CODE, p_person_id:t.id, p_force:true});
+      toast(r.ok ? `Welcome queued to ${r.to}` : "No email address on file for them");
+    }catch(ex){ toast(ex.message); }
+    finally{ b.disabled = false; b.textContent = "Resend welcome"; }
   });
   box.querySelector("#offSel").addEventListener("change", async e=>{
     e.target.disabled = true;
