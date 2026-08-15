@@ -353,7 +353,8 @@ tbody tr.clk:hover{background:#f8f9fc}
     <div id="loginErr" class="err hidden"></div>
     <form id="loginForm">
       <label for="code">Access code</label>
-      <input id="code" type="text" placeholder="MIA-XXXXXX" autocomplete="off" spellcheck="false" required>
+      <input id="code" type="text" placeholder="MIA-XXXX-XXXX-XXXX" autocomplete="off"
+             spellcheck="false" autocapitalize="characters" style="letter-spacing:.04em" required>
       <div style="height:16px"></div>
       <button class="btn wide" type="submit" id="loginBtn">Open my training</button>
     </form>
@@ -505,17 +506,42 @@ $("#loginForm").addEventListener("submit", async e=>{
   if(!code) return;
   btn.disabled=true; btn.textContent="Checking…"; err.classList.add("hidden");
   try{
-    ME = await rpc("training_login",{p_code:code}); CODE=code;
-    location.hash = "#c="+encodeURIComponent(code);
+    const r = await rpc("training_login",{p_code:code});
+    // A wrong code now comes back as a result rather than an error, so the failure can be
+    // counted before the answer is returned. See training_login.
+    if(!r || r.ok === false){
+      err.textContent = r && r.error === "TOO_MANY_ATTEMPTS"
+        ? "Too many wrong codes have been tried recently. Wait ten minutes and try again — "
+          + "if this keeps happening, tell Braden, because it may not be you."
+        : "That access code was not recognized.";
+      err.classList.remove("hidden");
+      return;
+    }
+    ME = r; CODE = code;
+    rememberCode(code);
     await boot();
   }catch(ex){ err.textContent=ex.message; err.classList.remove("hidden"); }
   finally{ btn.disabled=false; btn.textContent="Open my training"; }
 });
+
+// The code used to be written into the address bar as #c=CODE so a refresh kept you signed
+// in. That is exactly how a forwarded bookmark signed a new hire in as the Agency Owner on
+// 11 August. sessionStorage does the same job without the credential ever entering a URL:
+// a refresh still works, a forwarded link signs in nobody, and closing the tab forgets it.
+function rememberCode(code){
+  try{ sessionStorage.setItem("mia_code", code); }catch(e){}
+}
+function recallCode(){
+  try{ return sessionStorage.getItem("mia_code"); }catch(e){ return null; }
+}
+function forgetCode(){
+  try{ sessionStorage.removeItem("mia_code"); }catch(e){}
+}
 $("#signOut").addEventListener("click", ()=>{
   if(PREVIEW){ exitPreview(); return; }
   CODE=ME=STATE=MGR=null; selTrainee=null; lastAdded=null; MODE=null;
   CM=CMA=null; selCallAgent=null; cmSub="patterns"; cmScope="current"; cmDays=90;
-  openMods.clear(); openTracks=null; location.hash="";
+  openMods.clear(); openTracks=null; location.hash=""; forgetCode();
   $("#modeToggle").classList.add("hidden");
   $("#view-app").classList.add("hidden");
   $("#view-login").classList.remove("hidden");
@@ -1153,6 +1179,7 @@ function renderDetail(){
   box.innerHTML = `
     <div class="section-h"><h2>${esc(t.full_name)}</h2>
       <div style="display:flex;gap:8px">
+        <button class="btn line sm" id="rotCode">Rotate access code</button>
         <button class="btn line sm" id="rmTrainee">Remove from program</button>
         <button class="btn line sm" id="closeDetail">Close</button>
       </div></div>
@@ -1259,6 +1286,17 @@ function renderDetail(){
     await rpc("training_set_preferred_name",
       {p_code:CODE, p_person_id:t.id, p_name:box.querySelector("#prefName").value});
     await loadManager(); renderDetail(); toast("Saved");
+  });
+  box.querySelector("#rotCode").addEventListener("click", async ()=>{
+    const b = box.querySelector("#rotCode");
+    b.disabled = true; b.textContent = "Rotating…";
+    try{
+      const r = await rpc("training_rotate_code",{p_code:CODE, p_person_id:t.id, p_notify:true});
+      await loadManager(); renderDetail();
+      // Their own record is untouched — only the way in changes — so say so, because
+      // "your code changed" sounds like "your progress was reset" to most people.
+      toast(r.emailed ? `New code sent to ${r.to}` : `New code: ${r.access_code} — no email on file`);
+    }catch(ex){ b.disabled = false; b.textContent = "Rotate access code"; toast(ex.message); }
   });
   box.querySelector("#emailSave").addEventListener("click", async ()=>{
     const b = box.querySelector("#emailSave"), msg = box.querySelector("#emailMsg");
@@ -3065,14 +3103,21 @@ function previewModule(slug){
   modal.querySelector("#pBack").addEventListener("click", ()=>drawModuleEditor(slug));
 }
 
-/* ================= restore from url ================= */
+/* ================= restore the session ================= */
 (async function init(){
-  const m = location.hash.match(/c=([^&]+)/);
-  if(m){
-    const code = decodeURIComponent(m[1]).toUpperCase();
-    try{ ME = await rpc("training_login",{p_code:code}); CODE=code; await boot(); }
-    catch(e){ location.hash=""; }
+  // A code in the address bar is no longer honoured. Anyone still holding an old
+  // #c=CODE bookmark gets the sign-in box, and the code is stripped from the URL so it
+  // does not sit in history or get screen-shared.
+  if(/[#&]c=/.test(location.hash)){
+    history.replaceState(null, "", location.pathname + location.search);
   }
+  const code = recallCode();
+  if(!code) return;
+  try{
+    const r = await rpc("training_login",{p_code:code});
+    if(r && r.ok !== false){ ME = r; CODE = code; await boot(); }
+    else forgetCode();
+  }catch(e){ forgetCode(); }
 })();
 </script>
 </body>
