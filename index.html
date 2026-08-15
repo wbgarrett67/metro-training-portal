@@ -411,7 +411,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     openCat=new Set(), draft=null,
     CM=null, cmSub="patterns", cmScope="current", cmDays=90,
     selCallAgent=null, CMA=null,
-    OFFICES=null, FB=null, fbFilter="open",
+    OFFICES=null, FB=null, fbFilter="open", LICTYPES=null,
     CMS=null, CMF=null, cmPage=0, cmBusy=false,
     cmQ={q:"",from:"",to:"",direction:"",call_type:"",agent:"",rule:"",
          min_score:"",max_score:"",flagged:""};
@@ -1026,6 +1026,10 @@ async function loadManager(){
     try{ OFFICES = await rpc("training_offices",{p_code:CODE}); }
     catch(e){ OFFICES = []; }
   }
+  // Fetched separately rather than folded into training_manager_overview, which six other
+  // things read — adding a field there is a change with a much wider blast radius.
+  try{ LICTYPES = await rpc("training_license_types",{p_code:CODE}); }
+  catch(e){ LICTYPES = {}; }
   // Loaded up front rather than on first click, so the count of unanswered feedback is
   // visible on the tab the moment the dashboard opens. Feedback nobody notices is worse
   // than no feedback button at all.
@@ -1118,7 +1122,8 @@ function mgrRoster(){
                   ? ` <span class="tsub">(${esc(t.preferred_name)})</span>` : ""}</div>
               <div class="tsub">${esc(t.location||"—")} · started ${sdate(t.start_date)}</div></td>
           <td><span class="pill ${t.license_status==="licensed"?"done"
-                : t.license_status==="in_progress"?"prog":"todo"}">${esc(LIC[t.license_status]||"—")}</span></td>
+                : t.license_status==="in_progress"?"prog":"todo"}">${esc(LIC[t.license_status]||"—")}</span>
+              ${licTypeLabel(t.id)?`<div class="tsub">${esc(licTypeLabel(t.id))}</div>`:""}</td>
           <td><div style="display:flex;align-items:center;gap:10px">
                 <div class="bar mini-bar"><i style="width:${p}%"></i></div><b style="font-size:13px">${p}%</b></div>
               <div class="tsub">${t.completed} of ${t.total_modules} modules</div></td>
@@ -1194,6 +1199,19 @@ function renderDetail(){
         ${Object.entries(LIC).map(([k,v])=>
           `<option value="${k}" ${t.license_status===k?"selected":""}>${esc(v)}</option>`).join("")}
       </select>
+
+      ${t.license_status==="licensed" ? `
+      <h4 style="font-size:14px;margin:20px 0 4px">Licence type</h4>
+      <p style="font-size:13px;color:var(--ink-2);margin:0 0 10px">
+        What their licence actually authorises. Both types see the same training — this is a
+        compliance record, and it is the check to make before assigning Commercial Lines.</p>
+      <select id="licTypeSel" style="max-width:340px">
+        <option value="pc" ${licTypeOf(t.id)!=="personal_lines"?"selected":""}>Property &amp; Casualty</option>
+        <option value="personal_lines" ${licTypeOf(t.id)==="personal_lines"?"selected":""}>Personal Lines only</option>
+      </select>
+      ${licTypeOf(t.id)==="personal_lines" ? `<div class="expl" style="margin-top:10px">
+        Personal Lines only — they are not authorised for commercial business, so Commercial Lines
+        Products should stay unassigned until their licence is extended.</div>` : ""}` : ""}
     </div>
 
     <div class="card pad" style="margin-bottom:16px">
@@ -1283,8 +1301,24 @@ function renderDetail(){
   box.querySelector("#licSel").addEventListener("change", async e=>{
     e.target.disabled = true;
     await rpc("training_set_license",{p_code:CODE,p_person_id:t.id,p_status:e.target.value});
+    // A licence type belongs to a licence. Dropping the standing has to drop it too, or the
+    // roster would show an unlicensed person as Property & Casualty.
+    if(e.target.value !== "licensed"){
+      try{ await rpc("training_set_license_type",{p_code:CODE,p_person_id:t.id,p_type:null}); }
+      catch(ex){ /* nothing recorded to clear */ }
+    }
     await loadManager(); renderDetail();
     toast(`Licence standing updated — ${LIC[e.target.value]}`);
+  });
+  const lt = box.querySelector("#licTypeSel");
+  if(lt) lt.addEventListener("change", async e=>{
+    e.target.disabled = true;
+    try{
+      const r = await rpc("training_set_license_type",
+        {p_code:CODE, p_person_id:t.id, p_type:e.target.value});
+      await loadManager(); renderDetail();
+      toast(`Licence type set — ${r.label}`);
+    }catch(ex){ e.target.disabled = false; toast(ex.message); }
   });
   box.querySelector("#rmTrainee").addEventListener("click", async ()=>{
     const b = box.querySelector("#rmTrainee");
@@ -1472,12 +1506,15 @@ function mgrAdd(){
         <div class="form-row">
           <div><label for="nLic">Licence standing</label>
             <select id="nLic">
-              <option value="licensed">Licensed — new to Metro, already holds a licence</option>
+              <option value="licensed">Licensed — Property &amp; Casualty</option>
+              <option value="licensed_personal">Licensed — Personal Lines only</option>
               <option value="unlicensed">Unlicensed — brand new to the business</option>
               <option value="in_progress">Licensing in progress</option>
             </select>
             <div class="tsub" style="margin-top:5px">An unlicensed hire gets the pre-licensing
-              track alongside Metro Insurance Basics.</div></div>
+              track alongside Metro Insurance Basics. Both licensed options see the same tracks —
+              the difference is recorded for compliance, and Commercial Lines is assigned
+              separately anyway.</div></div>
           <div></div>
         </div>
         <button class="btn" type="submit" id="addBtn">Create access code</button>
@@ -1500,9 +1537,19 @@ function mgrAdd(){
     const b=$("#addBtn"), name=$("#nName").value.trim();
     b.disabled=true; b.textContent="Creating…";
     try{
+      // "Licensed — Personal Lines only" is one choice on screen but two things underneath:
+      // the standing that drives which tracks they see, and the licence type recorded for
+      // compliance. Splitting it here keeps the standing values the rest of the portal reads
+      // unchanged.
+      const pick = $("#nLic").value;
       const r = await rpc("training_add_trainee",{p_code:CODE,p_name:name,p_email:$("#nEmail").value,
         p_location:$("#nLoc").value,p_start:$("#nStart").value||null,
-        p_license:$("#nLic").value, p_preferred:$("#nPref").value});
+        p_license: pick === "licensed_personal" ? "licensed" : pick,
+        p_preferred:$("#nPref").value});
+      if(pick === "licensed" || pick === "licensed_personal"){
+        await rpc("training_set_license_type",{p_code:CODE, p_person_id:r.id,
+          p_type: pick === "licensed_personal" ? "personal_lines" : "pc"});
+      }
       lastAdded = {name, code:r.access_code};
       await loadManager();
     }catch(ex){
@@ -2506,6 +2553,11 @@ const CATS = {core:"Core", licensing:"Licensing & credentials", skills:"Skills",
 const AUD = {all:"Everyone", unlicensed:"Unlicensed only", licensed:"Licensed only",
              assigned:"Assigned"};
 const LIC = {unlicensed:"Unlicensed", in_progress:"Licensing in progress", licensed:"Licensed"};
+// Oklahoma issues a limited Personal Lines licence separately from full Property & Casualty.
+// Recorded beside the standing rather than inside it, because the standing decides which
+// tracks a person sees and a personal-lines agent still needs every licensed track.
+const licTypeLabel = id => (LICTYPES && LICTYPES[id] && LICTYPES[id].label) || "";
+const licTypeOf    = id => (LICTYPES && LICTYPES[id] && LICTYPES[id].type)  || "";
 const CE_STAGE = {
   ok:        {label:"On track",            cls:"todo"},
   due:       {label:"CE due",              cls:"prog"},
