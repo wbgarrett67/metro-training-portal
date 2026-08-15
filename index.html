@@ -2248,6 +2248,14 @@ async function openCallDetail(recordingId){
           ${d.hard_fail?`<span class="pill fail">Hard fail</span>`:""}
         </div>
 
+        <div class="card pad" style="margin-bottom:18px">
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <button class="btn gold sm" id="cmPlay">▶ Listen to this call</button>
+            <span class="tsub" id="cmPlayNote">The recording opens for five minutes, then the link expires.</span>
+          </div>
+          <div id="cmAudioWrap" style="margin-top:12px"></div>
+        </div>
+
         <h4 style="margin-bottom:9px">Flags — ${(d.flags||[]).length}</h4>
         ${(d.flags||[]).map(f=>`
           <div class="card pad" style="margin-bottom:11px">
@@ -2290,6 +2298,42 @@ async function openCallDetail(recordingId){
   $("#cmdClose").addEventListener("click", closeModal);
   $("#modal").querySelectorAll("[data-coach2]").forEach(b=>b.addEventListener("click", ()=>
     cmAssign(b.dataset.coach2, b.dataset.rule2, recordingId)));
+
+  // Audio is fetched only when asked for. The recordings bucket is private, so this
+  // trades the access code for a signed URL that expires in five minutes — the page never
+  // holds a durable link to a customer call.
+  const play = $("#cmPlay");
+  if(play) play.addEventListener("click", async ()=>{
+    const wrap = $("#cmAudioWrap"), note = $("#cmPlayNote");
+    play.disabled = true; play.textContent = "Fetching…";
+    try{
+      const r = await fetch(`${SUPABASE_URL}/functions/v1/portal-call-audio`, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "apikey":SUPABASE_KEY },
+        body: JSON.stringify({ code: CODE, recording_id: recordingId })
+      });
+      const j = await r.json();
+      if(!j.ok){
+        note.textContent =
+          j.error === "no_audio"       ? "No recording was stored for this call — older and very short calls often have none."
+        : j.error === "NO_CALL_ACCESS" ? "Your code does not have call monitoring access."
+        : j.error === "INVALID_CODE"   ? "That access code was not recognized."
+        : "The recording could not be opened.";
+        play.textContent = "▶ Listen to this call"; play.disabled = false;
+        return;
+      }
+      // preload="auto", not "none": with "none" the element renders but never fetches, so
+      // the player looks ready and does nothing until you press play a second time. The
+      // fetch is already deliberate — you had to click Listen to get here.
+      wrap.innerHTML = `<audio controls autoplay preload="auto" style="width:100%"
+                          src="${esc(j.url)}"></audio>`;
+      note.textContent = `Link expires in ${Math.round((j.expires_in||300)/60)} minutes — press the button again if it stops working.`;
+      play.textContent = "▶ Reload the recording"; play.disabled = false;
+    }catch(ex){
+      note.textContent = "The recording could not be reached.";
+      play.textContent = "▶ Listen to this call"; play.disabled = false;
+    }
+  });
 }
 
 /* ---- search and browse calls ----
