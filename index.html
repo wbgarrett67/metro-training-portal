@@ -442,7 +442,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     selCE=null,
     openMods=new Set(), openTracks=null, mgrTab="roster", selTrainee=null,
     openCat=new Set(), draft=null,
-    CM=null, cmSub="patterns", cmScope="current", cmDays=90,
+    CM=null, cmSub="patterns", cmScope="current", cmDays=90, cmReturn=null, cmOppLabel="",
     selCallAgent=null, CMA=null,
     OFFICES=null, FB=null, fbFilter="open", LICTYPES=null, UPG=null, UPGQ=null,
     CMS=null, CMF=null, cmPage=0, cmBusy=false,
@@ -617,7 +617,7 @@ function forgetCode(){
 $("#signOut").addEventListener("click", ()=>{
   if(PREVIEW){ exitPreview(); return; }
   CODE=ME=STATE=MGR=null; selTrainee=null; lastAdded=null; MODE=null;
-  CM=CMA=null; selCallAgent=null; cmSub="patterns"; cmScope="current"; cmDays=90;
+  CM=CMA=null; selCallAgent=null; cmSub="patterns"; cmScope="current"; cmDays=90; cmReturn=null;
   openMods.clear(); openTracks=null; location.hash=""; forgetCode();
   $("#modeToggle").classList.add("hidden");
   $("#view-app").classList.add("hidden");
@@ -2230,7 +2230,10 @@ function cmPatterns(){
           <td><div class="tname">${esc(r.label||r.rule_id)}</div>
               <div class="tsub"><span class="code">${esc(r.rule_id)}</span></div></td>
           <td><span class="sev ${esc(r.severity||"LOW")}">${esc(r.severity||"—")}</span></td>
-          <td><b>${r.calls}</b><div class="tsub">${Math.round(r.calls*100/calls)}% of calls</div></td>
+          <td><button class="btn line sm" data-jump-rule="${esc(r.rule_id)}"
+                 data-jump-days="${cmDays}"
+                 title="Open every call where this fired"><b>${r.calls}</b> &rsaquo;</button>
+              <div class="tsub">${Math.round(r.calls*100/calls)}% of calls</div></td>
           ${cmFull()?`<td>${r.agents}</td>`:""}
           <td>${cmModuleCell(r)}</td>
         </tr>`).join("")}
@@ -2249,9 +2252,17 @@ function cmPatterns(){
             <td><div class="tname">${esc(o.label||o.opportunity_id)}</div>
                 <div class="tsub"><span class="code">${esc(o.opportunity_id)}</span></div></td>
             <td>${o.present}</td>
-            <td><b style="color:${rate>=75?"var(--bad)":rate>=50?"var(--warn)":"var(--ink)"}">${o.missed}</b>
+            <td><button class="btn line sm" data-jump-opp="${esc(o.opportunity_id)}"
+                   data-jump-opp-status="PRESENT_MISSED" data-jump-days="${cmDays}"
+                   data-jump-opp-label="${esc(o.label||o.opportunity_id)}"
+                   title="Open every call where this came up and was not taken"
+                   ><b style="color:${rate>=75?"var(--bad)":rate>=50?"var(--warn)":"var(--ink)"}">${o.missed}</b> &rsaquo;</button>
                 <div class="tsub">${rate}% missed</div></td>
-            <td>${o.addressed}</td>
+            <td>${o.addressed ? `<button class="btn line sm" data-jump-opp="${esc(o.opportunity_id)}"
+                   data-jump-opp-status="PRESENT_ADDRESSED" data-jump-days="${cmDays}"
+                   data-jump-opp-label="${esc(o.label||o.opportunity_id)}"
+                   title="Hear it done well — the calls where this was taken"
+                   >${o.addressed} &rsaquo;</button>` : o.addressed}</td>
             <td>${cmModuleCell(o)}</td>
           </tr>`;}).join("") || `<tr><td colspan="5"><span class="tsub">No opportunities recorded in this period.</span></td></tr>`}
       </tbody></table>
@@ -2281,6 +2292,7 @@ function cmPatterns(){
         </div>
       </div>
     </div>`;
+  cmWireJumps(box);
 }
 
 /* ---- by agent: full access only ---- */
@@ -2372,7 +2384,11 @@ function renderCallAgent(){
           <td><div class="tname">${esc(r.label||r.rule_id)}</div>
               <div class="tsub"><span class="code">${esc(r.rule_id)}</span></div></td>
           <td><span class="sev ${esc(r.severity||"LOW")}">${esc(r.severity||"—")}</span></td>
-          <td><b>${r.calls}</b></td>
+          <td><button class="btn line sm" data-jump-rule="${esc(r.rule_id)}"
+                 data-jump-agent="${esc(a.call_name)}" data-jump-days="${a.window_days||cmDays}"
+                 data-jump-label="${esc(a.display_name||a.call_name)}"
+                 title="Open these calls — read the transcript and listen before coaching"
+                 ><b>${r.calls}</b> &rsaquo;</button></td>
           <td>${cmModuleCell(r)}</td>
           <td>${r.their_progress ? statusPill(r.their_progress)
                 : `<span class="tsub">${a.enrolled?"—":"not enrolled"}</span>`}</td>
@@ -2392,7 +2408,13 @@ function renderCallAgent(){
         <table><thead><tr><th>Opportunity</th><th>Missed</th><th>Module</th><th></th></tr></thead>
         <tbody>${a.missed_opportunities.map(o=>`<tr>
           <td><div class="tname">${esc(o.label||o.opportunity_id)}</div></td>
-          <td><b>${o.missed}</b></td>
+          <td><button class="btn line sm" data-jump-opp="${esc(o.opportunity_id)}"
+                 data-jump-opp-status="PRESENT_MISSED" data-jump-agent="${esc(a.call_name)}"
+                 data-jump-days="${a.window_days||cmDays}"
+                 data-jump-label="${esc(a.display_name||a.call_name)}"
+                 data-jump-opp-label="${esc(o.label||o.opportunity_id)}"
+                 title="Open these calls — hear what was actually said before coaching"
+                 ><b>${o.missed}</b> &rsaquo;</button></td>
           <td>${cmModuleCell(o)}</td>
           <td>${a.enrolled && o.module_slug
                 ? `<button class="btn line sm" data-coach="${esc(o.module_slug)}"
@@ -2429,6 +2451,13 @@ function renderCallAgent(){
   box.querySelectorAll("[data-coach]").forEach(b=>b.addEventListener("click", async e=>{
     e.stopPropagation();
     await cmAssign(b.dataset.coach, b.dataset.rule, null);
+  }));
+  box.querySelectorAll("[data-jump-rule],[data-jump-opp]").forEach(el=>el.addEventListener("click", e=>{
+    e.stopPropagation();
+    cmJumpToCalls({ agent: el.dataset.jumpAgent||null, rule: el.dataset.jumpRule||null,
+                    opp: el.dataset.jumpOpp||null, oppStatus: el.dataset.jumpOppStatus||null,
+                    label: el.dataset.jumpLabel||"", oppLabel: el.dataset.jumpOppLabel||"",
+                    days: Number(el.dataset.jumpDays)||cmDays });
   }));
   box.querySelectorAll("tr[data-cmcall]").forEach(r=>r.addEventListener("click",
     ()=>openCallDetail(r.dataset.cmcall)));
@@ -2568,6 +2597,48 @@ async function openCallDetail(recordingId){
   });
 }
 
+/* ---- from a flag straight to the calls behind it ----
+   The By Agent and What's Happening tables used to be a dead end: they told you a rule fired
+   14 times and the only button was "Assign module", so coaching could be raised without anyone
+   hearing a call. That is the wrong default here — attribution is by extension, not by voice,
+   so a single call is a prompt to listen rather than proof.
+
+   p_since_days exists for this: these tables cut at now() - N days while search cuts at a
+   calendar date, and a count of 14 landing on a list of 16 would discredit both numbers. */
+async function cmJumpToCalls({agent, rule, opp, oppStatus, label, oppLabel, days}){
+  cmQ = {q:"",from:"",to:"",direction:"",call_type:"",agent:agent||"",rule:rule||"",
+         min_score:"",max_score:"",flagged:"",phone:"",time_from:"",time_to:"",
+         sort:"newest", since_days: days||cmDays,
+         opportunity: opp||"", opp_status: oppStatus||"",
+         // Agency-wide tables exclude ring groups and people no longer on the roster;
+         // search does not. Without this the agency numbers disagree with the list.
+         reporting_only: !agent};
+  cmReturn = agent ? {agent, label} : null;
+  cmOppLabel = oppLabel || "";
+  cmPage = 0; CMS = null; cmSub = "search";
+  mgrCall();
+  try{
+    CMS = await rpc("training_call_search",{
+      p_code:CODE, p_scope:cmScope, p_limit:50, p_offset:0,
+      p_agent:cmQ.agent||null, p_rule:cmQ.rule||null, p_since_days:cmQ.since_days||null,
+      p_opportunity:cmQ.opportunity||null, p_opp_status:cmQ.opp_status||null,
+      p_reporting_only: !!cmQ.reporting_only, p_sort:"newest"});
+    cmSearch(); window.scrollTo(0,0);
+  }catch(ex){ toast(ex.message); }
+}
+
+function cmWireJumps(root){
+  (root||$("#cmBody")).querySelectorAll("[data-jump-rule],[data-jump-opp]").forEach(el=>
+    el.addEventListener("click", ()=>cmJumpToCalls({
+      agent: el.dataset.jumpAgent || null,
+      rule:  el.dataset.jumpRule || null,
+      opp:   el.dataset.jumpOpp || null,
+      oppStatus: el.dataset.jumpOppStatus || null,
+      label: el.dataset.jumpLabel || "",
+      oppLabel: el.dataset.jumpOppLabel || "",
+      days:  Number(el.dataset.jumpDays)||cmDays })));
+}
+
 /* ---- search and browse calls ----
    Option A of the two approaches discussed on 11 August 2026. The Call Monitoring
    project's own search is AI-driven and requires a logged-in Supabase Auth token, which
@@ -2605,6 +2676,29 @@ function cmSearch(){
         searchable.</div>
       <div style="margin-top:10px">
         <button class="btn gold sm" data-cmscope="all">Search the earlier history</button>
+      </div></div>` : ""}
+    ${cmQ.since_days ? `<div class="cm-banner">
+      <h4>${cmQ.rule
+            ? `Calls where <span class="code">${esc(cmQ.rule)}</span> fired`
+            : cmQ.opportunity
+              ? `${cmQ.opp_status === "PRESENT_ADDRESSED" ? "Calls where this was taken" : "Calls where this was missed"}${
+                  cmOppLabel ? ` — ${esc(cmOppLabel)}` : ""}`
+              : "Calls"}${
+          cmReturn ? ` — ${esc(cmReturn.label||cmReturn.agent)}` : " — everyone"}</h4>
+      <div class="cm-note">Last <b>${cmQ.since_days} days</b>, the same window as the table you came
+        from, so this count matches the one you clicked.${
+          cmQ.reporting_only
+            ? ` Ring groups and people no longer on the roster are excluded here, exactly as they are
+               in that table.` : ""}
+        <b>Open any call to read the transcript and listen before raising coaching</b> —
+        attribution is by extension, not by voice.
+        ${cmQ.opp_status === "PRESENT_ADDRESSED"
+            ? ` These are the ones done well — useful as examples rather than corrections.` : ""}
+        ${(CMS && CMS.total > (CMS.results||[]).length)
+            ? `Showing the first ${(CMS.results||[]).length} of ${CMS.total}.` : ""}</div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+        ${cmReturn ? `<button class="btn gold sm" id="csBack">&lsaquo; Back to ${esc(cmReturn.label||cmReturn.agent)}</button>` : ""}
+        <button class="btn line sm" id="csWiden">Search everything instead</button>
       </div></div>` : ""}
     <div class="card pad" style="margin-bottom:18px">
       <div class="cs-form">
@@ -2690,6 +2784,10 @@ function cmSearch(){
     cmQ.phone = $("#csPhone").value.trim();
     cmQ.time_from = $("#csTimeFrom").value; cmQ.time_to = $("#csTimeTo").value;
     cmQ.sort = $("#csSort").value;
+    // The window carried in from a flag row is invisible in this form, so it must not
+    // survive a manual search — otherwise the filters on screen and the results disagree.
+    cmQ.since_days = null; cmQ.opportunity = ""; cmQ.opp_status = "";
+    cmQ.reporting_only = false; cmReturn = null; cmOppLabel = "";
   };
   const go = async (page) => {
     if(cmBusy) return;
@@ -2706,7 +2804,9 @@ function cmSearch(){
         p_max_score: cmQ.max_score===""?null:Number(cmQ.max_score),
         p_phone: cmQ.phone||null,
         p_time_from: cmQ.time_from||null, p_time_to: cmQ.time_to||null,
-        p_sort: cmQ.sort||"newest"});
+        p_sort: cmQ.sort||"newest", p_since_days: cmQ.since_days||null,
+        p_opportunity: cmQ.opportunity||null, p_opp_status: cmQ.opp_status||null,
+        p_reporting_only: !!cmQ.reporting_only});
       cmSearch();
     }catch(ex){ toast(ex.message); }
     finally{ cmBusy = false; }
@@ -2718,11 +2818,29 @@ function cmSearch(){
     CMF = await rpc("training_call_facets",{p_code:CODE,p_scope:cmScope});
     mgrCall();
   }));
+  if($("#csBack")) $("#csBack").addEventListener("click", async ()=>{
+    const back = cmReturn.agent;
+    cmQ.since_days = null; cmReturn = null; CMS = null; cmPage = 0;
+    selCallAgent = back; cmSub = "agents";
+    // the cached detail is usually still the right one, but never assume it
+    if(!CMA || CMA.call_name !== back){
+      try{
+        CMA = await rpc("training_call_agent_detail",
+          {p_code:CODE,p_call_name:back,p_days:cmDays,p_scope:cmScope,p_limit:40});
+      }catch(ex){ toast(ex.message); }
+    }
+    mgrCall();
+  });
+  if($("#csWiden")) $("#csWiden").addEventListener("click", ()=>{
+    cmQ.since_days = null; cmReturn = null; go(0);
+  });
   $("#csGo").addEventListener("click", ()=>go(0));
   $("#csClear").addEventListener("click", ()=>{
     cmQ = {q:"",from:"",to:"",direction:"",call_type:"",agent:"",rule:"",
            min_score:"",max_score:"",flagged:"",
-           phone:"",time_from:"",time_to:"",sort:"newest"};
+           phone:"",time_from:"",time_to:"",sort:"newest",since_days:null,
+           opportunity:"",opp_status:"",reporting_only:false};
+    cmReturn = null; cmOppLabel = "";
     CMS = null; cmPage = 0; cmSearch();
   });
   $("#cmBody").querySelectorAll("input").forEach(i=>i.addEventListener("keydown", e=>{
@@ -2802,7 +2920,9 @@ function cmSearchResults(){
         p_max_score: cmQ.max_score===""?null:Number(cmQ.max_score),
         p_phone: cmQ.phone||null,
         p_time_from: cmQ.time_from||null, p_time_to: cmQ.time_to||null,
-        p_sort: cmQ.sort||"newest"});
+        p_sort: cmQ.sort||"newest", p_since_days: cmQ.since_days||null,
+        p_opportunity: cmQ.opportunity||null, p_opp_status: cmQ.opp_status||null,
+        p_reporting_only: !!cmQ.reporting_only});
       cmPage = n; cmSearch(); window.scrollTo(0,0);
     }catch(ex){ toast(ex.message); }
     finally{ cmBusy = false; }
