@@ -1301,7 +1301,11 @@ function mgrRoster(){
           <td><div class="tname">${esc(t.full_name)}${
                 t.preferred_name && t.preferred_name !== firstName({full_name:t.full_name})
                   ? ` <span class="tsub">(${esc(t.preferred_name)})</span>` : ""}</div>
-              <div class="tsub">${esc(t.location||"—")} · started ${sdate(t.start_date)}</div></td>
+              <div class="tsub">${esc(t.location||"—")} · started ${sdate(t.start_date)}</div>
+              ${t.call_name ? "" : `<div class="tsub" style="color:var(--warn);font-weight:600"
+                title="Call attribution joins on the full name. If this person is on the phones, the name here probably does not match the name the phone system uses.">
+                ⚠ No call history linked${t.phone_candidates
+                  ? ` · ${t.phone_candidates} unmatched on the phones` : ""}</div>`}</td>
           <td><span class="pill ${t.license_status==="licensed"?"done"
                 : t.license_status==="in_progress"?"prog":"todo"}">${esc(LIC[t.license_status]||"—")}</span>
               ${licTypeLabel(t.id)?`<div class="tsub">${esc(licTypeLabel(t.id))}</div>`:""}</td>
@@ -1339,6 +1343,20 @@ function renderDetail(){
       </div></div>
 
     <div class="card pad" style="margin-bottom:16px">
+      <h4 style="font-size:14px;margin-bottom:4px">Full name</h4>
+      <p style="font-size:13px;color:var(--ink-2);margin:0 0 10px">
+        This has to match how the phone system records them, because that is what call history
+        joins on. A name that is close but not exact links nothing and says nothing.
+        ${t.call_name
+          ? `Currently matched to <b>${esc(t.call_name)}</b> on the phones.`
+          : `<b>Not matched to anyone on the phones.</b>`}</p>
+      <div style="display:flex;gap:9px;max-width:520px;margin-bottom:8px;flex-wrap:wrap">
+        <input id="fullName" type="text" style="flex:1;min-width:240px"
+          value="${esc(t.full_name||"")}">
+        <button class="btn line sm" id="fullSave">Save</button>
+      </div>
+      <div id="fullMsg" style="font-size:13px;color:var(--ink-2);margin-bottom:20px"></div>
+
       <h4 style="font-size:14px;margin-bottom:4px">Goes by</h4>
       <p style="font-size:13px;color:var(--ink-2);margin:0 0 10px">
         How the portal greets them. Leave blank to use ${esc(firstName({full_name:t.full_name}))}.</p>
@@ -1435,6 +1453,35 @@ function renderDetail(){
       </div>`;}).join("")}`;
 
   box.querySelector("#closeDetail").addEventListener("click",()=>{ selTrainee=null; mgrRoster(); });
+  box.querySelector("#fullSave").addEventListener("click", async ()=>{
+    const b = box.querySelector("#fullSave"), msg = box.querySelector("#fullMsg");
+    const v = box.querySelector("#fullName").value;
+    if(!v.trim() || v.trim() === t.full_name){ return; }
+    b.disabled = true; msg.textContent = "";
+    try{
+      // Renaming re-attempts call linkage server-side. Report what that found, because
+      // a correction that silently links nothing is exactly the failure being fixed.
+      const r = await rpc("training_set_full_name",{p_code:CODE, p_person_id:t.id, p_name:v});
+      await loadManager(); renderDetail();
+      const m2 = $("#fullMsg"), lk = r.link || {};
+      toast("Name saved");
+      if(m2){
+        m2.textContent = lk.linked_to
+          ? `Saved. Call history matched to "${lk.linked_to}" — ${lk.calls} calls now attributed.`
+          : lk.already_linked_to
+            ? `Saved. Already matched to "${lk.already_linked_to}" on the phones; that link is unchanged.`
+            : lk.reason === "ambiguous"
+              ? `Saved, but ${lk.candidates} people on the phones match that name — nothing was linked.`
+              : `Saved, but no one on the phones matches that name yet, so no calls are attributed.`;
+      }
+    }catch(ex){
+      b.disabled = false;
+      const m2 = $("#fullMsg");
+      if(m2) m2.textContent = ex.message === "BAD_NAME"
+        ? "That does not look like a name — it needs at least two characters."
+        : ex.message;
+    }
+  });
   box.querySelector("#prefSave").addEventListener("click", async ()=>{
     const b = box.querySelector("#prefSave"); b.disabled = true;
     await rpc("training_set_preferred_name",
@@ -1920,7 +1967,7 @@ function mgrCE(){
       </div>
       <div style="font-size:13.5px;color:var(--ink-2);margin-top:8px">
         ${live
-          ? `A daily job checks renewals, congratulates agents on new certifications and flags anyone who has stalled. Sending from <b>${esc(set.email_from||"")}</b>.`
+          ? `A daily job checks renewals, congratulates agents on new certifications and sends the nudges below. Sending from <b>${esc(set.email_from||"")}</b>.`
           : `Reminders are being calculated and queued, but nothing is being sent. ${
               EMAILST && !EMAILST.api_key_present
                 ? "The Resend API key still needs adding to Supabase Vault as <b>resend_api_key</b>."
@@ -1952,7 +1999,10 @@ function mgrCE(){
           <div><div class="tn">Congratulate on certifications</div></div></label>
         <label class="tgl" style="margin:0">
           <input type="checkbox" id="emStall" ${set.stall_alerts_enabled!=="false"?"checked":""}>
-          <div><div class="tn">Alert me when an agent stalls</div></div></label>
+          <div><div class="tn">Send nudges</div>
+               <div class="tsub">Agents in training after 4 working days without a completed
+                 module, copied to you and Belinda. Agents who have finished, and Belinda and
+                 Betty Jane, after a spell without signing in.</div></div></label>
       </div>
     </div>
 
