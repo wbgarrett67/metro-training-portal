@@ -2598,13 +2598,72 @@ async function openCallDetail(recordingId){
                   ${v.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>`).join("")}
           </div>` : ""}
 
-        <h4 style="margin:20px 0 9px">Transcript</h4>
-        <div class="tscript">${tx || "<span class='tsub'>No transcript stored for this call.</span>"}</div>
+        <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:20px 0 9px">
+          <h4 style="margin:0">Transcript</h4>
+          ${d.transcript ? `<button class="btn line sm" id="txTranslate"
+              title="Translate this transcript into English">Translate to English</button>
+            <span class="tsub" id="txNote"></span>` : ""}
+        </div>
+        <div class="tscript" id="txBody">${tx || "<span class='tsub'>No transcript stored for this call.</span>"}</div>
         ${d.transcript_truncated?`<div class="tsub" style="margin-top:7px">Transcript shortened for display.</div>`:""}
       </div>
     </div>`;
   $("#modal").classList.remove("hidden");
   $("#cmdClose").addEventListener("click", closeModal);
+
+  /* Translate on demand.
+     Roughly 8% of transcripts are Spanish and none of the three people with call access
+     read it. Translation runs in an edge function because the key belongs on the server,
+     and it is cached there — a transcript never changes, so translating it twice is paying
+     twice for the same English. The original stays one click away rather than being
+     replaced, since the translation is a reading aid and the Spanish is the record. */
+  const txBtn = $("#txTranslate");
+  if(txBtn){
+    const original = $("#txBody").innerHTML;
+    let english = null, showing = "original";
+    const paint = (html) => { $("#txBody").innerHTML = html; };
+    txBtn.addEventListener("click", async ()=>{
+      if(showing === "english"){
+        paint(original); showing = "original";
+        txBtn.textContent = "Translate to English";
+        $("#txNote").textContent = "";
+        return;
+      }
+      if(english){
+        paint(english); showing = "english";
+        txBtn.textContent = "Show the original";
+        return;
+      }
+      txBtn.disabled = true; txBtn.textContent = "Translating…";
+      try{
+        const r = await fetch(`${SUPABASE_URL}/functions/v1/portal-translate-transcript`,{
+          method:"POST",
+          headers:{ "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}`,
+                    "Content-Type":"application/json" },
+          body: JSON.stringify({ code: CODE, recording_id: recordingId })
+        });
+        const j = await r.json().catch(()=>({}));
+        if(!r.ok || !j.ok){
+          $("#txNote").textContent =
+            j.error === "no_transcript" ? "There is no transcript to translate."
+          : j.error === "NO_TRANSLATION_KEY" ? "Translation is not configured — tell Braden."
+          : "The translation could not be produced. Try again in a moment.";
+          txBtn.disabled = false; txBtn.textContent = "Translate to English";
+          return;
+        }
+        english = esc(j.translated).replace(/\[([^\]]+)\]/g, (m,who)=>`<b>${esc(who)}</b>`)
+                                   .replace(/\n/g,"<br>");
+        paint(english); showing = "english";
+        txBtn.disabled = false; txBtn.textContent = "Show the original";
+        $("#txNote").textContent = j.note ? j.note
+          : (j.cached ? "Translated earlier — shown from the saved copy."
+                      : "Machine translation — the Spanish above is the record.");
+      }catch(ex){
+        $("#txNote").textContent = "The translation could not be reached.";
+        txBtn.disabled = false; txBtn.textContent = "Translate to English";
+      }
+    });
+  }
   $("#modal").querySelectorAll("[data-coach2]").forEach(b=>b.addEventListener("click", ()=>
     cmAssign(b.dataset.coach2, b.dataset.rule2, recordingId)));
 
