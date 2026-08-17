@@ -443,6 +443,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     openMods=new Set(), openTracks=null, mgrTab="roster", selTrainee=null,
     openCat=new Set(), draft=null,
     CM=null, cmSub="patterns", cmScope="current", cmDays=90, cmReturn=null, cmOppLabel="",
+    cmLens="all",
     selCallAgent=null, CMA=null,
     OFFICES=null, FB=null, fbFilter="open", LICTYPES=null, UPG=null, UPGQ=null,
     CMS=null, CMF=null, cmPage=0, cmBusy=false,
@@ -617,7 +618,7 @@ function forgetCode(){
 $("#signOut").addEventListener("click", ()=>{
   if(PREVIEW){ exitPreview(); return; }
   CODE=ME=STATE=MGR=null; selTrainee=null; lastAdded=null; MODE=null;
-  CM=CMA=null; selCallAgent=null; cmSub="patterns"; cmScope="current"; cmDays=90; cmReturn=null;
+  CM=CMA=null; selCallAgent=null; cmSub="patterns"; cmScope="current"; cmDays=90; cmReturn=null; cmLens="all";
   openMods.clear(); openTracks=null; location.hash=""; forgetCode();
   $("#modeToggle").classList.add("hidden");
   $("#view-app").classList.add("hidden");
@@ -2176,6 +2177,14 @@ function mgrCall(){
         <div class="v" style="${sum.hard_fail_calls?'color:var(--bad)':''}">${sum.hard_fail_calls||0}</div></div>
     </div>
 
+    <div class="cm-sub" role="group" aria-label="What to look at" style="margin-bottom:6px">
+      ${[["all","Everything"],["compliance","Compliance"],["sales","Missed sales"]]
+        .map(([k,l])=>`<button class="${cmLens===k?"on":""}" data-cmlens="${k}">${l}</button>`).join("")}
+    </div>
+    <div class="tsub" style="margin:0 0 12px 2px">${
+      cmLens==="compliance" ? "Rule breaches, deductions and hard fails — what we are obliged to get right."
+    : cmLens==="sales"      ? "Opportunities the evaluator heard and the agent did not take. No compliance content."
+    : "Both halves. Compliance is scored as deductions; missed sales feed the upsell weight."}</div>
     <div class="cm-sub">
       ${subs.map(([k,l])=>`<button class="${cmSub===k?"on":""}" data-cmsub="${k}">${l}</button>`).join("")}
     </div>
@@ -2184,6 +2193,9 @@ function mgrCall(){
   body.querySelectorAll("[data-cmscope]").forEach(b=>b.addEventListener("click", async ()=>{
     cmScope = b.dataset.cmscope; selCallAgent = null;
     b.disabled = true; await loadCallMonitor(); mgrCall();
+  }));
+  body.querySelectorAll("[data-cmlens]").forEach(b=>b.addEventListener("click", ()=>{
+    cmLens = b.dataset.cmlens; mgrCall();
   }));
   body.querySelectorAll("[data-cmsub]").forEach(b=>b.addEventListener("click", async ()=>{
     cmSub = b.dataset.cmsub; selCallAgent = null;
@@ -2200,6 +2212,33 @@ function mgrCall(){
 
   ({patterns:cmPatterns, search:cmSearch, agents:cmAgents,
     coaching:cmCoaching, mapping:cmMapping})[cmSub]();
+}
+
+/* ---- compliance vs missed sales ----
+   Betty Jane cares about missed sales and not about internal-process compliance; Braden and
+   Belinda care about both. The rubric already keeps the two apart — compliance runs as deductions
+   and hard fails, missed sales sit in the revenue opportunities — so this is a presentation
+   filter, not a second set of numbers. Blocks are tagged at render and hidden here. */
+function cmApplyLens(root){
+  const box = root || $("#cmBody");
+  if(!box) return;
+  box.querySelectorAll("[data-lens]").forEach(el=>{
+    el.classList.toggle("hidden", cmLens !== "all" && el.dataset.lens !== cmLens);
+  });
+  // If a view has nothing to show under this lens, say so rather than looking broken.
+  const anyLeft = [...box.querySelectorAll("[data-lens]")].some(el=>!el.classList.contains("hidden"));
+  const tagged  = box.querySelectorAll("[data-lens]").length;
+  let note = box.querySelector("#cmLensEmpty");
+  if(tagged && !anyLeft){
+    if(!note){
+      note = document.createElement("div");
+      note.id = "cmLensEmpty"; note.className = "card";
+      box.prepend(note);
+    }
+    note.innerHTML = `<div class="empty">Nothing here under the
+      <b>${cmLens === "sales" ? "Missed sales" : "Compliance"}</b> view.
+      Switch to <b>Everything</b> to see the rest of this tab.</div>`;
+  }else if(note){ note.remove(); }
 }
 
 /* ---- what is happening: the rules being broken, and where the training sits ---- */
@@ -2219,6 +2258,7 @@ function cmPatterns(){
   const maxW = Math.max(1, ...trend.map(t=>t.calls));
 
   box.innerHTML = `
+    <div data-lens="compliance">
     <div class="section-h"><h2>Rules being broken</h2>
       <span class="note">Each one pointed at the module that teaches it</span></div>
     <div class="card" style="overflow-x:auto">
@@ -2240,6 +2280,8 @@ function cmPatterns(){
       </tbody></table>
     </div>
 
+    </div>
+    <div data-lens="sales">
     <div class="section-h"><h2>Revenue left on the table</h2>
       <span class="note">Opportunities the evaluator heard and the agent did not take</span></div>
     <div class="card" style="overflow-x:auto">
@@ -2268,6 +2310,7 @@ function cmPatterns(){
       </tbody></table>
     </div>
 
+    </div>
     <div class="cm-grid2" style="margin-top:26px">
       <div>
         <div class="section-h" style="margin-top:0"><h2>By office</h2></div>
@@ -2293,6 +2336,7 @@ function cmPatterns(){
       </div>
     </div>`;
   cmWireJumps(box);
+  cmApplyLens(box);
 }
 
 /* ---- by agent: full access only ---- */
@@ -2375,6 +2419,7 @@ function renderCallAgent(){
 
     <div class="section-h"><h2>What they get flagged for</h2>
       <span class="note">With their progress on the module that covers it</span></div>
+    <div data-lens="compliance">
     <div class="card" style="overflow-x:auto">
       <table><thead><tr>
         <th>What went wrong</th><th>Severity</th><th>Calls</th><th>Module</th>
@@ -2402,7 +2447,9 @@ function renderCallAgent(){
       </tbody></table>
     </div>
 
+    </div>
     ${(a.missed_opportunities||[]).length ? `
+      <div data-lens="sales">
       <div class="section-h"><h2>Opportunities they missed</h2></div>
       <div class="card" style="overflow-x:auto">
         <table><thead><tr><th>Opportunity</th><th>Missed</th><th>Module</th><th></th></tr></thead>
@@ -2420,7 +2467,7 @@ function renderCallAgent(){
                 ? `<button class="btn line sm" data-coach="${esc(o.module_slug)}"
                      data-rule="${esc(o.opportunity_id)}">Assign module</button>` : ""}</td>
         </tr>`).join("")}</tbody></table>
-      </div>` : ""}
+      </div></div>` : ""}
 
     <div class="section-h"><h2>Recent calls</h2>
       <span class="note">Open one to read the transcript and the evidence behind each flag</span></div>
@@ -2461,6 +2508,7 @@ function renderCallAgent(){
   }));
   box.querySelectorAll("tr[data-cmcall]").forEach(r=>r.addEventListener("click",
     ()=>openCallDetail(r.dataset.cmcall)));
+  cmApplyLens(box);
   box.scrollIntoView({behavior:"smooth",block:"nearest"});
 }
 
