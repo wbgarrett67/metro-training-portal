@@ -349,7 +349,7 @@ tbody tr.clk:hover{background:#f8f9fc}
   <div class="login-card">
     <svg class="logo" role="img" aria-label="Metro Insurance"><use href="#mia-logo"/></svg>
     <h1>Training Portal</h1>
-    <p class="sub">Metro Insurance Agencies, LLC — enter your access code to open your training and certifications.</p>
+    <p class="sub" id="loginSub">Metro Insurance Agencies, LLC — enter your access code to open your training and certifications.</p>
     <div id="loginErr" class="err hidden"></div>
     <form id="loginForm">
       <label for="code">Access code</label>
@@ -358,6 +358,38 @@ tbody tr.clk:hover{background:#f8f9fc}
       <div style="height:16px"></div>
       <button class="btn wide" type="submit" id="loginBtn">Open my training</button>
     </form>
+
+    <div style="margin-top:14px;text-align:center">
+      <button type="button" id="forgotLink"
+              style="background:none;border:none;padding:0;font:inherit;font-size:14px;
+                     color:var(--navy,#1f204f);text-decoration:underline;cursor:pointer">
+        I don't have my code
+      </button>
+    </div>
+
+    <form id="forgotForm" class="hidden" style="margin-top:14px">
+      <label for="forgotEmail">Your work email</label>
+      <input id="forgotEmail" type="email" placeholder="firstlast@metro-insurance.com"
+             autocomplete="email" spellcheck="false" required>
+      <div style="height:12px"></div>
+      <button class="btn wide" type="submit" id="forgotBtn">Email me my code</button>
+      <div style="height:8px"></div>
+      <button type="button" id="forgotCancel"
+              style="background:none;border:none;padding:0;font:inherit;font-size:13.5px;
+                     color:var(--text-muted,#77756f);text-decoration:underline;cursor:pointer;
+                     display:block;margin:0 auto">
+        Back to sign in
+      </button>
+    </form>
+
+    <div id="forgotDone" class="hidden" style="margin-top:14px;font-size:14px;line-height:1.5">
+      If that address is on the roster, your code is on its way — it usually lands within a few
+      minutes. It is the <b>same code you already had</b>, so nothing has been cancelled.
+      If it does not arrive, tell Braden; the address we hold for you may be wrong.
+      <div style="height:12px"></div>
+      <button type="button" id="forgotBack" class="btn wide">Back to sign in</button>
+    </div>
+
     <div class="login-hint">
       Your Senior Manager issues your access code. Progress and certifications save automatically
       and are visible to management as you go.
@@ -524,6 +556,51 @@ $("#loginForm").addEventListener("submit", async e=>{
   finally{ btn.disabled=false; btn.textContent="Open my training"; }
 });
 
+/* Forgot-your-code.
+   Removing the #c=CODE sign-in on 15 August made agents type their code every fresh session,
+   which made "I've lost it" far more likely — so the recovery path stopped being optional.
+
+   Two deliberate choices, both in training_request_code:
+     - it RESENDS the existing code and never rotates it. Metro emails are firstlast@, i.e.
+       guessable, so a rotating button would let anyone lock a colleague out at will.
+     - the address typed here is only a lookup key. The mail goes to whatever is on the
+       roster, never to what was entered, or this form would be a code-exfiltration tool.
+   The reply is identical whether or not the address exists, so the login screen cannot be
+   used to find out who works here. Throttling and logging live in the database. */
+const $forgotForm = $("#forgotForm"), $forgotDone = $("#forgotDone"), $forgotLink = $("#forgotLink");
+const LOGIN_SUB = $("#loginSub").textContent;
+
+$forgotLink.addEventListener("click", ()=>{
+  $("#loginForm").classList.add("hidden");
+  $forgotLink.classList.add("hidden");
+  $("#loginErr").classList.add("hidden");
+  $("#loginSub").textContent = "Tell us the work email we have on file and we will send your "
+    + "existing code to it.";
+  $forgotForm.classList.remove("hidden");
+  $("#forgotEmail").focus();
+});
+function forgotReset(){
+  $("#loginSub").textContent = LOGIN_SUB;
+  $forgotForm.classList.add("hidden");
+  $forgotDone.classList.add("hidden");
+  $("#loginForm").classList.remove("hidden");
+  $forgotLink.classList.remove("hidden");
+  $("#code").focus();
+}
+$("#forgotCancel").addEventListener("click", forgotReset);
+$("#forgotBack").addEventListener("click", forgotReset);
+$forgotForm.addEventListener("submit", async e=>{
+  e.preventDefault();
+  const b = $("#forgotBtn");
+  b.disabled = true; b.textContent = "Sending…";
+  try{
+    await rpc("training_request_code", { p_email: $("#forgotEmail").value.trim() });
+  }catch(ex){ /* deliberately swallowed: the answer must not vary with the outcome */ }
+  $forgotForm.classList.add("hidden");
+  $forgotDone.classList.remove("hidden");
+  b.disabled = false; b.textContent = "Email me my code";
+});
+
 // The code used to be written into the address bar as #c=CODE so a refresh kept you signed
 // in. That is exactly how a forwarded bookmark signed a new hire in as the Agency Owner on
 // 11 August. sessionStorage does the same job without the credential ever entering a URL:
@@ -546,6 +623,13 @@ $("#signOut").addEventListener("click", ()=>{
   $("#view-app").classList.add("hidden");
   $("#view-login").classList.remove("hidden");
   $("#code").value="";
+  // leave the login screen in its default state, not mid-way through a code request
+  $("#forgotForm").classList.add("hidden");
+  $("#forgotDone").classList.add("hidden");
+  $("#forgotEmail").value="";
+  $("#loginForm").classList.remove("hidden");
+  $("#forgotLink").classList.remove("hidden");
+  $("#loginSub").textContent = LOGIN_SUB;
 });
 // Managers and owners are agents too. They get both halves of the portal and a header
 // toggle between them, rather than being locked into one. Everyone else only ever has
