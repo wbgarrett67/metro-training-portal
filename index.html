@@ -1641,8 +1641,9 @@ function mgrFeedback(){
       <h3 style="font-size:16px;margin-bottom:4px">What agents have told us</h3>
       <p style="color:var(--ink-2);font-size:14px;margin:0">
         Sent from the <b>Feedback</b> button in the header. Every submission also goes to
-        Braden by email. Marking one resolved only clears it from this list — it does not
-        reply to anyone, so answer the person directly.</p>
+        Braden and Belinda by email. <b>Replying here answers them inside the portal</b> — the
+        reply lands on their Progress updates and is emailed to them, and it stays attached to
+        what they wrote. Marking resolved without replying just clears it from this list.</p>
       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
         <button class="btn ${fbFilter==="open"?"":"line"} sm" data-fbf="open">Open${openN?` (${openN})`:""}</button>
         <button class="btn ${fbFilter==="resolved"?"":"line"} sm" data-fbf="resolved">Resolved</button>
@@ -1663,14 +1664,34 @@ function mgrFeedback(){
             </div>
           </div>
           <div style="display:flex;gap:7px;flex-wrap:wrap">
-            ${f.email?`<a class="btn line sm" href="mailto:${esc(f.email)}?subject=${
-              encodeURIComponent("Your feedback on the training portal")}">Reply</a>`:""}
+            ${f.reply?"":`<button class="btn line sm" data-fbrep="${f.id}">Reply</button>`}
             <button class="btn line sm" data-fbr="${f.id}" data-fbv="${
               f.status==="open"?"1":"0"}">${f.status==="open"?"Mark resolved":"Reopen"}</button>
           </div>
         </div>
         <div style="margin-top:10px;font-size:14px;white-space:pre-wrap;background:#f7f8fc;
              border-left:3px solid var(--navy-3);padding:11px 13px;border-radius:0 8px 8px 0">${esc(f.body)}</div>
+
+        ${f.reply ? `
+          <div style="margin-top:9px;font-size:14px;white-space:pre-wrap;background:var(--ok-bg);
+               border-left:3px solid var(--ok);padding:11px 13px;border-radius:0 8px 8px 0">${esc(f.reply)}</div>
+          <div style="font-size:11.5px;color:var(--ink-3);margin-top:6px">
+            Replied by ${esc(f.replied_by||"")} ${when(f.replied_at)} · sent to their portal${
+              f.email?` and ${esc(f.email)}`:""}</div>` : `
+          <div id="fbBox-${f.id}" class="hidden" style="margin-top:11px">
+            <textarea id="fbTxt-${f.id}" rows="3" style="width:100%"
+              placeholder="Write back to ${esc((f.who||"").split(" ")[0])}. This goes to their Progress updates in the portal${
+                f.email?" and to their email":""}."></textarea>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+              <button class="btn sm" data-fbsend="${f.id}">Send reply</button>
+              <button class="btn line sm" data-fbcancel="${f.id}">Cancel</button>
+              <label class="tgl" style="margin:0;font-size:13px">
+                <input type="checkbox" id="fbRes-${f.id}" checked>
+                <div><div class="tn" style="font-size:13px">Mark resolved too</div></div></label>
+            </div>
+            <div id="fbErr-${f.id}" style="font-size:13px;color:var(--bad);margin-top:6px"></div>
+          </div>`}
+
         ${f.status==="resolved" && f.resolved_by
           ? `<div style="font-size:11.5px;color:var(--ink-3);margin-top:7px">Marked resolved by ${
               esc(f.resolved_by)} ${when(f.resolved_at)}</div>` : ""}
@@ -1692,6 +1713,32 @@ function mgrFeedback(){
       await loadFeedback(); renderManager();
       toast(b.dataset.fbv === "1" ? "Marked resolved" : "Reopened");
     }catch(ex){ b.disabled = false; toast(ex.message); }
+  }));
+  body.querySelectorAll("[data-fbrep]").forEach(b=>b.addEventListener("click", ()=>{
+    const box = $("#fbBox-" + b.dataset.fbrep);
+    if(box){ box.classList.remove("hidden"); $("#fbTxt-" + b.dataset.fbrep).focus(); }
+    b.classList.add("hidden");
+  }));
+  body.querySelectorAll("[data-fbcancel]").forEach(b=>b.addEventListener("click", ()=>{
+    mgrFeedback();
+  }));
+  body.querySelectorAll("[data-fbsend]").forEach(b=>b.addEventListener("click", async ()=>{
+    const id  = b.dataset.fbsend;
+    const txt = $("#fbTxt-" + id).value;
+    const err = $("#fbErr-" + id);
+    if(!txt.trim()){ err.textContent = "Write something first."; return; }
+    b.disabled = true; b.textContent = "Sending…"; err.textContent = "";
+    try{
+      const r = await rpc("training_feedback_reply",
+        {p_code:CODE, p_id:id, p_reply:txt, p_resolve: $("#fbRes-" + id).checked});
+      await loadFeedback(); renderManager();
+      // Say where it actually went. "Sent" alone leaves them wondering whether the person
+      // will ever see it, which is the whole complaint about the old mailto button.
+      toast(r.emailed ? `Reply sent to their portal and ${r.to}` : "Reply posted to their portal");
+    }catch(ex){
+      b.disabled = false; b.textContent = "Send reply";
+      err.textContent = ex.message === "EMPTY_REPLY" ? "Write something first." : ex.message;
+    }
   }));
 }
 
