@@ -441,7 +441,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     PREVIEW=null, MODE=null,
     selCE=null,
     openMods=new Set(), openTracks=null, mgrTab="roster", selTrainee=null,
-    PARTNERS=null, pnFilter="all", pnOffice="", pnSel=null, pnSweep=false,
+    PARTNERS=null, pnFilter="all", pnOffice="", pnCat="", pnSel=null, pnSweep=false, pnHelp=null,
     openCat=new Set(), draft=null,
     CM=null, cmSub="patterns", cmScope="current", cmDays=90, cmReturn=null, cmOppLabel="",
     cmLens="all",
@@ -1647,7 +1647,124 @@ async function loadPartners(){
   catch(e){ PARTNERS = {partners:[], error:e.message}; }
 }
 
-function pnList(){
+/* ---- How to use this section ----
+   Written to be walked through with an agent sitting next to you, with the real list
+   on screen. Open by default, because the person who most needs it is the person who
+   has never opened this tab; collapsed state is remembered for the session only, so it
+   comes back for the next person who signs in on that machine. */
+function pnHelpOpen(){
+  if(pnHelp === null){
+    try{ pnHelp = sessionStorage.getItem("mia_pn_help") !== "0"; }catch(e){ pnHelp = true; }
+  }
+  return pnHelp;
+}
+function pnHelpToggle(){
+  pnHelp = !pnHelpOpen();
+  try{ sessionStorage.setItem("mia_pn_help", pnHelp ? "1" : "0"); }catch(e){}
+}
+
+function pnHelpStep(n, title, body){
+  return `<div style="display:flex;gap:12px;padding:13px 0;border-top:1px solid var(--line)">
+    <div style="flex:none;width:23px;height:23px;border-radius:99px;background:var(--gold-soft);
+         color:var(--gold-deep);font-weight:800;font-size:12.5px;display:flex;
+         align-items:center;justify-content:center;margin-top:1px">${n}</div>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:680;font-size:14px;margin-bottom:3px">${title}</div>
+      <div style="font-size:13.5px;color:var(--ink-2);line-height:1.55">${body}</div>
+    </div>
+  </div>`;
+}
+
+function pnHelpPanel(){
+  const open = pnHelpOpen();
+  return `<div class="card pad" style="margin-bottom:12px;border-left:4px solid var(--gold)">
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px">
+        <h3 style="font-size:15.5px;margin:0">How to use this section</h3>
+        ${open ? "" : `<div style="font-size:13px;color:var(--ink-3);margin-top:2px">
+          The list, the visit log, and what to say when you get there.</div>`}
+      </div>
+      <button class="btn line sm" id="pnHelpBtn">${open ? "Hide" : "Show me"}</button>
+    </div>
+
+    ${!open ? "" : `
+    <div style="margin-top:6px">
+      <p style="font-size:13.5px;color:var(--ink-2);line-height:1.55;margin:8px 0 4px">
+        Everything on this page answers one question: <b>has a real person at this business
+        agreed to send us customers?</b> The list is the plan. The visit log is the evidence.
+        A partner nobody has visited is just an address.</p>
+
+      ${pnHelpStep(1, "Pick your stops before you leave",
+        `Filter by <b>office</b>, then by <b>type</b>. Do not mix types in one morning — a car lot
+         and a leasing office are different visits and you will get the register wrong.
+         <b>Mine</b> shows the partners you own. Work a street, not a spreadsheet: partners on the
+         same road in one run, so you can use one as a reference in the next.`)}
+
+      ${pnHelpStep(2, "First pass down a new street — Sweep mode",
+        `Turn on <b>Sweep mode</b> and you get one tap per stop: <b>Yes / Maybe / No</b>, a one-line
+         reason, and the name of the person you met. Thirty seconds a stop. Anything marked Yes or
+         Maybe comes back on the follow-up list.
+         <br><b>The test is whether you got a name.</b> Someone who would pick up the phone is a Yes.
+         A business with nobody attached to it is a No, however friendly they were.`)}
+
+      ${pnHelpStep(3, "A real visit — open the partner and log it",
+        `Every visit gets logged, and <b>a note is required</b>. That is deliberate: a visit with no
+         note teaches nobody anything, including you in three weeks.
+         <b>Write it before you drive away.</b>
+         <br>Bring back four things: <b>a human name and role</b> · <b>what they actually want</b>
+         (deal-saving, customer care, admin relief, money, referrals back) · <b>the next action with
+         a date</b> · <b>an honest outcome</b>. "Just leave a card" is <i>not available</i>, not
+         <i>warm</i>. Logging it warm only fools us.`)}
+
+      ${pnHelpStep(4, "Know which room you are standing in",
+        `Two registers, not one script.
+         <br><b>The counter</b> — car lots, repair shops. <b>45 seconds</b>, bring lunch, lead with
+         the difference, then leave. <i>"You've had ten agents in here this year. I'm not here for
+         your good customers — I want the deals about to die because the guy can't get insured."</i>
+         Leaving when you said you would is the second thing they remember.
+         <br><b>The desk</b> — leasing offices, F&amp;I managers, tax preparers. <b>Four minutes</b>,
+         ask a question and then actually listen. <i>"How do you handle proof of renters insurance
+         at move-in — do you end up chasing people for it?"</i>`)}
+
+      ${pnHelpStep(5, "Three things you must never do",
+        `<b>Never let the partner become the agent.</b> They hand over a name and a card. They do not
+         discuss coverage or price. Oklahoma treats an unlicensed person who solicits insurance as
+         though they were acting as one.
+         <br><b>Never let Metro be presented as a requirement.</b> Say it out loud, every time:
+         <i>"They can use anybody — we just want to be on the list."</i>
+         <br><b>Never say "we can cover anybody", and never invent a referral fee.</b> Say it once,
+         fail once, and they stop calling. On money you do not have a number yet — <i>"let me find
+         out exactly what we can do and come back to you"</i>, then tell Belinda.`)}
+
+      ${pnHelpStep(6, "Every partner is also a commercial account",
+        `Each of these is a business, and a full P&amp;C licence can write the business itself — not
+         just ask it for customers. Open a partner and the coverages for that type are listed on the
+         record. <b>Do not open with it</b>; it is the second conversation.
+         <br><b>The ask is the renewal date, not the business.</b> Almost nobody refuses a date, and
+         it gives you a reason to come back that has nothing to do with referrals.`)}
+
+      <div style="border-top:1px solid var(--line);padding-top:13px;margin-top:2px">
+        <div style="font-weight:680;font-size:14px;margin-bottom:4px">What the four counts mean</div>
+        <div style="font-size:13.5px;color:var(--ink-2);line-height:1.55">
+          <b>Not yet seen</b> — nobody has walked in yet.
+          <b>Worth pursuing</b> — swept and marked Yes or Maybe.
+          <b>Sending business</b> — actually referring customers.
+          <b>Seen, no name got</b> — the one to watch: somebody visited and came back with a
+          business name and no human being. That visit has not really happened.</div>
+      </div>
+
+      <div style="margin-top:12px;padding:11px 13px;background:var(--gold-soft);border-radius:9px;
+           font-size:13.5px;color:var(--gold-deep);line-height:1.5">
+        <b>The second visit matters more than the first.</b> Ten agents brought lunch once.
+        Almost none of them came back.</div>
+    </div>`}
+  </div>`;
+}
+
+// Split in two so the category counts can be honest. pnBase is everything the state
+// filter and the office picker allow; the category chips count within that, so the
+// number on a chip is what you actually get when you press it.
+function pnBase(){
   let ps = (PARTNERS && PARTNERS.partners) || [];
   if(pnOffice) ps = ps.filter(p=>p.office === pnOffice);
   if(pnFilter === "todo")    ps = ps.filter(p=>p.status==="prospect");
@@ -1655,6 +1772,11 @@ function pnList(){
   if(pnFilter === "active")  ps = ps.filter(p=>p.status==="active");
   if(pnFilter === "mine")    ps = ps.filter(p=>p.owned_by_id === (PARTNERS.me||{}).id);
   return ps;
+}
+
+function pnList(){
+  const ps = pnBase();
+  return pnCat ? ps.filter(p=>p.category === pnCat) : ps;
 }
 
 function mgrPartners(){
@@ -1665,6 +1787,13 @@ function mgrPartners(){
     return;
   }
   const ps = pnList();
+  const base = pnBase();
+  const catCount = c => base.filter(p=>p.category===c).length;
+  // Categories that actually exist in the data, commonest first, so the row does not
+  // reorder itself as the office filter changes.
+  const cats = [...new Set(all.map(p=>p.category).filter(Boolean))]
+    .sort((a,b)=> all.filter(p=>p.category===b).length - all.filter(p=>p.category===a).length
+                  || (PN_CAT[a]||a).localeCompare(PN_CAT[b]||b));
   const offices = [...new Set(all.map(p=>p.office).filter(Boolean))].sort();
   const nProspect = all.filter(p=>p.status==="prospect").length;
   const nPursue   = all.filter(p=>p.pursue==="yes"||p.pursue==="maybe").length;
@@ -1692,6 +1821,8 @@ function mgrPartners(){
         A visit that produces only a business name has not really happened — that is the whole test.</div>` : ""}
     </div>
 
+    ${pnHelpPanel()}
+
     <div class="card pad" style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <button class="btn ${pnFilter==="all"?"":"line"} sm" data-pnf="all">All ${all.length}</button>
       <button class="btn ${pnFilter==="todo"?"":"line"} sm" data-pnf="todo">Not yet seen ${nProspect}</button>
@@ -1704,6 +1835,14 @@ function mgrPartners(){
       </select>
       <button class="btn ${pnSweep?"gold":"line"} sm" id="pnSweepBtn"
         title="Sweep mode: one tap per lot, quick verdict, move on">${pnSweep?"✓ Sweep mode on":"Sweep mode"}</button>
+
+      ${cats.length > 1 ? `
+      <div style="flex-basis:100%;height:1px;background:var(--line);margin:3px 0"></div>
+      <span style="font-size:12px;font-weight:700;color:var(--ink-3);letter-spacing:.04em;
+            text-transform:uppercase">Type</span>
+      <button class="btn ${pnCat===""?"":"line"} sm" data-pnc="">All types ${base.length}</button>
+      ${cats.map(c=>`<button class="btn ${pnCat===c?"":"line"} sm" data-pnc="${esc(c)}"
+        >${esc(PN_CAT[c]||c)} ${catCount(c)}</button>`).join("")}` : ""}
     </div>
 
     ${pnSweep ? `<div class="card pad" style="margin-bottom:12px;background:var(--gold-soft)">
@@ -1722,6 +1861,11 @@ function mgrPartners(){
   body.querySelectorAll("[data-pnf]").forEach(b=>b.addEventListener("click",()=>{
     pnFilter=b.dataset.pnf; pnSel=null; mgrPartners();
   }));
+  body.querySelectorAll("[data-pnc]").forEach(b=>b.addEventListener("click",()=>{
+    pnCat=b.dataset.pnc; pnSel=null; mgrPartners();
+  }));
+  const helpBtn = $("#pnHelpBtn");
+  if(helpBtn) helpBtn.addEventListener("click",()=>{ pnHelpToggle(); mgrPartners(); });
   const off = $("#pnOff");
   if(off) off.addEventListener("change", e=>{ pnOffice=e.target.value; pnSel=null; mgrPartners(); });
   $("#pnSweepBtn").addEventListener("click", ()=>{ pnSweep=!pnSweep; pnSel=null; mgrPartners(); });
