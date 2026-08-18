@@ -441,6 +441,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     PREVIEW=null, MODE=null,
     selCE=null,
     openMods=new Set(), openTracks=null, mgrTab="roster", selTrainee=null,
+    PARTNERS=null, pnFilter="all", pnOffice="", pnSel=null, pnSweep=false,
     openCat=new Set(), draft=null,
     CM=null, cmSub="patterns", cmScope="current", cmDays=90, cmReturn=null, cmOppLabel="",
     cmLens="all",
@@ -691,7 +692,7 @@ const FB_SUBJECTS = [
 ];
 const MGR_TAB_NAMES = {roster:"Roster", ce:"Licensing & CE", content:"Content editor",
   tracks:"Track catalog", calls:"Call monitoring", activity:"Activity",
-  add:"Add an agent", feedback:"Feedback"};
+  add:"Add an agent", feedback:"Feedback", partners:"Referral partners"};
 
 // Set whenever a module is opened, so the dialog can answer "where were you" without
 // the agent having to describe it. Pre-filled, and editable, because a guess that is
@@ -1263,6 +1264,7 @@ function renderManager(){
       <button class="tab ${mgrTab==="activity"?"on":""}" data-tab="activity">Activity${unread?` (${unread})`:""}</button>
       <button class="tab ${mgrTab==="feedback"?"on":""}" data-tab="feedback">Feedback${
         FB && FB.open_count ? ` (${FB.open_count})` : ""}</button>
+      <button class="tab ${mgrTab==="partners"?"on":""}" data-tab="partners">Referral partners</button>
       <button class="tab ${mgrTab==="add"?"on":""}" data-tab="add">Add an agent</button>
     </div>
     <div id="mgrBody"></div>`;
@@ -1274,12 +1276,14 @@ function renderManager(){
     if(mgrTab==="ce" && !CE) await loadCE();
     if(mgrTab==="calls" && !CM) await loadCallMonitor();
     if(mgrTab==="feedback") await loadFeedback();
+    if(mgrTab==="partners") await loadPartners();
     renderManager();
   }));
   // A tab a person cannot see must not be reachable by leftover state either.
   if(mgrTab === "calls" && !cmHasCall()) mgrTab = "roster";
   ({roster:mgrRoster, ce:mgrCE, content:mgrContent, tracks:mgrTracks,
-    activity:mgrActivity, add:mgrAdd, calls:mgrCall, feedback:mgrFeedback})[mgrTab]();
+    activity:mgrActivity, add:mgrAdd, calls:mgrCall, feedback:mgrFeedback,
+    partners:mgrPartners})[mgrTab]();
 }
 
 function mgrRoster(){
@@ -1628,6 +1632,307 @@ async function loadFeedback(){
   // the roster still has to load.
   try{ FB = await rpc("training_feedback_list",{p_code:CODE}); }
   catch(e){ FB = {items:[], open_count:0, error:e.message}; }
+}
+
+/* ================= referral partners ================= */
+const PN_CAT = {car_lot:"Car lot", apartment:"Apartments", rv_boat:"RV / boat",
+  repair_shop:"Repair shop", tax_prep:"Tax / bookkeeping", mh_park:"Mobile home park", other:"Other"};
+const PN_STATUS = {prospect:"Not yet seen", contacted:"Seen", active:"Sending business",
+  dormant:"Gone quiet", declined:"No", do_not_contact:"Do not contact"};
+const PN_OUTCOME = {warm:"Warm", polite_no:"Polite no", not_available:"Nobody available",
+  needs_follow_up:"Needs follow-up", dead:"Dead"};
+
+async function loadPartners(){
+  try{ PARTNERS = await rpc("training_partner_list",{p_code:CODE}); }
+  catch(e){ PARTNERS = {partners:[], error:e.message}; }
+}
+
+function pnList(){
+  let ps = (PARTNERS && PARTNERS.partners) || [];
+  if(pnOffice) ps = ps.filter(p=>p.office === pnOffice);
+  if(pnFilter === "todo")    ps = ps.filter(p=>p.status==="prospect");
+  if(pnFilter === "pursue")  ps = ps.filter(p=>p.pursue==="yes" || p.pursue==="maybe");
+  if(pnFilter === "active")  ps = ps.filter(p=>p.status==="active");
+  if(pnFilter === "mine")    ps = ps.filter(p=>p.owned_by_id === (PARTNERS.me||{}).id);
+  return ps;
+}
+
+function mgrPartners(){
+  const body = $("#mgrBody");
+  const all = (PARTNERS && PARTNERS.partners) || [];
+  if(PARTNERS && PARTNERS.error){
+    body.innerHTML = `<div class="card"><div class="empty">Partner list could not be loaded: ${esc(PARTNERS.error)}</div></div>`;
+    return;
+  }
+  const ps = pnList();
+  const offices = [...new Set(all.map(p=>p.office).filter(Boolean))].sort();
+  const nProspect = all.filter(p=>p.status==="prospect").length;
+  const nPursue   = all.filter(p=>p.pursue==="yes"||p.pursue==="maybe").length;
+  const nActive   = all.filter(p=>p.status==="active").length;
+  const noNote    = all.filter(p=>p.touch_count>0 && !p.contact_name).length;
+
+  body.innerHTML = `
+    <div class="card pad" style="margin-bottom:12px${PARTNERS && PARTNERS.visible===false
+        ? ";border-left:4px solid var(--warn)" : ""}">
+      <h3 style="font-size:16px;margin-bottom:4px">Referral partners</h3>
+      <p style="color:var(--ink-2);font-size:14px;margin:0">
+        ${PARTNERS && PARTNERS.visible===false
+          ? `<b style="color:var(--warn)">Not switched on yet.</b> You and Belinda can see this to review it;
+             <b>agents see nothing at all</b> until <code>partner_program_visible</code> is set to true.`
+          : `Live. Agents see the partners for their own office.`}
+      </p>
+      <div class="grid-stats" style="margin-top:14px">
+        <div class="stat"><div class="k">Not yet seen</div><div class="v">${nProspect}</div></div>
+        <div class="stat"><div class="k">Worth pursuing</div><div class="v" style="${nPursue?'color:var(--ok)':''}">${nPursue}</div></div>
+        <div class="stat"><div class="k">Sending business</div><div class="v" style="${nActive?'color:var(--ok)':''}">${nActive}</div></div>
+        <div class="stat"><div class="k">Seen, no name got</div><div class="v" style="${noNote?'color:var(--warn)':''}">${noNote}</div></div>
+      </div>
+      ${noNote ? `<div style="margin-top:11px;padding:10px 12px;background:var(--warn-bg);border-radius:9px;font-size:13.5px;color:var(--ink-2)">
+        <b style="color:var(--warn)">${noNote} partner${noNote===1?" has":"s have"} been visited without a human name coming back.</b>
+        A visit that produces only a business name has not really happened — that is the whole test.</div>` : ""}
+    </div>
+
+    <div class="card pad" style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="btn ${pnFilter==="all"?"":"line"} sm" data-pnf="all">All ${all.length}</button>
+      <button class="btn ${pnFilter==="todo"?"":"line"} sm" data-pnf="todo">Not yet seen ${nProspect}</button>
+      <button class="btn ${pnFilter==="pursue"?"":"line"} sm" data-pnf="pursue">Worth pursuing ${nPursue}</button>
+      <button class="btn ${pnFilter==="active"?"":"line"} sm" data-pnf="active">Sending business ${nActive}</button>
+      <button class="btn ${pnFilter==="mine"?"":"line"} sm" data-pnf="mine">Mine</button>
+      <select id="pnOff" style="max-width:210px;margin-left:auto">
+        <option value="">Every office</option>
+        ${offices.map(o=>`<option value="${esc(o)}" ${pnOffice===o?"selected":""}>${esc(o)}</option>`).join("")}
+      </select>
+      <button class="btn ${pnSweep?"gold":"line"} sm" id="pnSweepBtn"
+        title="Sweep mode: one tap per lot, quick verdict, move on">${pnSweep?"✓ Sweep mode on":"Sweep mode"}</button>
+    </div>
+
+    ${pnSweep ? `<div class="card pad" style="margin-bottom:12px;background:var(--gold-soft)">
+      <b style="font-size:14px">Sweep mode</b>
+      <div style="font-size:13.5px;color:var(--ink-2);margin-top:5px">
+        For the first pass — a lot of stops, thirty seconds each, one judgement per stop.
+        <b>The test is whether you got a name.</b> Somebody who would pick up the phone is a yes;
+        a business with nobody attached to it is a no. Anything you mark <b>yes</b> or <b>maybe</b>
+        comes back on the follow-up list.</div>
+    </div>` : ""}
+
+    <div class="card">${ps.length ? ps.map(p=>pnRow(p)).join("")
+      : `<div class="empty">Nothing here under this filter.</div>`}</div>
+    <div id="pnDetail"></div>`;
+
+  body.querySelectorAll("[data-pnf]").forEach(b=>b.addEventListener("click",()=>{
+    pnFilter=b.dataset.pnf; pnSel=null; mgrPartners();
+  }));
+  const off = $("#pnOff");
+  if(off) off.addEventListener("change", e=>{ pnOffice=e.target.value; pnSel=null; mgrPartners(); });
+  $("#pnSweepBtn").addEventListener("click", ()=>{ pnSweep=!pnSweep; pnSel=null; mgrPartners(); });
+  pnWire(body);
+  if(pnSel) pnDetail();
+}
+
+function pnRow(p){
+  const pill = p.status==="active" ? "done" : p.status==="prospect" ? "todo" : "prog";
+  return `<div style="padding:13px 16px;border-bottom:1px solid var(--line)">
+    <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:1;min-width:220px">
+        <div class="tname">${esc(p.name)}
+          <span class="pill ${pill}">${esc(PN_STATUS[p.status]||p.status)}</span>
+          ${p.pursue==="yes"?`<span class="pill done">Pursue</span>`:""}
+          ${p.pursue==="maybe"?`<span class="pill prog">Maybe</span>`:""}</div>
+        <div class="tsub">${esc(PN_CAT[p.category]||p.category)} · ${esc(p.address||"")}${
+          p.office?` · ${esc(p.office)}`:""}</div>
+        <div class="tsub">${p.contact_name
+            ? `<b>${esc(p.contact_name)}</b>${p.contact_role?` — ${esc(p.contact_role)}`:""}`
+            : `<span style="color:var(--warn)">No name yet</span>`}${
+          p.phone?` · ${esc(p.phone)}`:""}${
+          p.owned_by?` · ${esc(p.owned_by)}`:""}</div>
+        ${p.next_action?`<div class="tsub" style="color:var(--ink)">Next: ${esc(p.next_action)}${
+          p.next_action_due?` — ${sdate(p.next_action_due)}`:""}</div>`:""}
+      </div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:flex-start">
+        ${pnSweep && p.status==="prospect" ? `
+          <button class="btn sm" data-pnsw="${p.id}" data-v="yes">Yes</button>
+          <button class="btn line sm" data-pnsw="${p.id}" data-v="maybe">Maybe</button>
+          <button class="btn line sm" data-pnsw="${p.id}" data-v="no">No</button>`
+        : `<button class="btn line sm" data-pnopen="${p.id}">${
+             p.touch_count ? `${p.touch_count} visit${p.touch_count===1?"":"s"}` : "Open"}</button>`}
+      </div>
+    </div>
+  </div>`;
+}
+
+function pnWire(box){
+  box.querySelectorAll("[data-pnopen]").forEach(b=>b.addEventListener("click",()=>{
+    pnSel = b.dataset.pnopen; pnDetail();
+  }));
+  box.querySelectorAll("[data-pnsw]").forEach(b=>b.addEventListener("click", async ()=>{
+    const id = b.dataset.pnsw, v = b.dataset.v;
+    const p = (PARTNERS.partners||[]).find(x=>x.id===id) || {};
+    // A verdict with no reason is a verdict nobody can act on later.
+    const reason = prompt(v==="no"
+      ? `${p.name} — why not? (one line)`
+      : `${p.name} — who did you meet, and what did they say? (one line)`, "");
+    if(reason === null) return;
+    const who = v==="no" ? "" : prompt("Name of the person you met (this is the test)", "") || "";
+    b.disabled = true;
+    try{
+      await rpc("training_partner_sweep",{p_code:CODE, p_partner_id:id, p_pursue:v,
+        p_reason:reason, p_contact_name:who, p_contact_role:"", p_contact_phone:""});
+      await loadPartners(); mgrPartners();
+      toast(v==="no" ? `${p.name} — marked no` : `${p.name} — on the follow-up list`);
+    }catch(ex){ b.disabled=false; toast(ex.message); }
+  }));
+}
+
+// Every one of these partners is a business, and a P&C-licensed agent can write the
+// business itself — not just ask it for customers. Commercial is the one thing Metro
+// already converts well (42% when it comes up, against 406 missed), so the reminder
+// belongs where the work happens rather than in a coaching list nobody opens.
+const PN_COMMERCIAL = {
+  car_lot: {
+    label: "A car lot is a commercial account",
+    lines: ["Garage liability and garagekeepers — the core dealer coverage",
+            "Dealer open lot — their inventory",
+            "Oklahoma motor vehicle dealer bond",
+            "Workers' comp — including sole-proprietor / ghost policies for a one-man lot",
+            "Commercial property and BOP",
+            "Commercial auto — dealer plates, transporter"]
+  },
+  apartment: {
+    label: "A complex or management company is a commercial account",
+    lines: ["Commercial property and general liability",
+            "Workers' comp for on-site maintenance staff",
+            "Umbrella", "Commercial auto for the maintenance truck"]
+  },
+  repair_shop: {
+    label: "A shop is a commercial account",
+    lines: ["Garagekeepers — customers' cars in their care",
+            "General liability and BOP", "Workers' comp", "Tools and equipment"]
+  },
+  rv_boat: {
+    label: "A dealer is a commercial account",
+    lines: ["Garage liability and open lot", "Dealer bond", "Workers' comp", "Property and BOP"]
+  },
+  mh_park: {
+    label: "A park is a commercial account",
+    lines: ["Commercial property and general liability", "Workers' comp", "Umbrella"]
+  },
+  tax_prep: {
+    label: "A practice is a commercial account",
+    lines: ["Professional liability / E&O — the one they actually need",
+            "BOP", "Workers' comp", "Cyber"]
+  }
+};
+
+function pnCommercialPanel(p){
+  const spec = PN_COMMERCIAL[p.category];
+  const me = (PARTNERS||{}).me || {};
+  // Only for agents who can actually write it. A Personal Lines licence cannot.
+  if(!spec || me.license_type !== "pc" || me.license_status !== "licensed") return "";
+  const st = p.commercial_status || "not_discussed";
+  const done = st === "written" || st === "quoted";
+  return `
+    <div style="margin-bottom:18px;padding:13px 15px;border-radius:11px;
+         background:${done?"var(--ok-bg)":"var(--gold-soft)"};
+         border-left:3px solid ${done?"var(--ok)":"var(--gold)"}">
+      <b style="font-size:14px">${esc(spec.label)}</b>
+      <div style="font-size:13.5px;color:var(--ink-2);margin-top:5px">
+        You hold a full P&amp;C licence, so you can write this business yourself — not just ask it
+        for referrals. Worth raising once you are talking to the owner.</div>
+      <ul style="margin:9px 0 0;padding-left:19px;font-size:13.5px">
+        ${spec.lines.map(l=>`<li style="margin-bottom:2px">${esc(l)}</li>`).join("")}
+      </ul>
+      <div style="font-size:12.5px;color:var(--ink-3);margin-top:9px">
+        <b>Do not promise garage liability or garagekeepers yet — Braden is pulling the carrier list.</b>
+        Our commercial panel is real — Travelers, Progressive Commercial, Normandy for comp,
+        RLI for bonds, plus the Oklahoma wholesalers — but no dealer garage programme is named in
+        the carrier data. And <b>AssuranceAmerica Commercial is not it</b>: that is consumer-facing
+        commercial auto for a customer's own vehicle, not cover for a dealership's operations.</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:11px;flex-wrap:wrap">
+        <select id="pnComm" style="max-width:230px">
+          ${[["not_discussed","Not raised yet"],["discussed","Raised it"],
+             ["quoted","Quoted them"],["written","Wrote it"],["not_applicable","Not applicable"]]
+            .map(([k,v])=>`<option value="${k}" ${st===k?"selected":""}>${v}</option>`).join("")}
+        </select>
+        <input id="pnCommNote" type="text" style="flex:1;min-width:200px"
+          placeholder="What did they say?" value="${esc(p.commercial_notes||"")}">
+        <button class="btn line sm" id="pnCommSave">Save</button>
+      </div>
+    </div>`;
+}
+
+function pnDetail(){
+  const p = ((PARTNERS||{}).partners||[]).find(x=>x.id===pnSel);
+  const box = $("#pnDetail"); if(!p||!box) return;
+  box.innerHTML = `
+    <div class="card pad" style="margin-top:14px">
+      <div class="section-h"><h2>${esc(p.name)}</h2>
+        <button class="btn line sm" id="pnClose">Close</button></div>
+      <div style="font-size:13.5px;color:var(--ink-2);margin-bottom:14px">
+        ${esc(PN_CAT[p.category]||p.category)} · ${esc(p.address||"")} ${esc(p.city||"")} ${esc(p.zip||"")}
+        ${p.phone?`<br>${esc(p.phone)}`:""}
+        ${p.contact_name?`<br><b>${esc(p.contact_name)}</b>${p.contact_role?` — ${esc(p.contact_role)}`:""}`:""}
+        ${p.office?`<br>${esc(p.office)}${p.serving_office && p.serving_office!==p.office
+          ? ` · served from ${esc(p.serving_office)}`:""}`:""}
+        ${p.owned_by?`<br>Owned by ${esc(p.owned_by)}`:""}
+      </div>
+      ${p.notes?`<div style="font-size:13.5px;background:var(--surface-3,#f3f3f1);padding:11px 13px;
+        border-radius:9px;white-space:pre-wrap;margin-bottom:14px">${esc(p.notes)}</div>`:""}
+
+      ${pnCommercialPanel(p)}
+
+      <h4 style="font-size:14px;margin-bottom:4px">Log a visit</h4>
+      <p style="font-size:13px;color:var(--ink-2);margin:0 0 9px">
+        A note is required. Write it before you drive away — a note written that evening is half the note.</p>
+      <div style="display:grid;gap:9px;max-width:560px">
+        <select id="pnKind">
+          <option value="visit">Visit</option><option value="call">Phone call</option>
+          <option value="drop_off">Dropped something off</option><option value="email">Email</option>
+        </select>
+        <select id="pnOut">
+          <option value="">How did it go?</option>
+          ${Object.entries(PN_OUTCOME).map(([k,v])=>`<option value="${k}">${v}</option>`).join("")}
+        </select>
+        <textarea id="pnNotes" rows="3" placeholder="Who did you see, what did they say, what did you learn?"></textarea>
+        <input id="pnNext" type="text" placeholder="Next action — e.g. drop off move-in cards">
+        <input id="pnDue" type="date">
+        <div><button class="btn sm" id="pnSave">Save visit</button>
+             <span id="pnMsg" style="font-size:13px;color:var(--ink-2);margin-left:9px"></span></div>
+      </div>
+
+      ${(p.touches||[]).length ? `<h4 style="font-size:14px;margin:20px 0 8px">History</h4>
+        ${p.touches.map(t=>`<div style="padding:10px 0;border-top:1px solid var(--line)">
+          <div style="font-size:13px;color:var(--ink-3)">${esc(t.kind)}${
+            t.outcome?` · ${esc(PN_OUTCOME[t.outcome]||t.outcome)}`:""} · ${when(t.occurred_at)}${
+            t.who?` · ${esc(t.who)}`:""}</div>
+          <div style="font-size:14px;white-space:pre-wrap;margin-top:3px">${esc(t.notes||"")}</div>
+          ${t.next_action?`<div style="font-size:13px;color:var(--ink-2);margin-top:3px">Next: ${
+            esc(t.next_action)}${t.next_action_due?` — ${sdate(t.next_action_due)}`:""}</div>`:""}
+        </div>`).join("")}` : ""}
+    </div>`;
+  $("#pnClose").addEventListener("click", ()=>{ pnSel=null; mgrPartners(); });
+  const cs = $("#pnCommSave");
+  if(cs) cs.addEventListener("click", async ()=>{
+    cs.disabled = true;
+    try{
+      await rpc("training_partner_commercial",{p_code:CODE, p_partner_id:p.id,
+        p_status:$("#pnComm").value, p_notes:$("#pnCommNote").value});
+      await loadPartners(); mgrPartners(); toast("Commercial status saved");
+    }catch(ex){ cs.disabled=false; toast(ex.message); }
+  });
+  $("#pnSave").addEventListener("click", async ()=>{
+    const b=$("#pnSave"), msg=$("#pnMsg");
+    const notes=$("#pnNotes").value;
+    if(!notes.trim()){ msg.textContent="Write a note first."; return; }
+    b.disabled=true; msg.textContent="";
+    try{
+      await rpc("training_partner_touch",{p_code:CODE, p_partner_id:p.id,
+        p_kind:$("#pnKind").value, p_outcome:$("#pnOut").value, p_notes:notes,
+        p_next_action:$("#pnNext").value, p_next_action_due:$("#pnDue").value || null});
+      await loadPartners(); mgrPartners(); toast("Visit logged");
+    }catch(ex){ b.disabled=false;
+      msg.textContent = ex.message==="NOTES_REQUIRED" ? "Write a note first." : ex.message; }
+  });
+  box.scrollIntoView({behavior:"smooth", block:"start"});
 }
 
 function mgrFeedback(){
