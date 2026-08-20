@@ -415,6 +415,43 @@ tbody tr.clk:hover{background:#f8f9fc}
 .mkt-c span.tr{border-color:var(--ok);background:var(--ok-bg);color:#0f5c3a}
 .mkt-none{font-size:12.5px;color:var(--warn);margin-top:9px}
 
+/* ---- Numbers tab (managers with financial access only) ---- */
+.fin-sub{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.fin-sub button{background:#fff;border:1px solid var(--line-2);border-radius:99px;
+  padding:6px 13px;font:inherit;font-size:13px;font-weight:600;color:var(--ink-2);cursor:pointer}
+.fin-sub button:hover{border-color:var(--navy-3);color:var(--navy)}
+.fin-sub button.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.fin-pad{padding:18px 20px}
+.fin-h{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--ink-3);margin:0 0 4px}
+.fin-sub2{font-size:13px;color:var(--ink-3);margin:0 0 14px}
+.fin-chart{width:100%;height:auto;display:block;overflow:visible}
+.fin-lg{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-2);margin-top:10px}
+.fin-lg i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;
+  vertical-align:-1px}
+.fin-num{font-variant-numeric:tabular-nums}
+.fin-neg{color:var(--bad)}
+.fin-pos{color:var(--ok)}
+.fin-note{background:var(--warn-bg);border:1px solid #f0dcb4;border-radius:10px;
+  padding:13px 15px;font-size:13.5px;color:#6b4a0c;line-height:1.6}
+.fin-note b{color:#4d3406}
+.fin-note ul{margin:8px 0 0;padding-left:19px}
+.fin-note li{margin-bottom:5px}
+.fin-ev{font-size:12.5px;color:var(--ink-3);line-height:1.6}
+.fin-ev b{color:var(--ink-2)}
+.fin-t td,.fin-t th{padding:9px 11px}
+.fin-t td.n,.fin-t th.n{text-align:right;font-variant-numeric:tabular-nums}
+.fin-t tr.clk{cursor:pointer}
+.fin-t tr.clk:hover{background:var(--info-bg)}
+.fin-back{background:none;border:0;color:var(--navy-3);font:inherit;font-size:13.5px;
+  font-weight:650;cursor:pointer;padding:0;margin-bottom:10px}
+.fin-back:hover{text-decoration:underline}
+.fin-grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:900px){.fin-grid2{grid-template-columns:1fr}}
+.fin-cap{font-size:12px;color:var(--ink-3);margin-top:8px;line-height:1.55}
+/* On a phone the card scrolls sideways rather than shredding the name column. */
+@media(max-width:640px){ .fin-t td:first-child,.fin-t th:first-child{min-width:132px} }
+
 </style>
 </head>
 <body>
@@ -528,6 +565,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     CMS=null, CMF=null, cmPage=0, cmBusy=false,
     TIPS=null, tipIdx=0, MKT=null, mktQ="", TIPSM=null, tipMFilter="draft",
     CIDX=null, CSHEET=null, mktView="market", mktBackTo="market",
+    FIN=null, FINM=null, FINL={}, finSub="agency", finLoc=null, finWin=25,
     cmQ={q:"",from:"",to:"",direction:"",call_type:"",agent:"",rule:"",
          min_score:"",max_score:"",flagged:"",
          phone:"",time_from:"",time_to:"",sort:"newest"};
@@ -561,7 +599,8 @@ async function rpc(fn, params){
       /NOT_ENROLLED/.test(m) ? "That person is not enrolled in the portal yet — add them under Add an agent first." :
       /NO_MODULE/.test(m) ? "That module no longer exists." :
       /NO_CALL_ACCESS/.test(m) ? "Your code does not have call monitoring access." :
-      /NO_CALL_DETAIL/.test(m) ? "Your code sees agency patterns only, not individual agents." : m);
+      /NO_CALL_DETAIL/.test(m) ? "Your code sees agency patterns only, not individual agents." :
+      /NO_FINANCIAL_ACCESS/.test(m) ? "Your code does not have access to agency financials." : m);
   }
   return data;
 }
@@ -1073,6 +1112,592 @@ async function loadCarrierIndex(){
 async function loadTipsManage(){
   try{ TIPSM = await rpc("training_tips_manage",{p_code:CODE}); }
   catch(e){ TIPSM = {error:e.message, items:[]}; }
+}
+
+/* ================= Numbers — location P&L (financial access only) =================
+   Gated twice. The tab is only drawn when the signed-in person carries
+   financial_access = 'full' (Braden, Belinda, Betty Jane). That check is
+   cosmetic: every read function on the server calls training_fin_gate first
+   and raises NO_FINANCIAL_ACCESS, so deleting the client check would not
+   expose a single number.
+
+   Reading rule baked into these panels: an office is shown against its OWN
+   recent trend, never against a two-year average. Two structural breaks
+   (owner payroll off the books Feb 2025, Inner City earn-out ending Oct 2025)
+   make any long trailing average of net income meaningless, and the legacy
+   book is decaying at roughly a fifth a year at near-total margin, which
+   flatters every average it is inside of. The legacy curve is therefore
+   always on screen beside the office numbers, not buried in a subtotal. */
+const finHasFin = () => !!(ME && ME.financial_access === "full");
+
+async function loadFin(){
+  try{
+    const [o,m] = await Promise.all([
+      rpc("training_fin_overview",{p_code:CODE}),
+      rpc("training_fin_matrix",{p_code:CODE})
+    ]);
+    FIN = o; FINM = m;
+  }catch(e){
+    FIN = {error:e.message, months:[]}; FINM = {locations:[], cells:[]};
+  }
+}
+
+const M3 = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const money = n => (n===null||n===undefined||n===""||isNaN(+n)) ? "—"
+  : (+n<0?"−":"") + "$" + Math.abs(Math.round(+n)).toLocaleString("en-US");
+const money0 = n => (n===null||n===undefined||isNaN(+n)) ? "—"
+  : (+n<0?"(":"") + "$" + Math.abs(Math.round(+n)).toLocaleString("en-US") + (+n<0?")":"");
+const signed = n => `<span class="fin-num ${+n<0?"fin-neg":+n>0?"fin-pos":""}">${money0(n)}</span>`;
+const finPct = (a,b) => (!b) ? null : (a-b)/Math.abs(b)*100;
+const pctTxt = p => p===null||isNaN(p) ? "—"
+  : (p>0?"+":p<0?"\u2212":"") + Math.abs(p).toFixed(Math.abs(p)>=10?0:1) + "%";
+const pctSpan = p => `<span class="fin-num ${p<0?"fin-neg":p>0?"fin-pos":""}">${pctTxt(p)}</span>`;
+const MFULL = ["January","February","March","April","May","June","July","August",
+  "September","October","November","December"];
+const mLong = iso => { const p=String(iso).slice(0,7).split("-"); return MFULL[+p[1]-1]+" "+p[0]; };
+const mShort = iso => { const p=String(iso).slice(0,7).split("-");
+  return (+p[1]===1 ? "'"+p[0].slice(2) : M3[+p[1]-1]); };
+const finSum = arr => arr.reduce((a,x)=>a + (+x||0), 0);
+const finAvg = arr => arr.length ? finSum(arr)/arr.length : 0;
+
+/* Monthly signed bars sharing one zero line. Hand-rolled SVG — the portal
+   carries no chart library and is not about to grow one for five panels. */
+function finBars(rows, opt){
+  opt = opt||{};
+  const n = rows.length||1, step = 28, W = n*step, H = opt.h||160, T = 12, B = 24, bw = 16;
+  const vals = rows.map(r=>+r.v||0);
+  const hi = Math.max(0, ...vals), lo = Math.min(0, ...vals), span = (hi-lo)||1;
+  const y = v => T + (hi-v)/span*(H-T-B), zero = y(0);
+  const every = n>20 ? 3 : n>12 ? 2 : 1;
+  return `<svg class="fin-chart" viewBox="0 0 ${W} ${H+14}" role="img"
+      aria-label="${esc(opt.alt||"Monthly figures")}">
+    <line x1="0" y1="${zero.toFixed(1)}" x2="${W}" y2="${zero.toFixed(1)}"
+      stroke="var(--line-2)" stroke-width="1"/>
+    ${rows.map((r,i)=>{
+      const v = +r.v||0, top = Math.min(zero, y(v)), h = Math.max(1, Math.abs(y(v)-zero));
+      const col = r.color || (v<0 ? "#b3261e" : "#3B3D80");
+      return `<rect x="${(i*step+(step-bw)/2).toFixed(1)}" y="${top.toFixed(1)}"
+        width="${bw}" height="${h.toFixed(1)}" rx="2" fill="${col}"
+        ><title>${esc(r.label)}: ${money0(v)}</title></rect>`;
+    }).join("")}
+    ${rows.map((r,i)=> i%every===0
+      ? `<text x="${(i*step+step/2).toFixed(1)}" y="${H+3}" font-size="10.5"
+           fill="var(--ink-3)" text-anchor="middle">${esc(r.short)}</text>` : "").join("")}
+    ${opt.scale ? `<text x="2" y="9" font-size="10" fill="var(--ink-3)">${esc(money0(hi))} high</text>
+      ${lo<0 ? `<text x="2" y="${(H-B+11).toFixed(1)}" font-size="10"
+        fill="var(--ink-3)">${esc(money0(lo))} low</text>` : ""}` : ""}
+  </svg>`;
+}
+
+/* One or more lines over the same month axis. series = [{name,color,v:[...]}] */
+function finLines(months, series, opt){
+  opt = opt||{};
+  const n = months.length||1, step = 28, W = Math.max(n*step, 280), H = opt.h||170, T = 12, B = 24;
+  const all = series.flatMap(s=>s.v.filter(v=>v!==null&&v!==undefined).map(v=>+v));
+  const hi = Math.max(0, ...all), lo = Math.min(0, ...all), span = (hi-lo)||1;
+  const x = i => n===1 ? W/2 : i*(W-step)/(n-1) + step/2;
+  const y = v => T + (hi-v)/span*(H-T-B), zero = y(0);
+  const every = n>20 ? 3 : n>12 ? 2 : 1;
+  return `<svg class="fin-chart" viewBox="0 0 ${W} ${H+14}" role="img"
+      aria-label="${esc(opt.alt||"Monthly trend")}">
+    ${lo<0 ? `<line x1="0" y1="${zero.toFixed(1)}" x2="${W}" y2="${zero.toFixed(1)}"
+        stroke="var(--line-2)" stroke-width="1"/>` : ""}
+    ${series.map(s=>{
+      const pts = s.v.map((v,i)=> v===null||v===undefined ? null
+        : `${x(i).toFixed(1)},${y(+v).toFixed(1)}`).filter(Boolean).join(" ");
+      return `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2.2"
+        stroke-linejoin="round" stroke-linecap="round"/>
+        ${s.v.map((v,i)=> v===null||v===undefined ? "" :
+          `<circle cx="${x(i).toFixed(1)}" cy="${y(+v).toFixed(1)}" r="2.6" fill="${s.color}"
+            ><title>${esc(s.name)} · ${esc(mLong(months[i]))}: ${money0(v)}</title></circle>`).join("")}`;
+    }).join("")}
+    ${months.map((m,i)=> i%every===0
+      ? `<text x="${x(i).toFixed(1)}" y="${H+3}" font-size="10.5" fill="var(--ink-3)"
+           text-anchor="middle">${esc(mShort(m))}</text>` : "").join("")}
+  </svg>`;
+}
+
+function finLegend(series){
+  return `<div class="fin-lg">${series.map(s=>
+    `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join("")}</div>`;
+}
+
+/* Tiny trend mark for a table cell. No axis, no labels — shape only. */
+function finSpark(vals, w, h){
+  w = w||86; h = h||24;
+  const v = vals.map(x=>+x||0), n = v.length||1;
+  const hi = Math.max(0,...v), lo = Math.min(0,...v), span = (hi-lo)||1;
+  const x = i => n===1 ? w/2 : i*w/(n-1);
+  const y = q => 2 + (hi-q)/span*(h-4);
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"
+      style="display:block">
+    ${lo<0 ? `<line x1="0" y1="${y(0).toFixed(1)}" x2="${w}" y2="${y(0).toFixed(1)}"
+        stroke="var(--line)" stroke-width="1"/>` : ""}
+    <polyline points="${v.map((q,i)=>`${x(i).toFixed(1)},${y(q).toFixed(1)}`).join(" ")}"
+      fill="none" stroke="#3B3D80"
+      stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+}
+
+/* ---- shared derivations ---- */
+function finMonths(){ return (FIN && FIN.months || []).map(m=>m.month); }
+function finCellIndex(){
+  const by = {};
+  (FINM && FINM.cells || []).forEach(c=>{ (by[c.loc] = by[c.loc]||{})[c.month] = c; });
+  return by;
+}
+// A location's class can change over time (Tulsa - Mingo went legacy on 1 July
+// 2026), so the class that matters for grouping is the one on its newest month.
+function finClassOf(){
+  const latest = {};
+  (FINM && FINM.cells || []).forEach(c=>{
+    if(!latest[c.loc] || c.month > latest[c.loc].month) latest[c.loc] = c;
+  });
+  const out = {}; Object.keys(latest).forEach(k=>out[k] = latest[k].class);
+  return out;
+}
+function finName(key){
+  const d = (FINM && FINM.locations || []).find(l=>l.location_key===key);
+  return (d && d.display_name) || key;
+}
+function finDim(key){
+  return (FINM && FINM.locations || []).filter(l=>l.location_key===key);
+}
+function finSeries(loc, field){
+  const idx = finCellIndex()[loc] || {};
+  return finMonths().map(m => idx[m] ? (+idx[m][field]||0) : 0);
+}
+function finTail(arr, k){ return arr.slice(Math.max(0, arr.length-k)); }
+function finPrior(arr, k){
+  const end = Math.max(0, arr.length-k);
+  return arr.slice(Math.max(0, end-k), end);
+}
+function finEvents(){
+  return (FIN && FIN.months || []).flatMap(m =>
+    (m.events||[]).map(e => Object.assign({month:m.month}, e)));
+}
+function finClassSeries(field, cls){
+  return (FIN && FIN.months || []).map(m => {
+    const b = (field==="net" ? m.by_class : m.income_by_class) || {};
+    return +b[cls] || 0;
+  });
+}
+
+/* ---- the tab ---- */
+function mgrFin(){
+  const body = $("#mgrBody");
+  if(!FIN){ body.innerHTML = `<div class="card fin-pad"><div class="empty">Loading…</div></div>`; return; }
+  if(FIN.error){
+    body.innerHTML = `<div class="card fin-pad"><div class="empty">${esc(FIN.error)}</div></div>`;
+    return;
+  }
+  if(!(FIN.months||[]).length){
+    body.innerHTML = `<div class="card fin-pad"><div class="empty">
+      No months loaded yet.</div></div>`;
+    return;
+  }
+  const subs = [["agency","Agency overview"],["offices","Compare offices"],
+                ["legacy","Legacy &amp; corporate"],["programs","Programs"],
+                ["coverage","Data coverage"]];
+  body.innerHTML = `
+    <div class="fin-sub">${subs.map(([k,l])=>
+      `<button data-fin="${k}" class="${finSub===k||(finSub==="office"&&k==="offices")?"on":""}">${l}</button>`
+    ).join("")}</div>
+    <div id="finBody"></div>`;
+  body.querySelectorAll("[data-fin]").forEach(b=>b.addEventListener("click", ()=>{
+    finSub = b.dataset.fin; finLoc = null; mgrFin();
+  }));
+  ({agency:finAgency, offices:finOffices, office:finOffice, legacy:finLegacy,
+    programs:finPrograms, coverage:finCoverage})[finSub]();
+}
+
+function finAgency(){
+  const ms = FIN.months, months = finMonths();
+  const last = ms[ms.length-1];
+  const inc = ms.map(m=>+m.income||0), net = ms.map(m=>+m.net||0);
+  const t12 = finTail(inc,12), p12 = finPrior(inc,12);
+  const incChange = p12.length===12 ? finPct(finSum(t12), finSum(p12)) : null;
+  const legInc = finClassSeries("income","legacy"), legNet = finClassSeries("net","legacy");
+  const offNet = finClassSeries("net","office"), corpNet = finClassSeries("net","corporate");
+  const legT = finSum(finTail(legInc,12)), legP = finSum(finPrior(legInc,12));
+  const decay = legP ? finPct(legT, legP) : null;
+  const legMargin = legT ? finSum(finTail(legNet,12))/legT*100 : null;
+  const offT3 = finSum(finTail(offNet,3)), offP3 = finSum(finPrior(offNet,3));
+  const clsMap = finClassOf();
+  const nOffice = Object.keys(clsMap).filter(k=>clsMap[k]==="office").length;
+  const evs = finEvents();
+
+  $("#finBody").innerHTML = `
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Newest month</div>
+        <div class="v" style="font-size:21px">${esc(mLong(last.month))}</div>
+        <div class="tsub">${esc(last.basis||"cash")} basis${last.ties?" · ties":""}</div></div>
+      <div class="stat"><div class="k">Net that month</div>
+        <div class="v ${+last.net<0?"fin-neg":""}" style="font-size:23px">${money0(last.net)}</div>
+        <div class="tsub">on ${money0(last.income)} income</div></div>
+      <div class="stat"><div class="k">Income, last 12 mo</div>
+        <div class="v" style="font-size:23px">${money0(finSum(t12))}</div>
+        <div class="tsub">${incChange===null?"no prior year loaded"
+          :`${pctTxt(incChange)} vs the 12 before`}</div></div>
+      <div class="stat"><div class="k">Legacy net, last 12 mo</div>
+        <div class="v" style="font-size:23px">${money0(finSum(finTail(legNet,12)))}</div>
+        <div class="tsub">${
+          finSum(finTail(net,12)) > 0
+            ? (finSum(finTail(legNet,12)) > finSum(finTail(net,12))
+                ? "more than the agency's whole net — everything else is below zero"
+                : Math.round(finSum(finTail(legNet,12))/finSum(finTail(net,12))*100)+"% of agency net")
+            : "the agency's net is negative without it"}${
+          legMargin===null?"":` · ${Math.round(legMargin)}% margin`}</div></div>
+    </div>
+
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">Net income by class, month by month</p>
+      <p class="fin-sub2">Offices are what the agents run. Legacy is the run-off book.
+        Corporate is never allocated down to a location.</p>
+      ${finLines(months, [
+        {name:"Offices", color:"#3B3D80", v:offNet},
+        {name:"Legacy", color:"#c8952b", v:legNet},
+        {name:"Corporate", color:"#b3261e", v:corpNet}
+      ], {h:180, alt:"Net income by class"})}
+      ${finLegend([{name:"Offices",color:"#3B3D80"},{name:"Legacy",color:"#c8952b"},
+                   {name:"Corporate",color:"#b3261e"}])}
+      <p class="fin-cap">The ${nOffice} office${nOffice===1?"":"s"} ran ${signed(offT3)} between them over the
+        last three months loaded, against ${money0(offP3)} in the three before that. Legacy
+        carried ${money0(finSum(finTail(legNet,3)))} over the same three months on almost no
+        expense.</p>
+    </div>
+
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">Agency net income</p>
+      <p class="fin-sub2">Every location together, including corporate.</p>
+      ${finBars(ms.map(m=>({v:+m.net||0, label:mLong(m.month), short:mShort(m.month)})),
+        {h:170, alt:"Agency net income by month", scale:true})}
+    </div>
+
+    ${evs.length ? `<div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">Structural breaks in this series</p>
+      <p class="fin-sub2">Real changes to what the books contain — not performance.
+        Any comparison that straddles one of these is comparing two different agencies.</p>
+      <div class="fin-ev">${evs.map(e=>`<div style="padding:6px 0;border-bottom:1px dashed var(--line)">
+        <b>${esc(mLong(e.month))}</b> — ${esc(e.label)}${
+          e.monthly_amount ? ` · ${money0(e.monthly_amount)}` : ""}${
+          e.detail ? `<br><span style="color:var(--ink-3)">${esc(e.detail)}</span>` : ""}</div>`).join("")}</div>
+    </div>` : ""}
+
+    <div class="fin-note">
+      <b>How to read these panels.</b> Judge an office against its own recent months,
+      not against a two-year average.
+      <ul>
+        <li>Owner payroll came off the books in February 2025 and the Inner City earn-out
+          ended in October 2025. Net income looks like it doubled between 2024 and 2025;
+          those two changes account for the whole of it.</li>
+        <li>Income is down ${incChange===null?"—":pctTxt(incChange)} year over year while net
+          looks better. Both facts are true at once.</li>
+        <li>The legacy book runs at roughly ${legMargin===null?"—":Math.round(legMargin)+"%"}
+          margin. Its income over the last 12 loaded months is ${decay===null?"—":pctTxt(decay)}
+          against the 12 months before that. It is holding the agency near breakeven, and it is
+          the one line nobody can coach.</li>
+      </ul>
+    </div>`;
+}
+
+function finOffices(){
+  const months = finMonths(), cls = finClassOf();
+  const keys = Object.keys(cls).filter(k=>cls[k]==="office");
+  const rows = keys.map(k=>{
+    const net = finSeries(k,"net"), inc = finSeries(k,"income");
+    const t3 = finSum(finTail(net,3)), p3 = finSum(finPrior(net,3));
+    // Net income crosses zero, so a percentage change is not a real number here:
+    // -113% could mean anything. The dollar swing always means the same thing.
+    const dim = finDim(k).find(d=>d.class==="office") || {};
+    return {k, net, inc, last:net[net.length-1], t3, p3, swing: t3-p3,
+            closed: dim.to || null,
+            inc12: finSum(finTail(inc,12)),
+            margin: finSum(finTail(inc,12)) ? finSum(finTail(net,12))/finSum(finTail(inc,12))*100 : null};
+  }).sort((a,b)=>b.t3-a.t3);
+  const grpNet = months.map((m,i)=>finSum(rows.map(r=>r.net[i])));
+
+  $("#finBody").innerHTML = `
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">The offices, together</p>
+      <p class="fin-sub2">Net income across the ${rows.length} location${rows.length===1?"":"s"}
+        classed as an office during the loaded window. Legacy and corporate are excluded —
+        they are on their own tab.</p>
+      ${finBars(months.map((m,i)=>({v:grpNet[i], label:mLong(m), short:mShort(m)})),
+        {h:160, alt:"Combined office net income by month", scale:true})}
+    </div>
+    <div class="card" style="overflow-x:auto">
+      <table class="fin-t"><thead><tr>
+        <th>Office</th><th class="n">Newest month</th><th class="n">Net, last 3 mo</th>
+        <th class="n">Swing vs prior 3</th><th class="n hide-sm">Income, 12 mo</th>
+        <th class="n hide-sm">Margin</th><th class="hide-sm">Net trend</th>
+      </tr></thead><tbody>${rows.map(r=>`
+        <tr class="clk" data-loc="${esc(r.k)}">
+          <td><b>${esc(finName(r.k))}</b>${r.closed
+            ? `<div class="tsub">closed ${esc(mLong(r.closed))} — outside this window</div>` : ""}</td>
+          <td class="n">${signed(r.last)}</td>
+          <td class="n">${signed(r.t3)}</td>
+          <td class="n">${signed(r.swing)}</td>
+          <td class="n hide-sm">${money0(r.inc12)}</td>
+          <td class="n hide-sm">${r.margin===null?"—":Math.round(r.margin)+"%"}</td>
+          <td class="hide-sm">${finSpark(r.net)}</td>
+        </tr>`).join("")}</tbody></table>
+    </div>
+    <p class="fin-cap">Sorted by the last three months, which is the window that reflects how
+      the office is being run now. The swing column is a dollar change, not a percentage —
+      net income crosses zero, and a percentage across zero says nothing.
+      Click any row for the month-by-month detail.</p>`;
+
+  $("#finBody").querySelectorAll("[data-loc]").forEach(tr=>tr.addEventListener("click",
+    ()=>finOpen(tr.dataset.loc)));
+}
+
+async function finOpen(loc){
+  finLoc = loc; finSub = "office";
+  if(!FINL[loc]){
+    try{ FINL[loc] = await rpc("training_fin_location_detail",{p_code:CODE, p_location:loc}); }
+    catch(e){ FINL[loc] = {error:e.message, months:[]}; }
+  }
+  mgrFin();
+}
+
+function finOffice(){
+  const d = FINL[finLoc] || {months:[]};
+  const ms = d.months || [];
+  const months = ms.map(m=>m.month);
+  const net = ms.map(m=>+m.net||0), inc = ms.map(m=>+m.income||0);
+  const comm = ms.map(m=>+m.commission||0), fee = ms.map(m=>+m.fee||0);
+  const t3 = finSum(finTail(net,3)), p3 = finSum(finPrior(net,3));
+  const i3 = finSum(finTail(inc,3)), ip3 = finSum(finPrior(inc,3));
+  const dim = (d.classes||[]);
+
+  $("#finBody").innerHTML = `
+    <button class="fin-back" id="finBack">&larr; All offices</button>
+    ${d.error ? `<div class="card fin-pad"><div class="empty">${esc(d.error)}</div></div>` : `
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Office</div>
+        <div class="v" style="font-size:19px">${esc(finName(finLoc))}</div>
+        <div class="tsub">${dim.map(c=>{
+          const from = c.from && c.from > "2000-01-01" ? ` from ${mLong(c.from)}` : "";
+          return esc(c.class) + esc(c.to ? ` to ${mLong(c.to)}` : from);
+        }).join(" · ")||"—"}</div></div>
+      <div class="stat"><div class="k">Net, last 3 mo</div>
+        <div class="v ${t3<0?"fin-neg":""}" style="font-size:22px">${money0(t3)}</div>
+        <div class="tsub">${ms.length>3
+          ? `${money(t3-p3)} swing from the prior 3, which ran ${money(p3)}` : "no prior window"}</div></div>
+      <div class="stat"><div class="k">Income, last 3 mo</div>
+        <div class="v" style="font-size:22px">${money0(i3)}</div>
+        <div class="tsub">${ip3?`${pctTxt(finPct(i3,ip3))} vs prior 3`:"—"}</div></div>
+      <div class="stat"><div class="k">Fee share of income</div>
+        <div class="v" style="font-size:22px">${i3?Math.round(finSum(finTail(fee,3))/i3*100)+"%":"—"}</div>
+        <div class="tsub">commission ${money0(finSum(finTail(comm,3)))}</div></div>
+    </div>
+    <div class="fin-grid2" style="margin-bottom:16px">
+      <div class="card fin-pad">
+        <p class="fin-h">Net income</p>
+        ${finBars(ms.map(m=>({v:+m.net||0, label:mLong(m.month), short:mShort(m.month)})),
+          {h:150, alt:"Net income by month", scale:true})}
+      </div>
+      <div class="card fin-pad">
+        <p class="fin-h">Where the income comes from</p>
+        ${finLines(months, [
+          {name:"Commission", color:"#3B3D80", v:comm},
+          {name:"Fees", color:"#c8952b", v:fee}
+        ], {h:150, alt:"Commission and fee income by month"})}
+        ${finLegend([{name:"Commission",color:"#3B3D80"},{name:"Fees",color:"#c8952b"}])}
+      </div>
+    </div>
+    <div class="card" style="overflow-x:auto">
+      <table class="fin-t"><thead><tr>
+        <th>Month</th><th class="n">Commission</th><th class="n">Fees</th>
+        <th class="n">Income</th><th class="n hide-sm">Payroll</th>
+        <th class="n hide-sm">Rent</th><th class="n">Expenses</th><th class="n">Net</th>
+      </tr></thead><tbody>${ms.slice().reverse().map(m=>`
+        <tr><td>${esc(mLong(m.month))}</td>
+          <td class="n">${money0(m.commission)}</td>
+          <td class="n">${money0(m.fee)}</td>
+          <td class="n">${money0(m.income)}</td>
+          <td class="n hide-sm">${money0(m.payroll)}</td>
+          <td class="n hide-sm">${money0(m.rent)}</td>
+          <td class="n">${money0(m.expenses)}</td>
+          <td class="n">${signed(m.net)}</td></tr>`).join("")}</tbody></table>
+    </div>
+    <p class="fin-cap">Fee income here is the Agency Matrix allocation posted by journal
+      entry, not the cash moved out of the BancFirst clearing account. The two are
+      reconciled at the agency level, not per office, and they true up once a year in April.</p>
+    ${dim.some(c=>c.notes) ? `<div class="fin-note" style="margin-top:16px">
+      ${dim.filter(c=>c.notes).map(c=>esc(c.notes)).join("<br>")}</div>` : ""}`}`;
+
+  const b = $("#finBack");
+  if(b) b.addEventListener("click", ()=>{ finSub="offices"; finLoc=null; mgrFin(); });
+}
+
+function finLegacy(){
+  const months = finMonths(), cls = finClassOf();
+  const legKeys = Object.keys(cls).filter(k=>cls[k]==="legacy");
+  const corpKeys = Object.keys(cls).filter(k=>cls[k]==="corporate");
+  const untKeys = Object.keys(cls).filter(k=>cls[k]==="untagged");
+  const legInc = finClassSeries("income","legacy"), legNet = finClassSeries("net","legacy");
+  const corpNet = finClassSeries("net","corporate");
+  const legT = finSum(finTail(legInc,12)), legP = finSum(finPrior(legInc,12));
+  const decay = legP ? finPct(legT, legP) : null;
+  const margin = legT ? finSum(finTail(legNet,12))/legT*100 : null;
+
+  const tbl = keys => keys.map(k=>{
+    const inc = finSeries(k,"income"), net = finSeries(k,"net");
+    return {k, inc, net, i12:finSum(finTail(inc,12)), n12:finSum(finTail(net,12)),
+            iP:finSum(finPrior(inc,12))};
+  }).sort((a,b)=>b.i12-a.i12);
+
+  const legRows = tbl(legKeys), corpRows = tbl(corpKeys), untRows = tbl(untKeys);
+
+  $("#finBody").innerHTML = `
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Legacy income, 12 mo</div>
+        <div class="v" style="font-size:22px">${money0(legT)}</div>
+        <div class="tsub">${decay===null?"—":pctTxt(decay)+" vs the 12 months before"}</div></div>
+      <div class="stat"><div class="k">Legacy margin</div>
+        <div class="v" style="font-size:22px">${margin===null?"—":Math.round(margin)+"%"}</div>
+        <div class="tsub">almost no expense attaches</div></div>
+      <div class="stat"><div class="k">Legacy locations</div>
+        <div class="v" style="font-size:22px">${legKeys.length}</div>
+        <div class="tsub">run-off, closed or departed</div></div>
+      <div class="stat"><div class="k">Corporate, last 12 mo</div>
+        <div class="v ${finSum(finTail(corpNet,12))<0?"fin-neg":""}" style="font-size:22px">${
+          money0(finSum(finTail(corpNet,12)))}</div>
+        <div class="tsub">never allocated to an office</div></div>
+    </div>
+
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">The legacy decay curve</p>
+      <p class="fin-sub2">This is the line that decides how much time the offices have.
+        It is not coachable and it is not marketable — it only runs down.</p>
+      ${finLines(months, [
+        {name:"Legacy income", color:"#c8952b", v:legInc},
+        {name:"Legacy net", color:"#7a5710", v:legNet}
+      ], {h:180, alt:"Legacy income and net by month"})}
+      ${finLegend([{name:"Legacy income",color:"#c8952b"},{name:"Legacy net",color:"#7a5710"}])}
+    </div>
+
+    <div class="card" style="overflow-x:auto;margin-bottom:16px">
+      <table class="fin-t"><thead><tr>
+        <th>Legacy location</th><th class="n">Income, 12 mo</th><th class="n">vs prior 12</th>
+        <th class="n">Net, 12 mo</th><th class="hide-sm">Trend</th>
+      </tr></thead><tbody>${legRows.map(r=>`
+        <tr class="clk" data-loc="${esc(r.k)}">
+          <td><b>${esc(finName(r.k))}</b>${
+            (finDim(r.k)[0]||{}).feeds_office
+              ? `<div class="tsub">feeds ${esc(finDim(r.k)[0].feeds_office)}</div>` : ""}</td>
+          <td class="n">${money0(r.i12)}</td>
+          <td class="n">${r.iP?pctSpan(finPct(r.i12,r.iP)):"—"}</td>
+          <td class="n">${signed(r.n12)}</td>
+          <td class="hide-sm">${finSpark(r.inc)}</td></tr>`).join("")}</tbody></table>
+    </div>
+
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">Corporate</p>
+      ${finBars(months.map((m,i)=>({v:corpNet[i], label:mLong(m), short:mShort(m)})),
+        {h:150, alt:"Corporate net by month", scale:true})}
+      ${corpRows.length ? `<p class="fin-cap">${corpRows.map(r=>
+        `${esc(finName(r.k))}: ${money0(r.n12)} over the last 12 months`).join(" · ")}</p>` : ""}
+    </div>
+
+    ${untRows.length ? `<div class="card fin-pad">
+      <p class="fin-h">Untagged</p>
+      <p class="fin-sub2">Revenue and expense that has not been assigned to a location.
+        House accounts belong here on purpose; anything else is cleanup.</p>
+      <table class="fin-t"><tbody>${untRows.map(r=>`
+        <tr><td>${esc(finName(r.k))}</td>
+          <td class="n">${money0(r.i12)} income, 12 mo</td>
+          <td class="n">${signed(r.n12)} net</td></tr>`).join("")}</tbody></table>
+    </div>` : ""}`;
+
+  $("#finBody").querySelectorAll("[data-loc]").forEach(tr=>tr.addEventListener("click",
+    ()=>finOpen(tr.dataset.loc)));
+}
+
+function finPrograms(){
+  $("#finBody").innerHTML = `
+    <div class="card fin-pad">
+      <p class="fin-h">Marketing and communication programs</p>
+      <p class="fin-sub2">Not built yet. This is the panel that answers Betty Jane's
+        question — did the program move anything at the offices it ran in?</p>
+      <div class="fin-note">
+        <b>What it needs before it can be built.</b>
+        <ul>
+          <li>A place to enter a program: what it was, which offices it ran in,
+            what it cost, and the month it started and ended.</li>
+          <li>Then the panel compares those offices against their own months before
+            the program, and against the offices it did not run in.</li>
+          <li>It cannot be a before-and-after on agency totals. The legacy decay and the
+            two structural breaks would swamp any program effect.</li>
+        </ul>
+        Nothing here is blocked on data — the P&L series is loaded. It is blocked on
+        deciding what a program record should contain.
+      </div>
+    </div>`;
+}
+
+function finCoverage(){
+  const ms = FIN.months;
+  // Which months between the first loaded month and last month should exist but do not.
+  const have = new Set(ms.map(m=>String(m.month).slice(0,7)));
+  const start = new Date(ms[0].month + "T00:00:00Z");
+  const now = new Date();
+  const endY = now.getUTCFullYear(), endM = now.getUTCMonth(); // last full month
+  const missing = [];
+  for(let y=start.getUTCFullYear(), mo=start.getUTCMonth();
+      y*12+mo < endY*12+endM; mo===11 ? (y++, mo=0) : mo++){
+    const key = `${y}-${String(mo+1).padStart(2,"0")}`;
+    if(!have.has(key)) missing.push(key+"-01");
+  }
+  const bad = ms.filter(m=>!m.ties);
+  // The loader only started recording the source workbook after this series went in,
+  // so the column stays hidden until at least one month carries one.
+  const hasSrc = ms.some(m=>m.source_file);
+
+  $("#finBody").innerHTML = `
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Months loaded</div>
+        <div class="v">${FIN.loaded}</div>
+        <div class="tsub">${esc(mLong(FIN.first))} – ${esc(mLong(FIN.last))}</div></div>
+      <div class="stat"><div class="k">Control totals</div>
+        <div class="v" style="font-size:22px;color:${FIN.all_tie?"var(--ok)":"var(--bad)"}">${
+          FIN.all_tie ? "All tie" : bad.length+" off"}</div>
+        <div class="tsub">income less expenses equals net, to the penny</div></div>
+      <div class="stat"><div class="k">Basis</div>
+        <div class="v" style="font-size:22px">${esc(ms[ms.length-1].basis||"cash")}</div>
+        <div class="tsub">matches the QuickBooks connector exactly</div></div>
+      <div class="stat"><div class="k">Months not loaded</div>
+        <div class="v" style="${missing.length?"color:var(--warn)":""}">${missing.length}</div>
+        <div class="tsub">${missing.length?esc(mLong(missing[0]))+" onward":"none"}</div></div>
+    </div>
+
+    ${missing.length ? `<div class="fin-note" style="margin-bottom:16px">
+      <b>${missing.length} month${missing.length===1?"":"s"} still to come:</b>
+      ${missing.map(m=>esc(mLong(m))).join(", ")}.
+      These are the months where revenue is still being allocated out of
+      <i>No Location</i>. Nothing on these panels includes them, so every trailing
+      window ends at ${esc(mLong(FIN.last))}.
+    </div>` : ""}
+
+    <div class="card" style="overflow-x:auto">
+      <table class="fin-t"><thead><tr>
+        <th>Month</th><th>Basis</th><th class="n">Locations</th>
+        <th class="n">Income</th><th class="n">Expenses</th><th class="n">Net</th>
+        <th>Ties</th>${hasSrc?`<th class="hide-sm">Source file</th>`:""}
+      </tr></thead><tbody>${ms.slice().reverse().map(m=>`
+        <tr><td>${esc(mLong(m.month))}</td>
+          <td><span class="tsub">${esc(m.basis||"—")}</span></td>
+          <td class="n">${m.n_locations==null?"—":m.n_locations}</td>
+          <td class="n">${money0(m.income)}</td>
+          <td class="n">${money0(m.expenses)}</td>
+          <td class="n">${signed(m.net)}</td>
+          <td>${m.ties ? '<span class="pill done">✓</span>' : '<span class="pill fail">off</span>'}</td>
+          ${hasSrc?`<td class="hide-sm"><span class="tsub">${esc(m.source_file||"—")}</span></td>`:""}
+        </tr>`).join("")}</tbody></table>
+    </div>
+    <p class="fin-cap">Every month is checked on arrival against its own control total.
+      A month that does not tie is not loaded.</p>`;
 }
 
 function mgrTips(){
@@ -1742,6 +2367,7 @@ function renderManager(){
       <button class="tab ${mgrTab==="partners"?"on":""}" data-tab="partners">Referral partners</button>
       <button class="tab ${mgrTab==="tips"?"on":""}" data-tab="tips">Tips${
         TIPSM && TIPSM.draft_count ? ` (${TIPSM.draft_count})` : ""}</button>
+      ${finHasFin() ? `<button class="tab ${mgrTab==="fin"?"on":""}" data-tab="fin">Numbers</button>` : ""}
       <button class="tab ${mgrTab==="add"?"on":""}" data-tab="add">Add an agent</button>
     </div>
     <div id="mgrBody"></div>`;
@@ -1755,13 +2381,15 @@ function renderManager(){
     if(mgrTab==="feedback") await loadFeedback();
     if(mgrTab==="partners") await loadPartners();
     if(mgrTab==="tips") await loadTipsManage();
+    if(mgrTab==="fin" && !FIN) await loadFin();
     renderManager();
   }));
   // A tab a person cannot see must not be reachable by leftover state either.
   if(mgrTab === "calls" && !cmHasCall()) mgrTab = "roster";
+  if(mgrTab === "fin" && !finHasFin()) mgrTab = "roster";
   ({roster:mgrRoster, ce:mgrCE, content:mgrContent, tracks:mgrTracks,
     activity:mgrActivity, add:mgrAdd, calls:mgrCall, feedback:mgrFeedback,
-    partners:mgrPartners, tips:mgrTips})[mgrTab]();
+    partners:mgrPartners, tips:mgrTips, fin:mgrFin})[mgrTab]();
 }
 
 function mgrRoster(){
