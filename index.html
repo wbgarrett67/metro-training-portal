@@ -367,6 +367,32 @@ tbody tr.clk:hover{background:#f8f9fc}
 .modtips .ms{font-size:11px;color:var(--ink-3);margin-top:6px}
 .modtips li + li{margin-top:12px;padding-top:12px;border-top:1px solid var(--gold-soft)}
 .modtips ul{list-style:none;margin:0;padding:0}
+/* ===== carrier sheet ===== */
+.mkt-row.clik{cursor:pointer}
+.mkt-row.clik:hover{border-color:var(--navy-3);box-shadow:var(--shadow)}
+.mkt-c span.clik{cursor:pointer}
+.mkt-c span.clik:hover{border-color:var(--navy-3);background:#fff}
+.csh-h{border-bottom:2px solid var(--line);padding-bottom:12px;margin-bottom:16px}
+.csh-n{font-size:20px;font-weight:680;letter-spacing:-.01em}
+.csh-m{font-size:12.5px;color:var(--ink-3);margin-top:4px}
+.csh-s{margin-bottom:20px}
+.csh-s h4{font-size:11px;font-weight:700;letter-spacing:.075em;text-transform:uppercase;
+  color:var(--ink-3);margin:0 0 9px}
+.csh-a{margin-bottom:12px}
+.csh-al{font-size:12px;font-weight:650;color:var(--navy-3);margin:8px 0 5px}
+.csh-t{width:100%;border-collapse:collapse;font-size:13.5px}
+.csh-t td{padding:5px 0;vertical-align:top;border-bottom:1px solid var(--line)}
+.csh-t td:first-child{width:130px;color:var(--ink-3);font-size:12.5px}
+.csh-p{margin:0 0 6px;padding-left:18px;font-size:13.5px;color:var(--ink-2)}
+.csh-p li{margin-bottom:5px}
+.csh-p b{color:var(--ink)}
+.csh-p .warnt{color:var(--warn);font-weight:600}
+.csh-e{font-size:12.5px;color:var(--ink-3);line-height:1.55}
+.csh-kb{font-size:13.5px;color:var(--ink-2);line-height:1.6;margin-bottom:7px}
+.csh-kb i{color:var(--ink-3);font-style:normal;font-weight:650;font-size:12px;
+  text-transform:uppercase;letter-spacing:.04em}
+.csh-mod{font-size:14px}
+
 /* ===== find a market ===== */
 .btn-mkt{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.28);
   padding:7px 13px;border-radius:8px;font-size:13px;font-weight:600;display:flex;align-items:center;
@@ -501,6 +527,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     OFFICES=null, FB=null, fbFilter="open", LICTYPES=null, UPG=null, UPGQ=null,
     CMS=null, CMF=null, cmPage=0, cmBusy=false,
     TIPS=null, tipIdx=0, MKT=null, mktQ="", TIPSM=null, tipMFilter="draft",
+    CIDX=null, CSHEET=null, mktView="market", mktBackTo="market",
     cmQ={q:"",from:"",to:"",direction:"",call_type:"",agent:"",rule:"",
          min_score:"",max_score:"",flagged:"",
          phone:"",time_from:"",time_to:"",sort:"newest"};
@@ -774,7 +801,10 @@ function modTips(m){
     </li>`).join("")}</ul></div>`;
 }
 
-/* ---- Find a market ---- */
+/* ---- Find a market, and the carrier sheets ---- */
+// One sheet, three views: search the placement grid, browse the 38 appointments, or read one
+// carrier. They are the same question from different directions — "who writes this?" and
+// "what is this carrier?" — so they share a button rather than crowding the header.
 function mktMatch(p, q){
   if(!q) return true;
   const hay = [p.product, p.line, p.market_text, p.notes,
@@ -782,6 +812,7 @@ function mktMatch(p, q){
   // every word must appear somewhere, so "boat oklahoma" narrows rather than widens
   return q.toLowerCase().split(/\s+/).filter(Boolean).every(w => hay.includes(w));
 }
+const rates = v => String(v||"").toLowerCase().startsWith("yes");
 
 function mktRow(p){
   const warn = p.notes && /not live|do not quote|verify/i.test(p.notes);
@@ -790,22 +821,73 @@ function mktRow(p){
     <div class="pr">${esc(p.product||"")}</div>
     ${p.notes?`<div class="nt ${warn?"warn":""}">${warn?"&#9888; ":""}${esc(p.notes)}</div>`:""}
     ${(p.carriers||[]).length
-      ? `<div class="mkt-c">${p.carriers.map(c=>`
-          <span class="${String(c.turborater||"").toLowerCase().startsWith("yes")?"tr":""}"
-                title="${esc(c.org_type||"")}${c.turborater?` &middot; TurboRater: ${esc(c.turborater)}`:""}">
-            <b>${esc(c.name)}</b>${String(c.turborater||"").toLowerCase().startsWith("yes")?" &#10003; rates":""}
-          </span>`).join("")}</div>`
+      ? `<div class="mkt-c">${p.carriers.map(c=>{
+          const cid = carrierIdFor(c.name);
+          return `<span class="${rates(c.turborater)?"tr":""} ${cid?"clik":""}"
+                ${cid?`data-csheet="${esc(cid)}"`:""}
+                title="${esc(c.org_type||"")}${c.turborater?` &middot; TurboRater: ${esc(c.turborater)}`:""}${
+                  cid?" &middot; open the carrier sheet":""}">
+            <b>${esc(c.name)}</b>${rates(c.turborater)?" &#10003; rates":""}${cid?" &rsaquo;":""}
+          </span>`}).join("")}</div>`
       : `<div class="mkt-none">&#9888; No appointed carrier is linked to this row &mdash;
            the market is recorded as &ldquo;${esc(p.market_text||"")}&rdquo;. Ask before you promise it.</div>`}
   </div>`;
 }
 
+// Market results carry carrier NAMES; the sheet needs the id. Resolved against the loaded
+// index rather than by guessing a slug from the name.
+function carrierIdFor(name){
+  if(!CIDX || !name) return null;
+  const hit = (CIDX.carriers||[]).find(c => c.name === name);
+  return hit ? hit.carrier_id : null;
+}
+
 function mktRender(){
   const box = $("#mktRes"); if(!box) return;
+  const n = $("#mktCount");
+  // tab state
+  const tabs = $("#mktTabs");
+  if(tabs) tabs.querySelectorAll("[data-mv]").forEach(b=>
+    b.classList.toggle("on", b.dataset.mv === mktView));
+  const qbox = $("#mktQwrap");
+  if(qbox) qbox.style.display = mktView === "sheet" ? "none" : "";
+
+  if(mktView === "sheet"){
+    if(n) n.textContent = "";
+    box.innerHTML = renderSheet();
+    return;
+  }
+  if(mktView === "carriers"){
+    if(!CIDX){ box.innerHTML = `<div class="empty">Loading the carrier list&hellip;</div>`; return; }
+    if(CIDX.error){ box.innerHTML = `<div class="empty">${esc(CIDX.error)}</div>`; return; }
+    const q = mktQ.toLowerCase().split(/\s+/).filter(Boolean);
+    const list = (CIDX.carriers||[]).filter(c=>{
+      const hay = [c.name,c.org_type,c.lines,c.products].join(" ").toLowerCase();
+      return q.every(w=>hay.includes(w));
+    });
+    // textContent, not innerHTML — so a literal middle dot, never an HTML entity
+    if(n) n.textContent = mktQ
+      ? `${list.length} of ${CIDX.total} appointments match`
+      : `${CIDX.total} appointments \u00b7 ${CIDX.with_profile} have a written profile`;
+    box.innerHTML = list.length ? list.map(c=>`
+      <div class="mkt-row clik" data-csheet="${esc(c.carrier_id)}">
+        <div class="lb">${esc(c.lines||"")}${c.org_type?` &middot; ${esc(c.org_type)}`:""}</div>
+        <div class="pr">${esc(c.name)} <span style="color:var(--ink-3);font-weight:400">&rsaquo;</span></div>
+        ${c.products?`<div class="nt">${esc(c.products)}</div>`:""}
+        <div class="mkt-c">
+          ${rates(c.turborater)?`<span class="tr">&#10003; rates in TurboRater</span>`:""}
+          ${c.module_slug?`<span>Profile written</span>`:`<span style="color:var(--ink-3)">No profile yet</span>`}
+          ${Number(c.tip_count)?`<span>${c.tip_count} recent update${Number(c.tip_count)>1?"s":""}</span>`:""}
+          ${Number(c.placement_count)?`<span>${c.placement_count} product${Number(c.placement_count)>1?"s":""}</span>`:""}
+        </div>
+      </div>`).join("")
+      : `<div class="empty">No appointment matches &ldquo;${esc(mktQ)}&rdquo;.</div>`;
+    return;
+  }
+  // market search
   if(!MKT){ box.innerHTML = `<div class="empty">Loading the placement list&hellip;</div>`; return; }
   if(MKT.error){ box.innerHTML = `<div class="empty">${esc(MKT.error)}</div>`; return; }
   const list = (MKT.placements||[]).filter(p=>mktMatch(p, mktQ));
-  const n = $("#mktCount");
   if(n) n.textContent = mktQ
     ? `${list.length} of ${(MKT.placements||[]).length} products match`
     : `${(MKT.placements||[]).length} products across ${MKT.carrier_count} appointed markets`;
@@ -816,40 +898,175 @@ function mktRender(){
         or &ldquo;garage&rdquo; rather than a specific class.</div>`;
 }
 
+// A contact row exists for all 38 carriers with every field null, so "is there a contacts
+// row" is not the same question as "is there anything to show".
+function hasContact(c){
+  return c && [c.rep,c.rep_email,c.rep_phone,c.portal,c.underwriting,c.claims,c.quoting_method]
+    .some(v => v !== null && v !== undefined && String(v).trim() !== "");
+}
+
+function renderSheet(){
+  const s = CSHEET;
+  if(!s) return `<div class="empty">Loading&hellip;</div>`;
+  if(s.error) return `<div class="empty">${esc(s.error)}</div>`;
+  const contacts = (s.contacts||[]).filter(hasContact);
+  const byLine = {};
+  (s.products||[]).forEach(p=>{ (byLine[p.line||"Other"] = byLine[p.line||"Other"]||[]).push(p); });
+  return `
+  <button class="btn line sm" id="cshBack" style="margin-bottom:14px">&lsaquo; Back</button>
+  <div class="csh-h">
+    <div class="csh-n">${esc(s.name)}</div>
+    <div class="csh-m">${(s.appointments||[]).map(a=>
+      `${esc(a.line||"")}${a.org_type?` &middot; ${esc(a.org_type)}`:""}`).join(" &nbsp;|&nbsp; ")}</div>
+  </div>
+
+  <div class="csh-s"><h4>Quick details</h4>
+    ${(s.appointments||[]).map(a=>`<div class="csh-a">
+      <div class="csh-al">${esc(a.line||"")}</div>
+      <table class="csh-t">
+        ${a.primary_product?`<tr><td>Writes</td><td>${esc(a.primary_product)}${
+           a.secondary_product?`, ${esc(a.secondary_product)}`:""}</td></tr>`:""}
+        <tr><td>TurboRater</td><td>${rates(a.turborater)
+             ? `<b style="color:var(--ok)">Yes</b>`
+             : esc(a.turborater||"No")}</td></tr>
+        ${a.website?`<tr><td>Website</td><td><a href="https://${esc(a.website)}" target="_blank"
+             rel="noopener">${esc(a.website)}</a></td></tr>`:""}
+        ${a.specialty_notes?`<tr><td>Notes</td><td>${flag(a.specialty_notes)}</td></tr>`:""}
+      </table></div>`).join("")}
+  </div>
+
+  ${(s.tips||[]).length?`<div class="csh-s"><h4>Recent updates</h4>
+    ${s.tips.map(t=>`<div class="modtips" style="margin-bottom:10px">
+      <div class="mt">${esc(t.title)}</div>
+      <div class="mb">${esc(t.body)}</div>
+      ${t.source?`<div class="ms">${esc(t.source)}</div>`:""}</div>`).join("")}</div>`:""}
+
+  <div class="csh-s"><h4>What we place with them</h4>
+    ${Object.keys(byLine).length
+      ? Object.keys(byLine).sort().map(l=>`
+          <div class="csh-al">${esc(l)}</div>
+          <ul class="csh-p">${byLine[l].map(p=>{
+            const warn = p.notes && /not live|do not quote|verify/i.test(p.notes);
+            return `<li><b>${esc(p.product)}</b>${p.notes
+              ?` — <span class="${warn?"warnt":""}">${warn?"&#9888; ":""}${esc(p.notes)}</span>`:""}</li>`;
+          }).join("")}</ul>`).join("")
+      : `<div class="csh-e">Nothing in the placement grid names this carrier yet. That is a gap in
+          the grid rather than a statement about their appetite — ask before assuming.</div>`}
+  </div>
+
+  <div class="csh-s"><h4>Written profile</h4>
+    ${(s.modules||[]).length
+      ? (s.modules||[]).map(m=>`<div class="csh-mod">
+          <b>${esc(m.title)}</b>${m.subtitle?`<div class="csh-e">${esc(m.subtitle)}</div>`:""}
+          <div class="csh-e">Open it from your training tracks.</div></div>`).join("")
+      : `<div class="csh-e">No profile written yet. ${
+          (s.appointments||[]).length} appointment${(s.appointments||[]).length>1?"s":""} on file,
+          so the quick details above are what we know.</div>`}
+  </div>
+
+  ${(s.knowledge||[]).length?`<div class="csh-s"><h4>Sales story and staff notes</h4>
+    ${s.knowledge.map(k=>`<div class="csh-a">
+      ${k.line?`<div class="csh-al">${esc(k.line)}</div>`:""}
+      ${k.sales_story?`<div class="csh-kb"><i>Sales story.</i> ${flag(k.sales_story)}</div>`:""}
+      ${k.staff_notes?`<div class="csh-kb"><i>Staff notes.</i> ${flag(k.staff_notes)}</div>`:""}
+      ${k.underwriting_detail?`<div class="csh-kb"><i>Underwriting.</i> ${flag(k.underwriting_detail)}</div>`:""}
+      ${k.confidence?`<div class="csh-e">Source confidence: ${esc(k.confidence)}</div>`:""}
+    </div>`).join("")}</div>`:""}
+
+  <div class="csh-s"><h4>Who to contact</h4>
+    ${contacts.length
+      ? contacts.map(c=>`<table class="csh-t">
+          ${c.underwriting?`<tr><td>Underwriting</td><td><b>${esc(c.underwriting)}</b></td></tr>`:""}
+          ${c.claims?`<tr><td>Claims</td><td>${esc(c.claims)}</td></tr>`:""}
+          ${c.portal?`<tr><td>Agent portal</td><td><a href="${esc(c.portal)}" target="_blank"
+               rel="noopener">${esc(c.portal)}</a></td></tr>`:""}
+          ${c.quoting_method?`<tr><td>How we quote</td><td>${esc(c.quoting_method)}</td></tr>`:""}
+          ${c.rep?`<tr><td>Marketing rep</td><td>${esc(c.rep)}</td></tr>`:""}
+          ${c.rep_phone?`<tr><td>Rep phone</td><td>${esc(c.rep_phone)}</td></tr>`:""}
+          ${c.rep_email?`<tr><td>Rep email</td><td>${esc(c.rep_email)}</td></tr>`:""}
+          ${c.notes?`<tr><td>Notes</td><td>${flag(c.notes)}</td></tr>`:""}
+        </table>`).join("")
+      // Underwriting is listed first deliberately: it is the contact an agent placing a risk
+      // actually needs, and the agency has very few marketing rep names on file anyway.
+      : `<div class="csh-e">No contact details on file for this carrier yet. Underwriting is the
+          most useful thing to record &mdash; more so than a marketing rep. If you know the
+          underwriting route or a claims number, send it with the Feedback button.</div>`}
+  </div>`;
+}
+
+async function openCarrierSheet(cid){
+  mktView = "sheet"; CSHEET = null; mktRender(); wireMkt();
+  try{ CSHEET = await rpc("training_carrier_sheet",{p_code:CODE, p_carrier_id:cid}); }
+  catch(e){ CSHEET = {error:"That carrier sheet could not be loaded: "+e.message}; }
+  // Every mktRender() that replaces the markup must be followed by wireMkt(), or the Back
+  // button and the carrier links render without listeners and silently do nothing.
+  mktRender(); wireMkt();
+  const bx = $("#mktRes"); if(bx) bx.scrollTop = 0;
+  const sh = document.querySelector("#modal .sheet-b"); if(sh) sh.scrollTop = 0;
+}
+
+function wireMkt(){
+  const modal = $("#modal");
+  modal.querySelectorAll("[data-csheet]").forEach(el=>el.addEventListener("click", ()=>
+    openCarrierSheet(el.dataset.csheet)));
+  const back = modal.querySelector("#cshBack");
+  if(back) back.addEventListener("click", ()=>{ mktView = mktBackTo; mktRender(); wireMkt(); });
+}
+
 async function openMarket(){
   const modal = $("#modal"); modal.classList.remove("hidden");
+  mktView = "market"; mktBackTo = "market"; CSHEET = null;
   modal.innerHTML = `<div class="sheet">
-    <div class="sheet-h"><h3>Find a market</h3><button class="x" id="mkClose">&times;</button></div>
+    <div class="sheet-h"><h3>Markets and carriers</h3><button class="x" id="mkClose">&times;</button></div>
     <div class="sheet-b">
-      <p style="margin:0 0 14px;color:var(--ink-2);font-size:14px">
-        Type what the prospect has &mdash; a boat, a used car lot, a church, an SR-22 &mdash;
-        and this shows which of our appointed markets writes it.
-        <b>It is a starting point, not a quote:</b> appetite, state and eligibility still
-        have to be confirmed with the carrier.</p>
-      <input id="mktQ" class="mkt-q" type="search" autocomplete="off"
-             placeholder="boat, garage, SR-22, church, contractor, mobile home&hellip;"
-             value="${esc(mktQ)}">
-      <div id="mktCount" style="font-size:12.5px;color:var(--ink-3);margin-top:9px"></div>
+      <div class="tabs" id="mktTabs" style="margin-bottom:14px">
+        <button class="tab on" data-mv="market">Find a market</button>
+        <button class="tab" data-mv="carriers">Our carriers</button>
+      </div>
+      <div id="mktQwrap">
+        <input id="mktQ" class="mkt-q" type="search" autocomplete="off"
+               placeholder="boat, garage, SR-22, church, contractor, mobile home&hellip;"
+               value="${esc(mktQ)}">
+        <div id="mktCount" style="font-size:12.5px;color:var(--ink-3);margin-top:9px"></div>
+      </div>
       <div id="mktRes" class="mkt-res"></div>
     </div>
     <div class="sheet-f">
       <button class="btn line" id="mkCancel">Close</button>
       <span style="font-size:13px;color:var(--ink-3)">
-        Green means it rates in TurboRater</span>
+        A starting point, not a quote &mdash; confirm appetite and state with the carrier</span>
     </div></div>`;
   modal.scrollTop = 0;
   const g = s2 => modal.querySelector(s2);
   g("#mkClose").addEventListener("click", closeModal);
   g("#mkCancel").addEventListener("click", closeModal);
   const q = g("#mktQ");
-  q.addEventListener("input", ()=>{ mktQ = q.value; mktRender(); });
+  q.addEventListener("input", ()=>{ mktQ = q.value; mktRender(); wireMkt(); });
+  g("#mktTabs").querySelectorAll("[data-mv]").forEach(b=>b.addEventListener("click", async ()=>{
+    mktView = b.dataset.mv; mktBackTo = mktView; mktQ = ""; q.value = "";
+    q.placeholder = mktView === "carriers"
+      ? "Traders, wholesaler, commercial, non-standard…"
+      : "boat, garage, SR-22, church, contractor, mobile home…";
+    mktRender(); wireMkt();
+    if(mktView === "carriers" && !CIDX) await loadCarrierIndex();
+  }));
   mktRender();
-  if(!MKT){
-    try{ MKT = await rpc("training_market_catalog",{p_code:CODE}); }
-    catch(e){ MKT = {error:"The placement list could not be loaded: "+e.message}; }
-    mktRender();
-  }
+  // Both loaded up front: the carrier index is also what turns a name in the market results
+  // into a clickable sheet, so the search is only half useful without it.
+  await Promise.all([
+    (async()=>{ if(!MKT){
+      try{ MKT = await rpc("training_market_catalog",{p_code:CODE}); }
+      catch(e){ MKT = {error:"The placement list could not be loaded: "+e.message}; } } })(),
+    loadCarrierIndex()
+  ]);
+  mktRender(); wireMkt();
   q.focus();
+}
+
+async function loadCarrierIndex(){
+  if(CIDX) return;
+  try{ CIDX = await rpc("training_carrier_index",{p_code:CODE}); }
+  catch(e){ CIDX = {error:"The carrier list could not be loaded: "+e.message, carriers:[]}; }
 }
 
 /* ---- manager: approving tips ---- */
