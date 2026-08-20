@@ -280,6 +280,9 @@ tbody tr.clk:hover{background:#f8f9fc}
   /* the icon still reads as "say something" once the word is gone */
   .btn-feed{padding:7px 9px}
   .btn-feed .lbl{display:none}
+  /* same reasoning for Find a market: the magnifier still reads as "search" */
+  .btn-mkt{padding:7px 9px}
+  .btn-mkt .lbl{display:none}
   .track-head{flex-wrap:wrap}
   .certdoc{padding:24px 20px}
   .certdoc .cwho{font-size:24px}
@@ -340,6 +343,52 @@ tbody tr.clk:hover{background:#f8f9fc}
 .cs-snip mark{background:var(--gold-soft);color:var(--gold-deep);font-weight:650;padding:0 2px;border-radius:3px}
 .cs-count{font-size:13.5px;color:var(--ink-2)}
 .cs-pager{display:flex;gap:9px;align-items:center;justify-content:center;margin-top:16px}
+/* ===== Did you know / tips ===== */
+.tipcard{background:linear-gradient(180deg,#fffdf7,#fff);border:1px solid var(--gold-soft);
+  border-left:4px solid var(--gold);border-radius:var(--r);padding:16px 18px;margin:18px 0;
+  box-shadow:var(--shadow)}
+.tipcard .th{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+.tipcard .th .kx{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--gold-deep)}
+.tipcard .tt{font-weight:650;font-size:15.5px;color:var(--ink);margin-bottom:5px}
+.tipcard .tb{font-size:14px;color:var(--ink-2);line-height:1.6;white-space:pre-wrap}
+.tipcard .tsrc{font-size:11.5px;color:var(--ink-3);margin-top:9px}
+.tipcard + .tipcard{margin-top:-6px}
+.tipnav{display:flex;gap:6px;margin-left:auto}
+.tipnav button{border:1px solid var(--line-2);background:#fff;color:var(--ink-2);width:26px;height:26px;
+  border-radius:7px;font-size:13px;line-height:1;cursor:pointer}
+.tipnav button:hover{background:var(--bg)}
+.modtips{border:1px solid var(--gold-soft);background:#fffdf7;border-radius:10px;padding:12px 14px;
+  margin:0 0 14px}
+.modtips .mh{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--gold-deep);margin-bottom:8px}
+.modtips .mt{font-weight:620;font-size:14px;margin-bottom:3px}
+.modtips .mb{font-size:13.5px;color:var(--ink-2);line-height:1.55;white-space:pre-wrap}
+.modtips .ms{font-size:11px;color:var(--ink-3);margin-top:6px}
+.modtips li + li{margin-top:12px;padding-top:12px;border-top:1px solid var(--gold-soft)}
+.modtips ul{list-style:none;margin:0;padding:0}
+/* ===== find a market ===== */
+.btn-mkt{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.28);
+  padding:7px 13px;border-radius:8px;font-size:13px;font-weight:600;display:flex;align-items:center;
+  gap:7px;cursor:pointer}
+.btn-mkt:hover{background:rgba(255,255,255,.2)}
+.btn-mkt svg{width:14px;height:14px;flex:none;stroke:currentColor;fill:none;stroke-width:2.2}
+.mkt-q{width:100%;font-size:16px;padding:13px 14px;border:1px solid var(--line-2);border-radius:10px}
+.mkt-res{margin-top:14px}
+.mkt-row{border:1px solid var(--line);border-radius:10px;padding:13px 15px;margin-bottom:10px;
+  background:var(--card)}
+.mkt-row .pr{font-weight:650;font-size:15px}
+.mkt-row .lb{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);
+  margin-bottom:3px}
+.mkt-row .nt{font-size:13px;color:var(--ink-2);margin-top:7px}
+.mkt-row .nt.warn{color:var(--warn);font-weight:600}
+.mkt-c{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.mkt-c span{border:1px solid var(--line-2);border-radius:99px;padding:4px 11px;font-size:12.5px;
+  background:var(--bg)}
+.mkt-c span b{font-weight:650}
+.mkt-c span.tr{border-color:var(--ok);background:var(--ok-bg);color:#0f5c3a}
+.mkt-none{font-size:12.5px;color:var(--warn);margin-top:9px}
+
 </style>
 </head>
 <body>
@@ -408,6 +457,9 @@ tbody tr.clk:hover{background:#f8f9fc}
       </div>
       <div class="spacer"></div>
       <div class="who"><span class="hide-sm">Signed in as</span> <b id="whoName"></b></div>
+      <button class="btn-mkt" id="mktBtn" title="Which of our markets writes this risk?">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/></svg>
+        <span class="lbl">Find a market</span></button>
       <button class="btn-feed" id="feedBtn" title="Tell Braden about a problem or an idea">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4
           a8.9 8.9 0 0 1-3.8-.8L3 21l1.9-4.1A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z"/></svg>
@@ -448,6 +500,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     selCallAgent=null, CMA=null,
     OFFICES=null, FB=null, fbFilter="open", LICTYPES=null, UPG=null, UPGQ=null,
     CMS=null, CMF=null, cmPage=0, cmBusy=false,
+    TIPS=null, tipIdx=0, MKT=null, mktQ="", TIPSM=null, tipMFilter="draft",
     cmQ={q:"",from:"",to:"",direction:"",call_type:"",agent:"",rule:"",
          min_score:"",max_score:"",flagged:"",
          phone:"",time_from:"",time_to:"",sort:"newest"};
@@ -677,6 +730,198 @@ $("#modeToggle").addEventListener("click", async ()=>{
   finally{ btn.disabled = false; }
 });
 
+
+/* ================= tips & find a market ================= */
+// Tips are read-only here. Approving one is a manager action on the Tips tab, and the
+// database decides who may see what — audience 'licensed' is enforced in the function,
+// not in this file.
+function tipItems(){ return (TIPS && TIPS.items) || []; }
+
+function tipsCard(){
+  const items = tipItems();
+  if(!items.length) return "";
+  // One at a time. A wall of tips is a wall nobody reads; the whole point is that the
+  // home screen carries a single thing worth knowing today.
+  const i = Math.max(0, Math.min(tipIdx, items.length-1)), t = items[i];
+  return `<div class="tipcard">
+    <div class="th">
+      <span class="kx">Did you know</span>
+      ${t.carrier?`<span class="pill">${esc(t.carrier)}</span>`:""}
+      ${items.length>1?`<span class="tipnav">
+        <button type="button" data-tip="prev" aria-label="Previous">&lsaquo;</button>
+        <button type="button" data-tip="next" aria-label="Next">&rsaquo;</button></span>`:""}
+    </div>
+    <div class="tt">${esc(t.title)}</div>
+    <div class="tb">${esc(t.body)}</div>
+    <div class="tsrc">${t.source?esc(t.source):""}${items.length>1?` &middot; ${i+1} of ${items.length}`:""}</div>
+  </div>`;
+}
+
+// Same matching rule the database uses, applied to what we already fetched, so opening a
+// module costs no extra round trip.
+function modTips(m){
+  const title = (m.title||"").toLowerCase();
+  const t = tipItems().filter(x =>
+    (x.module_slug && x.module_slug === m.slug) ||
+    (x.carrier && title.includes(String(x.carrier).toLowerCase())));
+  if(!t.length) return "";
+  return `<div class="modtips">
+    <div class="mh">Recent updates${t.length>1?` &middot; ${t.length}`:""}</div>
+    <ul>${t.map(x=>`<li>
+      <div class="mt">${esc(x.title)}</div>
+      <div class="mb">${esc(x.body)}</div>
+      ${x.source?`<div class="ms">${esc(x.source)}</div>`:""}
+    </li>`).join("")}</ul></div>`;
+}
+
+/* ---- Find a market ---- */
+function mktMatch(p, q){
+  if(!q) return true;
+  const hay = [p.product, p.line, p.market_text, p.notes,
+               ...(p.carriers||[]).map(c=>c.name)].join(" ").toLowerCase();
+  // every word must appear somewhere, so "boat oklahoma" narrows rather than widens
+  return q.toLowerCase().split(/\s+/).filter(Boolean).every(w => hay.includes(w));
+}
+
+function mktRow(p){
+  const warn = p.notes && /not live|do not quote|verify/i.test(p.notes);
+  return `<div class="mkt-row">
+    <div class="lb">${esc(p.line||"")}</div>
+    <div class="pr">${esc(p.product||"")}</div>
+    ${p.notes?`<div class="nt ${warn?"warn":""}">${warn?"&#9888; ":""}${esc(p.notes)}</div>`:""}
+    ${(p.carriers||[]).length
+      ? `<div class="mkt-c">${p.carriers.map(c=>`
+          <span class="${String(c.turborater||"").toLowerCase().startsWith("yes")?"tr":""}"
+                title="${esc(c.org_type||"")}${c.turborater?` &middot; TurboRater: ${esc(c.turborater)}`:""}">
+            <b>${esc(c.name)}</b>${String(c.turborater||"").toLowerCase().startsWith("yes")?" &#10003; rates":""}
+          </span>`).join("")}</div>`
+      : `<div class="mkt-none">&#9888; No appointed carrier is linked to this row &mdash;
+           the market is recorded as &ldquo;${esc(p.market_text||"")}&rdquo;. Ask before you promise it.</div>`}
+  </div>`;
+}
+
+function mktRender(){
+  const box = $("#mktRes"); if(!box) return;
+  if(!MKT){ box.innerHTML = `<div class="empty">Loading the placement list&hellip;</div>`; return; }
+  if(MKT.error){ box.innerHTML = `<div class="empty">${esc(MKT.error)}</div>`; return; }
+  const list = (MKT.placements||[]).filter(p=>mktMatch(p, mktQ));
+  const n = $("#mktCount");
+  if(n) n.textContent = mktQ
+    ? `${list.length} of ${(MKT.placements||[]).length} products match`
+    : `${(MKT.placements||[]).length} products across ${MKT.carrier_count} appointed markets`;
+  box.innerHTML = list.length
+    ? list.map(mktRow).join("")
+    : `<div class="empty">Nothing matches &ldquo;${esc(mktQ)}&rdquo;.
+        Try a broader word &mdash; &ldquo;boat&rdquo; rather than &ldquo;bass boat&rdquo;,
+        or &ldquo;garage&rdquo; rather than a specific class.</div>`;
+}
+
+async function openMarket(){
+  const modal = $("#modal"); modal.classList.remove("hidden");
+  modal.innerHTML = `<div class="sheet">
+    <div class="sheet-h"><h3>Find a market</h3><button class="x" id="mkClose">&times;</button></div>
+    <div class="sheet-b">
+      <p style="margin:0 0 14px;color:var(--ink-2);font-size:14px">
+        Type what the prospect has &mdash; a boat, a used car lot, a church, an SR-22 &mdash;
+        and this shows which of our appointed markets writes it.
+        <b>It is a starting point, not a quote:</b> appetite, state and eligibility still
+        have to be confirmed with the carrier.</p>
+      <input id="mktQ" class="mkt-q" type="search" autocomplete="off"
+             placeholder="boat, garage, SR-22, church, contractor, mobile home&hellip;"
+             value="${esc(mktQ)}">
+      <div id="mktCount" style="font-size:12.5px;color:var(--ink-3);margin-top:9px"></div>
+      <div id="mktRes" class="mkt-res"></div>
+    </div>
+    <div class="sheet-f">
+      <button class="btn line" id="mkCancel">Close</button>
+      <span style="font-size:13px;color:var(--ink-3)">
+        Green means it rates in TurboRater</span>
+    </div></div>`;
+  modal.scrollTop = 0;
+  const g = s2 => modal.querySelector(s2);
+  g("#mkClose").addEventListener("click", closeModal);
+  g("#mkCancel").addEventListener("click", closeModal);
+  const q = g("#mktQ");
+  q.addEventListener("input", ()=>{ mktQ = q.value; mktRender(); });
+  mktRender();
+  if(!MKT){
+    try{ MKT = await rpc("training_market_catalog",{p_code:CODE}); }
+    catch(e){ MKT = {error:"The placement list could not be loaded: "+e.message}; }
+    mktRender();
+  }
+  q.focus();
+}
+
+/* ---- manager: approving tips ---- */
+async function loadTipsManage(){
+  try{ TIPSM = await rpc("training_tips_manage",{p_code:CODE}); }
+  catch(e){ TIPSM = {error:e.message, items:[]}; }
+}
+
+function mgrTips(){
+  const body = $("#mgrBody");
+  const all = (TIPSM && TIPSM.items) || [];
+  const list = tipMFilter==="all" ? all : all.filter(t=>t.status===tipMFilter);
+  const cnt = st => all.filter(t=>t.status===st).length;
+  body.innerHTML = `
+    <div class="card" style="padding:16px 18px;margin-bottom:14px">
+      <p style="margin:0;color:var(--ink-2);font-size:14px">
+        Tips are short, dated, sourced notes that sit on the home screen and inside the carrier
+        module they relate to. <b>Nothing here is visible to an agent until it is approved.</b>
+        A tip with an effective date in the future stays hidden until that date, and one past its
+        expiry disappears on its own.</p>
+    </div>
+    <div class="tabs" style="margin-bottom:12px">
+      ${[["draft","Draft"],["approved","Approved"],["archived","Archived"],["all","All"]]
+        .map(([v,l])=>`<button class="tab ${tipMFilter===v?"on":""}" data-tipf="${v}">${l}${
+          v==="all"?` (${all.length})`:` (${cnt(v)})`}</button>`).join("")}
+    </div>
+    <div class="card">${list.length ? list.map(t=>`
+      <div style="padding:14px 16px;border-bottom:1px solid var(--line)">
+        <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+          <div style="flex:1;min-width:240px">
+            <div style="font-weight:640;font-size:14.5px">${esc(t.title)}</div>
+            <div style="font-size:13.5px;color:var(--ink-2);margin-top:4px;white-space:pre-wrap">${esc(t.body)}</div>
+            <div style="font-size:11.5px;color:var(--ink-3);margin-top:7px">
+              ${t.carrier?esc(t.carrier)+" &middot; ":""}${t.category?esc(t.category)+" &middot; ":""}
+              audience ${esc(t.audience)}
+              ${t.effective_date?` &middot; effective ${sdate(t.effective_date)}`:""}
+              ${t.expires_at?` &middot; expires ${sdate(t.expires_at)}`:""}
+            </div>
+            ${t.source?`<div style="font-size:11.5px;color:var(--ink-3);margin-top:3px">${esc(t.source)}</div>`:""}
+          </div>
+          <div style="display:flex;gap:7px;align-items:flex-start">
+            ${t.status!=="approved"
+              ? `<button class="btn sm" data-tipset="approved" data-tipid="${esc(t.id)}">Approve</button>`:""}
+            ${t.status==="approved"
+              ? `<button class="btn line sm" data-tipset="draft" data-tipid="${esc(t.id)}">Unpublish</button>`:""}
+            ${t.status!=="archived"
+              ? `<button class="btn line sm" data-tipset="archived" data-tipid="${esc(t.id)}">Archive</button>`:""}
+          </div>
+        </div>
+      </div>`).join("")
+      : `<div class="empty">${
+          TIPSM && TIPSM.error ? "Tips could not be loaded: "+esc(TIPSM.error)
+          : tipMFilter==="draft" ? "No drafts waiting. New tips arrive from the daily carrier sweep."
+          : "Nothing here."}</div>`}</div>`;
+
+  body.querySelectorAll("[data-tipf]").forEach(b=>b.addEventListener("click",()=>{
+    tipMFilter=b.dataset.tipf; mgrTips();
+  }));
+  body.querySelectorAll("[data-tipset]").forEach(b=>b.addEventListener("click", async ()=>{
+    b.disabled = true;
+    try{
+      await rpc("training_tips_set_status",
+        {p_code:CODE, p_tip_id:b.dataset.tipid, p_status:b.dataset.tipset});
+      await loadTipsManage();
+      // The agent-side copy is now stale for this manager's own training view too.
+      TIPS = null;
+      renderManager();
+      toast(b.dataset.tipset==="approved" ? "Approved — agents can see it now" : "Updated");
+    }catch(ex){ toast(ex.message); b.disabled = false; }
+  }));
+}
+
 /* ================= feedback ================= */
 // The labels here are only what the agent reads. The value posted is what the database
 // validates, and training_feedback_label() renders the same words into the email and the
@@ -692,7 +937,7 @@ const FB_SUBJECTS = [
 ];
 const MGR_TAB_NAMES = {roster:"Roster", ce:"Licensing & CE", content:"Content editor",
   tracks:"Track catalog", calls:"Call monitoring", activity:"Activity",
-  add:"Add an agent", feedback:"Feedback", partners:"Referral partners"};
+  add:"Add an agent", feedback:"Feedback", partners:"Referral partners", tips:"Tips"};
 
 // Set whenever a module is opened, so the dialog can answer "where were you" without
 // the agent having to describe it. Pre-filled, and editable, because a guess that is
@@ -779,6 +1024,7 @@ function openFeedback(){
   });
 }
 $("#feedBtn").addEventListener("click", openFeedback);
+$("#mktBtn").addEventListener("click", openMarket);
 
 /* ================= trainee ================= */
 async function loadTrainee(){
@@ -789,6 +1035,10 @@ async function loadTrainee(){
     try{ UPG = await rpc("training_upgrade_status",{p_code:CODE}); }
     catch(e){ UPG = null; }
   }
+  // Tips are a separate read on purpose: a tip failing must never stop the training
+  // page rendering. If the call errors we simply show no card.
+  try{ TIPS = await rpc("training_tips_browse",{p_code:CODE}); }
+  catch(e){ TIPS = null; }
   if(openTracks === null){
     // first load: open whatever still needs work, so nobody has to hunt for it
     openTracks = new Set();
@@ -843,6 +1093,7 @@ function renderTrainee(){
     ${previewBanner()}
     ${ceBanner()}
     ${upgradeCard()}
+    ${tipsCard()}
 
     <div class="section-h"><h2>My certifications</h2>
       <span class="note">Complete every module in a track to earn its certification.</span></div>
@@ -1002,6 +1253,7 @@ function modCard(m,i){
               ${it.detail?`<div class="d">${flag(it.detail)}</div>`:""}
             </div></li>`).join("")}
       </ul>
+      ${modTips(m)}
       ${m.signoff?`<div class="expl" style="margin-bottom:14px">
           <b>Signed off by ${esc(m.signoff.manager_name||"your Senior Manager")}</b> — ${when(m.signoff.signed_at)}
           ${m.signoff.note?`<br>${esc(m.signoff.note)}`:""}</div>`:""}
@@ -1040,6 +1292,11 @@ function wireTrainee(){
     if(ex) ex.addEventListener("click", exitPreview);
     return;
   }
+  root.querySelectorAll("[data-tip]").forEach(b=>b.addEventListener("click",()=>{
+    const n = tipItems().length || 1;
+    tipIdx = ((b.dataset.tip==="next" ? tipIdx+1 : tipIdx-1) % n + n) % n;
+    renderTrainee();
+  }));
   const ask = root.querySelector("#upgAsk");
   if(ask) ask.addEventListener("click", async ()=>{
     ask.disabled = true; ask.textContent = "Sending…";
@@ -1216,6 +1473,7 @@ async function loadManager(){
   // visible on the tab the moment the dashboard opens. Feedback nobody notices is worse
   // than no feedback button at all.
   await loadFeedback();
+  await loadTipsManage();
   renderManager();
 }
 function renderManager(){
@@ -1265,6 +1523,8 @@ function renderManager(){
       <button class="tab ${mgrTab==="feedback"?"on":""}" data-tab="feedback">Feedback${
         FB && FB.open_count ? ` (${FB.open_count})` : ""}</button>
       <button class="tab ${mgrTab==="partners"?"on":""}" data-tab="partners">Referral partners</button>
+      <button class="tab ${mgrTab==="tips"?"on":""}" data-tab="tips">Tips${
+        TIPSM && TIPSM.draft_count ? ` (${TIPSM.draft_count})` : ""}</button>
       <button class="tab ${mgrTab==="add"?"on":""}" data-tab="add">Add an agent</button>
     </div>
     <div id="mgrBody"></div>`;
@@ -1277,13 +1537,14 @@ function renderManager(){
     if(mgrTab==="calls" && !CM) await loadCallMonitor();
     if(mgrTab==="feedback") await loadFeedback();
     if(mgrTab==="partners") await loadPartners();
+    if(mgrTab==="tips") await loadTipsManage();
     renderManager();
   }));
   // A tab a person cannot see must not be reachable by leftover state either.
   if(mgrTab === "calls" && !cmHasCall()) mgrTab = "roster";
   ({roster:mgrRoster, ce:mgrCE, content:mgrContent, tracks:mgrTracks,
     activity:mgrActivity, add:mgrAdd, calls:mgrCall, feedback:mgrFeedback,
-    partners:mgrPartners})[mgrTab]();
+    partners:mgrPartners, tips:mgrTips})[mgrTab]();
 }
 
 function mgrRoster(){
