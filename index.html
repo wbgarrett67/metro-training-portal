@@ -273,9 +273,16 @@ tbody tr.clk:hover{background:#f8f9fc}
   .hero{padding:20px}
   .topbar{padding:0 14px}
   .brand .rule,.brand .prog{display:none}
-  .brand .logo{width:104px;height:31px}
-  .who,.btn-ghost{white-space:nowrap}
-  .who{font-size:12.5px}
+  /* .brand had min-width:0 and would compress below the logo's own width, letting the
+     logo slide under the first header button. Hold the brand, shrink the mark, tighten
+     the gaps — measured to fit a manager's full header at 390px. */
+  .topbar-in{gap:10px}
+  .brand{flex:none}
+  .brand .logo{width:84px;height:25px}
+  .btn-ghost{white-space:nowrap}
+  /* At 390px a manager's header carried the logo, their name and four buttons, and
+     overflowed the viewport by 57px. You know who you are; the name goes. */
+  .who{display:none}
   .btn-ghost{padding:6px 10px}
   /* the icon still reads as "say something" once the word is gone */
   .btn-feed{padding:7px 9px}
@@ -286,6 +293,14 @@ tbody tr.clk:hover{background:#f8f9fc}
   .track-head{flex-wrap:wrap}
   .certdoc{padding:24px 20px}
   .certdoc .cwho{font-size:24px}
+}
+
+/* Below ~400px a manager's header cannot fit on one line however tight the gaps get
+   (four buttons plus the mark). It wraps to two rows rather than clipping "Sign out". */
+@media(max-width:400px){
+  .topbar-in{flex-wrap:wrap;height:auto;padding:9px 0;row-gap:9px}
+  .brand{width:100%}
+  .spacer{display:none}
 }
 
 /* ---------- print: certificate only ---------- */
@@ -449,6 +464,25 @@ tbody tr.clk:hover{background:#f8f9fc}
 .fin-grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media(max-width:900px){.fin-grid2{grid-template-columns:1fr}}
 .fin-cap{font-size:12px;color:var(--ink-3);margin-top:8px;line-height:1.55}
+/* Control bar. Sticks under the 62px topbar so the selectors stay reachable while a
+   long table scrolls; static on a phone, where a sticky bar eats the viewport. */
+.fin-ctl{position:sticky;top:62px;z-index:5;background:var(--bg);
+  padding:12px 0 13px;margin:-4px 0 0;display:flex;gap:16px;align-items:flex-end;
+  flex-wrap:wrap;border-bottom:1px solid var(--line)}
+.fin-ctl label{display:flex;flex-direction:column;gap:5px;font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3)}
+.fin-ctl select{font:inherit;font-size:14px;font-weight:600;color:var(--ink);
+  padding:9px 12px;border:1px solid var(--line-2);border-radius:9px;background:#fff;
+  min-width:236px;max-width:100%;text-transform:none;letter-spacing:0}
+.fin-ctl select:focus{outline:2px solid var(--navy-3);outline-offset:1px}
+.fin-ctl .cmp{font-size:12.5px;color:var(--ink-3);padding-bottom:10px;line-height:1.5}
+.fin-ctl .cmp b{color:var(--ink-2)}
+.fin-ctl .warnt{color:var(--warn);font-weight:650}
+@media(max-width:640px){
+  .fin-ctl{position:static;gap:11px}
+  .fin-ctl label,.fin-ctl select{width:100%}
+  .fin-ctl .cmp{padding-bottom:0}
+}
 /* On a phone the card scrolls sideways rather than shredding the name column. */
 @media(max-width:640px){ .fin-t td:first-child,.fin-t th:first-child{min-width:132px} }
 
@@ -567,6 +601,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     CIDX=null, CSHEET=null, mktView="market", mktBackTo="market",
     REV=null, COV=null, FIN=null, FINM=null, FINL={},
     finSub="revenue", plSub="agency", finLoc=null,
+    revScope="all", revWin="m3",
     cmQ={q:"",from:"",to:"",direction:"",call_type:"",agent:"",rule:"",
          min_score:"",max_score:"",flagged:"",
          phone:"",time_from:"",time_to:"",sort:"newest"};
@@ -1196,7 +1231,13 @@ const finSum = arr => arr.reduce((a,x)=>a + (+x||0), 0);
 const finAvg = arr => arr.length ? finSum(arr)/arr.length : 0;
 
 // Target drawing width. Kept close to the space the card actually gives the chart.
-const finCW = () => Math.max(300, Math.min(760, (window.innerWidth || 1000) - 120));
+// Width the chart will actually render at: page container, less page and card padding.
+// The viewBox is built to this so a 12-point chart and a 25-point chart draw their
+// labels at the same size instead of one being scaled up by 2.5x.
+const finCW = (half) => {
+  const w = Math.max(300, Math.min(1096, (window.innerWidth || 1000) - 84));
+  return half && w > 620 ? Math.round((w - 16) / 2) : w;
+};
 // At least ~44px per axis label, or they collide.
 const finEvery = (n, W) => Math.max(1, Math.ceil(n / Math.max(1, Math.floor(W/44))));
 
@@ -1205,7 +1246,7 @@ const finEvery = (n, W) => Math.max(1, Math.ceil(n / Math.max(1, Math.floor(W/44
 function finBars(rows, opt){
   opt = opt||{};
   const n = rows.length||1,
-        W = opt.w || Math.min(Math.max(n*28, 420), finCW()),
+        W = opt.w || finCW(opt.half),
         step = W/n, H = opt.h||160, T = 12, B = 24, bw = Math.min(16, step*0.62);
   const vals = rows.map(r=>+r.v||0);
   const hi = Math.max(0, ...vals), lo = Math.min(0, ...vals), span = (hi-lo)||1;
@@ -1234,11 +1275,11 @@ function finBars(rows, opt){
 /* One or more lines over the same month axis. series = [{name,color,v:[...]}] */
 function finLines(months, series, opt){
   opt = opt||{};
-  // The viewBox width must stay close to the rendered width or the browser scales
-  // the whole drawing up, labels and all. A 12-month chart therefore gets wider
-  // spacing rather than a narrow box stretched across the card.
+  // The viewBox width must match the rendered width or the browser scales the whole
+  // drawing up, labels and all. A 12-month chart therefore gets wider spacing rather
+  // than a narrow box stretched across the card.
   const n = months.length||1,
-        W = opt.w || Math.min(Math.max(n*28, 420), finCW()),
+        W = opt.w || finCW(opt.half),
         step = W/n, H = opt.h||170, T = 12, B = 24;
   const all = series.flatMap(s=>s.v.filter(v=>v!==null&&v!==undefined).map(v=>+v));
   // A level chart of revenue spends most of a zero-based axis on empty space, and the
@@ -1361,7 +1402,7 @@ function mgrFin(){
                 ["coverage","Data coverage"]];
   body.innerHTML = `
     <div class="fin-sub">${subs.map(([k,l])=>
-      `<button data-fin="${k}" class="${finSub===k||(finSub==="office"&&k==="revenue")?"on":""}">${l}</button>`
+      `<button data-fin="${k}" class="${finSub===k?"on":""}">${l}</button>`
     ).join("")}${finHasPL()
       ? `<button data-fin="pl" class="${finSub==="pl"?"on":""}">Full P&amp;L</button>` : ""}</div>
     <div id="finBody"></div>`;
@@ -1370,7 +1411,8 @@ function mgrFin(){
     if(finSub === "pl" && !FIN) await loadFinPL();
     mgrFin();
   }));
-  ({revenue:finRevenue, office:finRevOffice, programs:finPrograms,
+  if(finSub === "office") finSub = "revenue";   // retired: the scope selector replaced it
+  ({revenue:finRevenue, programs:finPrograms,
     coverage:finCoverage, pl:finPL})[finSub]();
 }
 
@@ -1559,14 +1601,14 @@ function finOffice(){
       <div class="card fin-pad">
         <p class="fin-h">Net income</p>
         ${finBars(ms.map(m=>({v:+m.net||0, label:mLong(m.month), short:mShort(m.month)})),
-          {h:150, alt:"Net income by month", scale:true})}
+          {h:150, alt:"Net income by month", scale:true, half:true})}
       </div>
       <div class="card fin-pad">
         <p class="fin-h">Where the income comes from</p>
         ${finLines(months, [
           {name:"Commission", color:"#3B3D80", v:comm},
           {name:"Fees", color:"#c8952b", v:fee}
-        ], {h:150, alt:"Commission and fee income by month"})}
+        ], {h:150, alt:"Commission and fee income by month", half:true})}
         ${finLegend([{name:"Commission",color:"#3B3D80"},{name:"Fees",color:"#c8952b"}])}
       </div>
     </div>
@@ -1740,186 +1782,217 @@ function revYoYChart(months, series, opt){
                {name:"Same months last year",color:"#c8952b"}]);
 }
 
-/* ---- panel: revenue by office ---- */
-function finRevenue(){
-  const months = revMonths(), cls = revClassOf();
-  const offices = Object.keys(cls).filter(k=>cls[k]==="office");
-  const legacy  = Object.keys(cls).filter(k=>cls[k]==="legacy");
-  const iLast = months.length-1;
+/* ---- the control bar =====================================================
+   One panel, two dropdowns, no back-and-forth. Scope picks what is measured
+   (all offices, one office, the legacy book, one legacy location); period picks
+   the window. Every period compares to the SAME window one year earlier — there
+   is deliberately no "vs previous period" option, because a sequential
+   comparison of this business mostly measures the calendar. Proven: on the
+   November-January window, prior-quarter and prior-year disagree on the
+   direction of two of the seven offices.
+   ------------------------------------------------------------------------- */
+const REVWIN = {m1:"Latest month", m3:"Last 3 months", ytd:"Year to date"};
+const sumAt = (arr, idxs) => idxs.reduce((a,i)=>a + (+arr[i]||0), 0);
 
-  const row = k => {
-    const comm = revSeries(k,"commission"), fee = revSeries(k,"fee");
-    const tot  = months.map((_,i)=>comm[i]+fee[i]);
-    const dim  = revDim(k).find(d=>d.class===cls[k]) || {};
-    return {k, comm, fee, tot,
-      now: tot[iLast], nowComm: comm[iLast], nowFee: fee[iLast],
-      ly: revYoY(tot, iLast),
-      c12: finSum(finTail(comm,12)), f12: finSum(finTail(fee,12)),
-      t12: finSum(finTail(tot,12)),  tP12: finSum(finPrior(tot,12)),
-      closed: dim.to || null, feeds: dim.feeds_office || null};
-  };
-  const rows = offices.map(row).sort((a,b)=>b.t12-a.t12);
-  const legRows = legacy.map(row).sort((a,b)=>b.t12-a.t12);
-
-  const gComm = revGroupSeries(offices,"commission");
-  const gFee  = revGroupSeries(offices,"fee");
-  const gTot  = months.map((_,i)=>gComm[i]+gFee[i]);
-  const upYoY = rows.filter(r=>r.ly !== null && r.now > r.ly).length;
-  const withLy = rows.filter(r=>r.ly !== null).length;
-
-  const legTot = revGroupSeries(legacy,"total");
-
-  $("#finBody").innerHTML = `
-    <div class="grid-stats">
-      <div class="stat"><div class="k">${esc(mLong(months[iLast]))} · offices</div>
-        <div class="v" style="font-size:23px">${money0(gTot[iLast])}</div>
-        <div class="tsub">${revYoY(gTot,iLast)===null ? "no prior year"
-          : `${pctTxt(finPct(gTot[iLast], revYoY(gTot,iLast)))} vs ${esc(mLong(months[iLast-12]))}`}</div></div>
-      <div class="stat"><div class="k">Commission, last 12 mo</div>
-        <div class="v" style="font-size:23px">${money0(finSum(finTail(gComm,12)))}</div>
-        <div class="tsub">${finSum(finPrior(gComm,12))
-          ? `${pctTxt(finPct(finSum(finTail(gComm,12)), finSum(finPrior(gComm,12))))} vs the same 12 a year earlier`
-          : "no prior year"}</div></div>
-      <div class="stat"><div class="k">Fees, last 12 mo</div>
-        <div class="v" style="font-size:23px">${money0(finSum(finTail(gFee,12)))}</div>
-        <div class="tsub">${finSum(finPrior(gFee,12))
-          ? `${pctTxt(finPct(finSum(finTail(gFee,12)), finSum(finPrior(gFee,12))))} vs the same 12 a year earlier`
-          : "no prior year"}</div></div>
-      <div class="stat"><div class="k">Offices up year over year</div>
-        <div class="v" style="${upYoY?"":"color:var(--warn)"}">${upYoY}<small> of ${withLy}</small></div>
-        <div class="tsub">on ${esc(mLong(months[iLast]))} against ${esc(mLong(months[iLast-12]||months[0]))}</div></div>
-    </div>
-
-    <div class="card fin-pad" style="margin-bottom:16px">
-      <p class="fin-h">Office revenue — this year against the same months last year</p>
-      <p class="fin-sub2">Commission plus fees, the ${rows.length} offices together. Read the gap
-        between the lines, not the shape of either one — the shape is the calendar.</p>
-      ${revYoYChart(months, gTot, {alt:"Office revenue, this year against last year"})}
-    </div>
-
-    <div class="card fin-pad" style="margin-bottom:16px">
-      <p class="fin-h">Commission and fees, month by month</p>
-      <p class="fin-sub2">Kept apart on purpose. They move for different reasons and one is
-        an allocation.</p>
-      ${finLines(months, [
-        {name:"Commission", color:"#3B3D80", v:gComm},
-        {name:"Fees", color:"#c8952b", v:gFee}
-      ], {h:170, tight:true, alt:"Office commission and fee income by month"})}
-      ${finLegend([{name:"Commission",color:"#3B3D80"},{name:"Fees",color:"#c8952b"}])}
-    </div>
-
-    <div class="card" style="overflow-x:auto">
-      <table class="fin-t"><thead><tr>
-        <th>Office</th>
-        <th class="n">${esc(mLong(months[iLast]))}</th>
-        <th class="n">A year earlier</th>
-        <th class="n">Change</th>
-        <th class="n hide-sm">Commission, 12 mo</th>
-        <th class="n hide-sm">Fees, 12 mo</th>
-        <th class="n">Total, 12 mo</th>
-        <th class="n hide-sm">vs prior 12</th>
-        <th class="hide-sm">Trend</th>
-      </tr></thead><tbody>${rows.map(r=>`
-        <tr class="clk" data-rev="${esc(r.k)}">
-          <td><b>${esc(revName(r.k))}</b>
-            <div class="tsub">commission ${money0(r.nowComm)} · fees ${money0(r.nowFee)}</div>
-            ${r.closed?`<div class="tsub">closed ${esc(mLong(r.closed))}</div>`:""}</td>
-          <td class="n">${money0(r.now)}</td>
-          <td class="n">${r.ly===null?"—":money0(r.ly)}</td>
-          <td class="n">${r.ly===null?"—":`${signed(r.now-r.ly)}
-            <div class="tsub">${pctTxt(finPct(r.now,r.ly))}</div>`}</td>
-          <td class="n hide-sm">${money0(r.c12)}</td>
-          <td class="n hide-sm">${money0(r.f12)}</td>
-          <td class="n">${money0(r.t12)}</td>
-          <td class="n hide-sm">${r.tP12?pctSpan(finPct(r.t12,r.tP12)):"—"}</td>
-          <td class="hide-sm">${finSpark(r.tot)}</td>
-        </tr>`).join("")}</tbody></table>
-    </div>
-    <p class="fin-cap">Sorted by revenue over the last twelve months. Every comparison on this
-      panel is against the same month, or the same twelve months, a year earlier — never against
-      the previous quarter, because most of what a quarter-on-quarter change measures is the
-      calendar. Click any office for its own year-over-year read.</p>
-
-    ${legRows.length ? `<div class="card fin-pad" style="margin-top:22px">
-      <p class="fin-h">Legacy revenue</p>
-      <p class="fin-sub2">The run-off book. Nobody sells into these codes; the line only runs
-        down, and it is not coachable. Here so it is never mistaken for an office's own work.</p>
-      ${revYoYChart(months, legTot, {h:150, alt:"Legacy revenue, this year against last year"})}
-      <table class="fin-t" style="margin-top:14px"><thead><tr>
-        <th>Legacy location</th><th class="n">Total, 12 mo</th>
-        <th class="n">vs prior 12</th><th class="hide-sm">Trend</th>
-      </tr></thead><tbody>${legRows.map(r=>`
-        <tr class="clk" data-rev="${esc(r.k)}">
-          <td>${esc(revName(r.k))}${r.feeds
-            ? `<div class="tsub">feeds ${esc(r.feeds)}</div>`:""}</td>
-          <td class="n">${money0(r.t12)}</td>
-          <td class="n">${r.tP12?pctSpan(finPct(r.t12,r.tP12)):"—"}</td>
-          <td class="hide-sm">${finSpark(r.tot)}</td></tr>`).join("")}</tbody></table>
-      <p class="fin-cap">Legacy revenue over the last twelve months is
-        ${money0(finSum(finTail(legTot,12)))}, against
-        ${money0(finSum(finPrior(legTot,12)))} the twelve months before —
-        ${finSum(finPrior(legTot,12))
-          ? pctTxt(finPct(finSum(finTail(legTot,12)), finSum(finPrior(legTot,12)))) : "—"}.
-        A legacy book shrinking is not the same as customers leaving: where a row names an
-        office it feeds, some of that revenue has moved into that office's own codes.</p>
-    </div>` : ""}`;
-
-  $("#finBody").querySelectorAll("[data-rev]").forEach(tr=>tr.addEventListener("click",
-    ()=>{ finLoc = tr.dataset.rev; finSub = "office"; mgrFin(); }));
+// Each window carries its own dates and its own prior-year twin, so the label can
+// say what it actually covers. Data ends where it ends: "Year to date" is honest
+// about being one month when only one month of the year is loaded.
+function revWinDefs(){
+  const months = revMonths(), n = months.length, iLast = n-1;
+  if(n === 0) return [];
+  const yr = String(months[iLast]).slice(0,4);
+  const span = idx => idx.length === 1 ? mLong(months[idx[0]])
+    : `${mLong(months[idx[0]])} – ${mLong(months[idx[idx.length-1]])}`;
+  return [
+    {key:"m1",  idx:[iLast]},
+    {key:"m3",  idx:months.map((_,i)=>i).slice(Math.max(0, n-3))},
+    {key:"ytd", idx:months.map((_,i)=>i).filter(i=>String(months[i]).slice(0,4) === yr)}
+  ].map(d => {
+    const prior = d.idx.map(i=>i-12);
+    const complete = prior.every(i=>i>=0);
+    return Object.assign({}, d, {
+      prior: prior.filter(i=>i>=0), complete,
+      span: span(d.idx),
+      pspan: complete ? span(prior) : null,
+      label: REVWIN[d.key] + ` (${span(d.idx)})`
+             + (d.key==="ytd" && d.idx.length===1 ? " — one month so far" : "")
+    });
+  });
+}
+function revWinPick(){
+  const defs = revWinDefs();
+  return defs.find(d=>d.key===revWin) || defs.find(d=>d.key==="m3") || defs[0];
 }
 
-/* ---- panel: one office, revenue only ---- */
-function finRevOffice(){
+/* What the scope selector resolves to. Aggregates are summed here so the rest of
+   the panel does not care whether it is looking at one office or seven. */
+function revScopeSeries(){
+  const cls = revClassOf();
+  const officeKeys = Object.keys(cls).filter(k=>cls[k]==="office").sort();
+  const legacyKeys = Object.keys(cls).filter(k=>cls[k]==="legacy").sort();
+  if(revScope === "legacy-all") return {name:"Legacy book — all locations", agg:"legacy",
+    keys:legacyKeys, comm:revGroupSeries(legacyKeys,"commission"),
+    fee:revGroupSeries(legacyKeys,"fee")};
+  if(revScope !== "all" && cls[revScope]) return {name:revName(revScope), agg:null,
+    keys:[revScope], comm:revSeries(revScope,"commission"), fee:revSeries(revScope,"fee")};
+  return {name:"All offices — total", agg:"office", keys:officeKeys,
+    comm:revGroupSeries(officeKeys,"commission"), fee:revGroupSeries(officeKeys,"fee")};
+}
+
+function revControls(){
+  const cls = revClassOf();
+  const offices = Object.keys(cls).filter(k=>cls[k]==="office")
+    .sort((a,b)=>finSum(finTail(revSeries(b,"total"),12)) - finSum(finTail(revSeries(a,"total"),12)));
+  const legacy = Object.keys(cls).filter(k=>cls[k]==="legacy")
+    .sort((a,b)=>finSum(finTail(revSeries(b,"total"),12)) - finSum(finTail(revSeries(a,"total"),12)));
+  const w = revWinPick(), defs = revWinDefs();
+  const sel = k => revScope===k ? " selected" : "";
+  return `<div class="fin-ctl">
+    <label>Show
+      <select id="revScopeSel">
+        <option value="all"${sel("all")}>All offices — total</option>
+        <optgroup label="One office">${offices.map(k=>
+          `<option value="${esc(k)}"${sel(k)}>${esc(revName(k))}</option>`).join("")}</optgroup>
+        <optgroup label="Legacy book">
+          <option value="legacy-all"${sel("legacy-all")}>Legacy — all locations</option>
+          ${legacy.map(k=>`<option value="${esc(k)}"${sel(k)}>${esc(revName(k))}</option>`).join("")}
+        </optgroup>
+      </select></label>
+    <label>Period
+      <select id="revWinSel">${defs.map(d=>
+        `<option value="${d.key}"${d.key===w.key?" selected":""}>${esc(d.label)}</option>`
+      ).join("")}</select></label>
+    <span class="cmp">${w.complete
+      ? `Compared with <b>${esc(w.pspan)}</b>`
+      : `<span class="warnt">No prior-year figures for this window</span>`}</span>
+  </div>`;
+}
+
+function revWireControls(){
+  const s = $("#revScopeSel"), t = $("#revWinSel");
+  if(s) s.addEventListener("change", ()=>{ revScope = s.value; mgrFin(); });
+  if(t) t.addEventListener("change", ()=>{ revWin  = t.value; mgrFin(); });
+}
+
+/* ---- panel: revenue ---- */
+function finRevenue(){
   const months = revMonths(), iLast = months.length-1;
-  const comm = revSeries(finLoc,"commission"), fee = revSeries(finLoc,"fee");
-  const tot  = months.map((_,i)=>comm[i]+fee[i]);
-  const dim  = revDim(finLoc);
-  const ly   = revYoY(tot, iLast);
-  const c12 = finSum(finTail(comm,12)), cP12 = finSum(finPrior(comm,12));
-  const f12 = finSum(finTail(fee,12)),  fP12 = finSum(finPrior(fee,12));
+  const w = revWinPick(), sc = revScopeSeries();
+  const tot = months.map((_,i)=>(+sc.comm[i]||0) + (+sc.fee[i]||0));
+
+  const cw = sumAt(sc.comm, w.idx), fw = sumAt(sc.fee, w.idx), tw = cw + fw;
+  const cp = w.complete ? sumAt(sc.comm, w.prior) : null;
+  const fp = w.complete ? sumAt(sc.fee,  w.prior) : null;
+  const tp = w.complete ? sumAt(tot,     w.prior) : null;
+
+  const cls = revClassOf();
+  const rowsFor = keys => keys.map(k=>{
+    const comm = revSeries(k,"commission"), fee = revSeries(k,"fee");
+    const t = months.map((_,i)=>comm[i]+fee[i]);
+    const dim = revDim(k).find(d=>d.class===cls[k]) || {};
+    return {k,
+      cw:sumAt(comm,w.idx), fw:sumAt(fee,w.idx), tw:sumAt(t,w.idx),
+      tp: w.complete ? sumAt(t,w.prior) : null,
+      t12: finSum(finTail(t,12)), spark:t,
+      closed: dim.to || null, feeds: dim.feeds_office || null};
+  }).sort((a,b)=>b.tw-a.tw);
+
+  const isAgg = !!sc.agg;
+  const upYoY = isAgg ? rowsFor(sc.keys).filter(r=>r.tp!==null && r.tw>r.tp).length : 0;
+  const withLy = isAgg ? rowsFor(sc.keys).filter(r=>r.tp!==null).length : 0;
+  const dim = (!isAgg && revDim(revScope)) || [];
+
+  const tile = (k,v,sub) => `<div class="stat"><div class="k">${k}</div>
+    <div class="v" style="font-size:22px">${v}</div>
+    <div class="tsub">${sub}</div></div>`;
+  const vs = (now,then) => then===null ? "no prior-year window"
+    : then === 0 ? "nothing in the prior-year window"
+    : `<span class="fin-num ${now<then?"fin-neg":now>then?"fin-pos":""}"
+         >${moneyD(now-then)} · ${pctTxt(finPct(now,then))}</span> vs a year earlier`;
 
   $("#finBody").innerHTML = `
-    <button class="fin-back" id="finRevBack">&larr; All offices</button>
-    <div class="grid-stats">
-      <div class="stat"><div class="k">Office</div>
-        <div class="v" style="font-size:19px">${esc(revName(finLoc))}</div>
-        <div class="tsub">${dim.map(c=>{
-          const from = c.from && c.from > "2000-01-01" ? ` from ${mLong(c.from)}` : "";
-          return esc(c.class) + esc(c.to ? ` to ${mLong(c.to)}` : from);
-        }).join(" · ")||"—"}</div></div>
-      <div class="stat"><div class="k">${esc(mLong(months[iLast]))}</div>
-        <div class="v" style="font-size:22px">${money0(tot[iLast])}</div>
-        <div class="tsub">${ly===null ? "no prior year"
-          : `${moneyD(tot[iLast]-ly)} vs ${esc(mLong(months[iLast-12]))}, ${pctTxt(finPct(tot[iLast],ly))}`}</div></div>
-      <div class="stat"><div class="k">Commission, last 12 mo</div>
-        <div class="v" style="font-size:22px">${money0(c12)}</div>
-        <div class="tsub">${cP12?`${pctTxt(finPct(c12,cP12))} vs the same 12 a year earlier`:"—"}</div></div>
-      <div class="stat"><div class="k">Fees, last 12 mo</div>
-        <div class="v" style="font-size:22px">${money0(f12)}</div>
-        <div class="tsub">${fP12?`${pctTxt(finPct(f12,fP12))} vs the same 12 a year earlier`:"—"}
-          · ${c12+f12?Math.round(f12/(c12+f12)*100):0}% of revenue</div></div>
+    ${revControls()}
+    <div class="grid-stats" style="margin-top:16px">
+      ${tile(esc(sc.name), money0(tw), vs(tw,tp))}
+      ${tile("Commission", money0(cw), vs(cw,cp))}
+      ${tile("Fees", money0(fw), vs(fw,fp))}
+      ${isAgg
+        ? tile(sc.agg==="office" ? "Offices up year over year" : "Locations up year over year",
+            `${upYoY}<small> of ${withLy}</small>`,
+            `over ${esc(w.span)}`)
+        : tile("Fees as a share", (cw+fw) ? Math.round(fw/(cw+fw)*100)+"%" : "—",
+            "of revenue in this window" + (dim
+              // only worth saying when the location changed status inside the series
+              .filter(c=>c.to || (c.from && c.from > "2000-01-01"))
+              .map(c=>` · ${esc(c.class)}${esc(c.to ? ` to ${mLong(c.to)}` : ` from ${mLong(c.from)}`)}`)
+              .join("")))}
     </div>
 
     <div class="card fin-pad" style="margin-bottom:16px">
-      <p class="fin-h">This year against the same months last year</p>
-      <p class="fin-sub2">Commission plus fees. If the two lines track each other, the month was
-        normal for the time of year whatever the sequence of recent months looks like.</p>
+      <p class="fin-h">${esc(sc.name)} — this year against the same months last year</p>
+      <p class="fin-sub2">Commission plus fees, the last twelve months on the axis whatever period
+        is selected above. Read the gap between the lines, not the shape of either one — the shape
+        is the calendar.</p>
       ${revYoYChart(months, tot, {alt:"Revenue, this year against the same months last year"})}
     </div>
 
     <div class="card fin-pad" style="margin-bottom:16px">
-      <p class="fin-h">Commission and fees</p>
+      <p class="fin-h">Commission and fees, month by month</p>
+      <p class="fin-sub2">Kept apart on purpose. They move for different reasons and one of them
+        is an allocation.</p>
       ${finLines(months, [
-        {name:"Commission", color:"#3B3D80", v:comm},
-        {name:"Fees", color:"#c8952b", v:fee}
-      ], {h:160, tight:true, alt:"Commission and fee income by month"})}
+        {name:"Commission", color:"#3B3D80", v:sc.comm},
+        {name:"Fees", color:"#c8952b", v:sc.fee}
+      ], {h:170, tight:true, alt:"Commission and fee income by month"})}
       ${finLegend([{name:"Commission",color:"#3B3D80"},{name:"Fees",color:"#c8952b"}])}
-      <p class="fin-cap">Commission will divide into new business and renewal once the carrier
-        statements are loaded. Until then it is one line, deliberately — a partial split would
-        read as weak new business when it is really a carrier we have not loaded.</p>
+      ${isAgg ? "" : `<p class="fin-cap">Commission will divide into new business and renewal once
+        the carrier statements are loaded. Until then it is one line, deliberately — a partial
+        split would read as weak new business when it is really a carrier we have not loaded.</p>`}
     </div>
 
-    <div class="card" style="overflow-x:auto">
+    ${isAgg ? revTable(rowsFor(sc.keys), w, sc) : revMonthTable(months, sc.comm, sc.fee, tot)}
+
+    ${isAgg && sc.agg==="office" ? revLegacyNote() : ""}
+    ${!isAgg && dim.some(c=>c.notes) ? `<div class="fin-note" style="margin-top:16px">
+      ${dim.filter(c=>c.notes).map(c=>esc(c.notes)).join("<br>")}</div>` : ""}`;
+
+  revWireControls();
+  // The table and the dropdown are two doors into the same state.
+  $("#finBody").querySelectorAll("[data-rev]").forEach(tr=>tr.addEventListener("click",
+    ()=>{ revScope = tr.dataset.rev; mgrFin(); window.scrollTo(0,0); }));
+}
+
+function revTable(rows, w, sc){
+  const label = sc.agg === "office" ? "Office" : "Legacy location";
+  return `<div class="card" style="overflow-x:auto">
+      <table class="fin-t"><thead><tr>
+        <th>${label}</th>
+        <th class="n">Commission</th><th class="n">Fees</th>
+        <th class="n">Total, ${esc(w.span)}</th>
+        <th class="n">A year earlier</th><th class="n">Change</th>
+        <th class="n hide-sm">Last 12 mo</th><th class="hide-sm">24-month trend</th>
+      </tr></thead><tbody>${rows.map(r=>`
+        <tr class="clk" data-rev="${esc(r.k)}">
+          <td><b>${esc(revName(r.k))}</b>
+            ${r.closed?`<div class="tsub">closed ${esc(mLong(r.closed))}</div>`:""}
+            ${r.feeds?`<div class="tsub">feeds ${esc(r.feeds)}</div>`:""}</td>
+          <td class="n">${money0(r.cw)}</td>
+          <td class="n">${money0(r.fw)}</td>
+          <td class="n"><b>${money0(r.tw)}</b></td>
+          <td class="n">${r.tp===null?"—":money0(r.tp)}</td>
+          <td class="n">${r.tp===null?"—":`${signed(r.tw-r.tp)}
+            <div class="tsub">${r.tp?pctTxt(finPct(r.tw,r.tp)):""}</div>`}</td>
+          <td class="n hide-sm">${money0(r.t12)}</td>
+          <td class="hide-sm">${finSpark(r.spark)}</td>
+        </tr>`).join("")}</tbody></table>
+    </div>
+    <p class="fin-cap">Sorted by the selected period. <b>Last 12 mo</b> is there as the steady
+      anchor — a one-month or three-month window is comparable year over year but still a small
+      sample. Click any row to load it into the selector above.</p>`;
+}
+
+function revMonthTable(months, comm, fee, tot){
+  return `<div class="card" style="overflow-x:auto">
       <table class="fin-t"><thead><tr>
         <th>Month</th><th class="n">Commission</th><th class="n">Fees</th>
         <th class="n">Total</th><th class="n">Same month a year earlier</th><th class="n">Change</th>
@@ -1930,17 +2003,30 @@ function finRevOffice(){
           <td class="n">${money0(fee[i])}</td>
           <td class="n"><b>${money0(tot[i])}</b></td>
           <td class="n">${p===null?"—":money0(p)}</td>
-          <td class="n">${p===null?"—":`${signed(tot[i]-p)} <span class="tsub">${pctTxt(finPct(tot[i],p))}</span>`}</td>
+          <td class="n">${p===null?"—":`${signed(tot[i]-p)}
+            <span class="tsub">${p?pctTxt(finPct(tot[i],p)):""}</span>`}</td>
         </tr>`;}).join("")}</tbody></table>
     </div>
-    <p class="fin-cap">Fee income is the Agency Matrix allocation posted by journal entry, not the
-      cash swept out of the BancFirst clearing account. The allocation is the office's figure; do
-      not reconcile it to the bank.</p>
-    ${dim.some(c=>c.notes) ? `<div class="fin-note" style="margin-top:16px">
-      ${dim.filter(c=>c.notes).map(c=>esc(c.notes)).join("<br>")}</div>` : ""}`;
+    <p class="fin-cap">Every month in the series, newest first, each against the same month a year
+      earlier — so the period selector above changes the headline figures, not this table.
+      Fee income is the Agency Matrix allocation posted by journal entry, not the cash swept out of
+      the BancFirst clearing account. The allocation is the office's figure; do not reconcile it
+      to the bank.</p>`;
+}
 
-  const b = $("#finRevBack");
-  if(b) b.addEventListener("click", ()=>{ finSub="revenue"; finLoc=null; mgrFin(); });
+function revLegacyNote(){
+  const cls = revClassOf();
+  const keys = Object.keys(cls).filter(k=>cls[k]==="legacy");
+  if(!keys.length) return "";
+  const legTot = revGroupSeries(keys,"total");
+  const t12 = finSum(finTail(legTot,12)), p12 = finSum(finPrior(legTot,12));
+  return `<div class="fin-note" style="margin-top:20px">
+    <b>The legacy book is not in the figures above.</b> Over the last twelve months it brought in
+    ${money0(t12)}, against ${money0(p12)} the twelve months before —
+    ${p12 ? pctTxt(finPct(t12,p12)) : "—"}. Nobody sells into those codes, so it is not an office's
+    own work and it is not coachable. Choose <b>Legacy — all locations</b> above to read it, and
+    remember a legacy book shrinking is not the same as customers leaving: where a location names
+    an office it feeds, some of that revenue has moved into that office's own codes.</div>`;
 }
 
 /* ---- panel: Full P&L. Braden only, and lazily loaded. ---- */
