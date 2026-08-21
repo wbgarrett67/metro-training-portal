@@ -483,6 +483,13 @@ tbody tr.clk:hover{background:#f8f9fc}
   .fin-ctl label,.fin-ctl select{width:100%}
   .fin-ctl .cmp{padding-bottom:0}
 }
+.fin-an{margin-top:16px;border-top:1px solid var(--line);padding-top:13px}
+.fin-an-h{display:flex;align-items:center;gap:9px;margin-bottom:8px}
+.fin-an-h b{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3)}
+.fin-an p{margin:0 0 8px;font-size:13.5px;line-height:1.62;color:var(--ink-2)}
+.fin-an p:last-child{margin-bottom:0}
+.fin-an b{color:var(--ink)}
+.fin-an i{color:var(--ink-2)}
 /* On a phone the card scrolls sideways rather than shredding the name column. */
 @media(max-width:640px){ .fin-t td:first-child,.fin-t th:first-child{min-width:132px} }
 
@@ -1875,6 +1882,249 @@ function revWireControls(){
 }
 
 /* ---- panel: revenue ---- */
+/* ================= the Analysis blocks =================
+   Plain-language commentary under each chart, computed from the same series the
+   chart draws. Two things to know about how this is built:
+
+   1. It is ARITHMETIC, not prose someone wrote and left to rot. Every figure and
+      every verdict is derived at render time from the loaded months, so it follows
+      the scope and period selectors and it updates itself when new months land.
+      Nothing here can quietly go stale or disagree with the chart above it.
+   2. It says what it does not know. Where the prior-year half of a window is not
+      loaded, it says so rather than showing a change against nothing.
+
+   The verdict chip is deliberately coarse — good news, holding, watch, concern —
+   because the point is a glance, and a precise-looking grade on three months of a
+   seasonal business would be false confidence. */
+
+const AN = {
+  good:  '<span class="pill done">Good news</span>',
+  hold:  '<span class="pill prog">Holding steady</span>',
+  watch: '<span class="pill prog">Worth watching</span>',
+  bad:   '<span class="pill fail">Concern</span>',
+  none:  '<span class="pill todo">No comparison yet</span>',
+  expect:'<span class="pill ext">Running down, as expected</span>',
+  odd:   '<span class="pill prog">Unexpected — check this</span>'
+};
+function anBox(chip, paras){
+  return `<div class="fin-an">
+    <div class="fin-an-h">${chip}<b>Analysis</b></div>
+    ${paras.filter(Boolean).map(p=>`<p>${p}</p>`).join("")}
+  </div>`;
+}
+// Verdict from a percentage change. The legacy book gets its own scale, because a
+// run-off book shrinking is the expected case and calling that "good news" would be
+// nonsense — while a legacy book that GROWS is the thing worth a question.
+function anVerdict(pct, opts){
+  opts = opts || {};
+  if(pct === null || isNaN(pct)) return "none";
+  if(opts.legacy) return pct > 2 ? "odd" : "expect";
+  return pct >= 5 ? "good" : pct >= -2 ? "hold" : pct >= -10 ? "watch" : "bad";
+}
+
+/* ---- under the total-revenue chart ---- */
+function revReadTotal(months, tot, w, sc, rows){
+  const tw = sumAt(tot, w.idx);
+  const tp = w.complete ? sumAt(tot, w.prior) : null;
+  const d  = tp === null ? null : tw - tp;
+  const p  = tp === null ? null : finPct(tw, tp);
+  const isLegacy = sc.agg === "legacy";
+  const nMonths = w.idx.length;
+  // "All offices — total took $x" reads badly. Give the sentence a real subject.
+  const subj = sc.agg === "office" ? "The offices together"
+             : sc.agg === "legacy" ? "The legacy book"
+             : esc(sc.name);
+
+  if(tp === null){
+    return anBox(AN.none, [
+      `<b>${subj}</b> took ${money0(tw)} over ${esc(w.span)}. The same months a year
+       earlier are not loaded, so there is nothing to compare this against yet — the figure is
+       real, the direction is unknown.`]);
+  }
+
+  // How many of the months in the window beat their own prior-year counterpart, and
+  // which single month moved the number most in each direction.
+  const pairs = w.idx.filter(i => i-12 >= 0)
+    .map(i => ({i, now:tot[i], then:tot[i-12], d:tot[i]-tot[i-12]}));
+  const beat = pairs.filter(x=>x.d > 0).length;
+  const best = pairs.slice().sort((a,b)=>b.d-a.d)[0];
+  const worst = pairs.slice().sort((a,b)=>a.d-b.d)[0];
+
+  // The smooth check. A three-month window turns on one or two months; twelve does not.
+  const t12 = finSum(finTail(tot,12)), p12 = finSum(finPrior(tot,12));
+  const p12pct = (tot.length >= 24 && p12) ? finPct(t12, p12) : null;
+  const agrees = p12pct === null ? null : (p12pct >= 0) === (p >= 0);
+
+  const paras = [];
+
+  const spread = (nMonths > 1 && best && worst && best.i !== worst.i)
+    ? (best.d <= 0
+        // everything fell: "strongest" would be a strange word for the least-bad month
+        ? `The shallowest fall was ${esc(mLong(months[best.i]))} at ${moneyD(best.d)},
+           the deepest ${esc(mLong(months[worst.i]))} at ${moneyD(worst.d)}.`
+        : worst.d >= 0
+        ? `Every month gained, ${esc(mLong(months[best.i]))} most at ${moneyD(best.d)} and
+           ${esc(mLong(months[worst.i]))} least at ${moneyD(worst.d)}.`
+        : `${esc(mLong(months[best.i]))} was the strongest at ${moneyD(best.d)},
+           ${esc(mLong(months[worst.i]))} the weakest at ${moneyD(worst.d)}.`)
+    : ``;
+
+  paras.push(
+    `<b>${subj}</b> took <b>${money0(tw)}</b> over ${esc(w.span)}, against
+     ${money0(tp)} in ${esc(w.pspan)} — <b>${moneyD(d)}</b>, ${pctSpan(p)}.
+     ${nMonths > 1
+        ? `${beat} of the ${pairs.length} months in the window beat the same month last year.`
+        : ``}
+     ${spread}`);
+
+  if(p12pct !== null){
+    paras.push(
+      `Over the <b>last twelve loaded months</b> revenue is ${pctSpan(p12pct)} against the twelve
+       before that${agrees
+         ? `, which points the same way as the period above — the trend is not a one-month wobble.`
+         : `. <b>That runs against the period above.</b> ${nMonths <= 3
+             ? `A ${nMonths === 1 ? "single month" : nMonths + "-month window"} turns on one or two
+                months, so treat the twelve-month figure as the steadier signal and this one as
+                news rather than trend.`
+             : `Worth understanding which of the two is telling you more before acting on either.`}`}`);
+  }
+
+  if(sc.agg && rows && rows.length){
+    const withLy = rows.filter(r=>r.tp !== null);
+    const up = withLy.filter(r=>r.tw > r.tp);
+    const moved = withLy.map(r=>({k:r.k, d:r.tw - r.tp})).sort((a,b)=>b.d-a.d);
+    const top = moved[0], bot = moved[moved.length-1];
+    paras.push(
+      `<b>${up.length} of ${withLy.length}</b>
+       ${sc.agg === "office" ? "offices" : "locations"}
+       ${up.length === 1 ? "is" : "are"} up on last year.
+       ${top && top.d > 0
+          ? `${esc(revName(top.k))} added the most at ${moneyD(top.d)}.` : ``}
+       ${bot && bot.d < 0
+          ? `${esc(revName(bot.k))} took the most off at ${moneyD(bot.d)}.` : ``}
+       ${up.length === 0
+          ? `<b>Nothing is growing.</b> When every location moves the same way the cause is usually
+             common to all of them — rate, retention or the market — rather than anything one
+             manager is doing.`
+          : up.length === withLy.length
+          ? `Every one of them is up, which points at something shared rather than local.`
+          : ``}`);
+  }
+
+  if(isLegacy){
+    paras.push(
+      `Remember which book this is. <b>Legacy revenue falling is the expected case</b> — nobody
+       sells into these codes and the line only runs down. A legacy figure that <i>rises</i> is the
+       one worth a question, because it usually means a commission has been assigned to an old
+       agent code rather than the office that earned it.`);
+  } else if(sc.agg === "office"){
+    paras.push(
+      `This is the earned half of the agency. It excludes the legacy book, which is declining at
+       its own pace and carries almost no cost — so a soft period here is not softened by legacy
+       holding up elsewhere.`);
+  }
+
+  if(!sc.agg && revClassOf()[revScope] === "office"){
+    const cls = revClassOf();
+    const keys = Object.keys(cls).filter(k=>cls[k]==="office");
+    const allT = revGroupSeries(keys,"total");
+    const shareNow = sumAt(allT, w.idx) ? tw / sumAt(allT, w.idx) * 100 : null;
+    const shareThen = (w.complete && sumAt(allT, w.prior))
+      ? sumAt(tot, w.prior) / sumAt(allT, w.prior) * 100 : null;
+    if(shareNow !== null){
+      const drift = shareThen === null ? null : shareNow - shareThen;
+      paras.push(
+        `This office is <b>${shareNow.toFixed(1)}%</b> of all office revenue in this window${
+          drift === null ? `.`
+          : Math.abs(drift) < 0.5 ? `, about where it was a year ago.`
+          : `, against ${shareThen.toFixed(1)}% a year earlier.`}
+         ${drift !== null && drift <= -1
+            ? `It is losing ground relative to the other offices, which is a different question
+               from whether its own revenue fell.`
+            : drift !== null && drift >= 1
+            ? (d < 0
+               ? `It is gaining ground on the other offices even though its own revenue fell —
+                  the rest fell faster. Worth knowing before reading the change above as a local
+                  problem.`
+               : `It is gaining ground on the other offices, so this is real growth rather than
+                  the agency lifting everything.`)
+            : ``}`);
+    }
+  }
+
+  return anBox(AN[anVerdict(p, {legacy:isLegacy})], paras);
+}
+
+/* ---- under the commission-and-fees chart ---- */
+function revReadSplit(months, sc, w){
+  const isLegacy = sc.agg === "legacy";
+  const cw = sumAt(sc.comm, w.idx), fw = sumAt(sc.fee, w.idx);
+  const cp = w.complete ? sumAt(sc.comm, w.prior) : null;
+  const fp = w.complete ? sumAt(sc.fee,  w.prior) : null;
+  const shareNow = (cw + fw) ? fw / (cw + fw) * 100 : null;
+  const shareThen = (cp !== null && (cp + fp)) ? fp / (cp + fp) * 100 : null;
+
+  if(cp === null){
+    return anBox(AN.none, [
+      `Commission ${money0(cw)}, fees ${money0(fw)} over ${esc(w.span)} —
+       ${shareNow === null ? "" : `fees are ${Math.round(shareNow)}% of revenue. `}The prior-year
+       months are not loaded, so there is no change to report yet.`]);
+  }
+
+  const cd = cw - cp, fd = fw - fp, td = cd + fd;
+  const cpct = finPct(cw, cp), fpct = finPct(fw, fp);
+  const opposite = (cd > 0 && fd < 0) || (cd < 0 && fd > 0);
+  // Commission is earned. Fees per office are a journal-entry allocation. So the
+  // verdict follows commission even when the total is flattered by the fee line.
+  const verdict = cpct === null ? "none"
+    : isLegacy ? anVerdict(cpct, {legacy:true})
+    : (cd >= 0 ? anVerdict(cpct)
+       : (td >= 0 ? "watch" : anVerdict(cpct)));
+
+  const paras = [];
+
+  paras.push(
+    `<b>Commission ${money0(cw)}</b>, ${moneyD(cd)} ${pctSpan(cpct)} on the same months last year.
+     <b>Fees ${money0(fw)}</b>, ${moneyD(fd)}
+     ${fp === 0 ? `(nothing in the prior-year window)` : pctSpan(fpct)}.
+     ${opposite ? `<b>The two are moving in opposite directions</b>, which is the case worth
+       stopping on — the total hides it.` : ``}`);
+
+  if(td !== 0){
+    const drove = Math.abs(cd) >= Math.abs(fd) ? "commission" : "fees";
+    paras.push(
+      `Of the ${moneyD(td)} total change, <b>${moneyD(cd)} came from commission and
+       ${moneyD(fd)} from fees</b> — so ${drove} drove it.
+       ${cd < 0 && fd > 0
+          ? `<b>Read that carefully.</b> Commission is what the office earned; the fee figure per
+             office is an allocation posted by journal entry. Revenue holding up on the fee line
+             while commission falls is not the same as a good period.`
+          : cd > 0 && fd < 0
+          ? `Commission carried this despite the fee line falling, which is the better way round —
+             the earned half is what grew.`
+          : ``}`);
+  }
+
+  if(shareNow !== null && shareThen !== null){
+    const drift = shareNow - shareThen;
+    paras.push(
+      `Fees are <b>${Math.round(shareNow)}%</b> of revenue in this window, against
+       ${Math.round(shareThen)}% a year earlier${Math.abs(drift) < 1
+        ? ` — essentially unchanged.`
+        : `, a shift of ${drift > 0 ? "+" : "−"}${Math.abs(drift).toFixed(1)} points.`}
+       ${Math.abs(drift) >= 3
+        ? `A move that size in the mix is worth explaining: either the fee schedule or the
+           allocation changed, or commission moved underneath it.`
+        : ``}`);
+  }
+
+  paras.push(
+    `Fee income here is the Agency Matrix allocation, not the cash swept out of the clearing
+     account, and the two true up once a year in April. Do not reconcile this line to the bank.`);
+
+  return anBox(AN[verdict], paras);
+}
+
 function finRevenue(){
   const months = revMonths(), iLast = months.length-1;
   const w = revWinPick(), sc = revScopeSeries();
@@ -1898,8 +2148,9 @@ function finRevenue(){
   }).sort((a,b)=>b.tw-a.tw);
 
   const isAgg = !!sc.agg;
-  const upYoY = isAgg ? rowsFor(sc.keys).filter(r=>r.tp!==null && r.tw>r.tp).length : 0;
-  const withLy = isAgg ? rowsFor(sc.keys).filter(r=>r.tp!==null).length : 0;
+  const scopeRows = isAgg ? rowsFor(sc.keys) : null;
+  const upYoY = isAgg ? scopeRows.filter(r=>r.tp!==null && r.tw>r.tp).length : 0;
+  const withLy = isAgg ? scopeRows.filter(r=>r.tp!==null).length : 0;
   const dim = (!isAgg && revDim(revScope)) || [];
 
   const tile = (k,v,sub) => `<div class="stat"><div class="k">${k}</div>
@@ -1934,6 +2185,7 @@ function finRevenue(){
         is selected above. Read the gap between the lines, not the shape of either one — the shape
         is the calendar.</p>
       ${revYoYChart(months, tot, {alt:"Revenue, this year against the same months last year"})}
+      ${revReadTotal(months, tot, w, sc, scopeRows)}
     </div>
 
     <div class="card fin-pad" style="margin-bottom:16px">
@@ -1945,12 +2197,13 @@ function finRevenue(){
         {name:"Fees", color:"#c8952b", v:sc.fee}
       ], {h:170, tight:true, alt:"Commission and fee income by month"})}
       ${finLegend([{name:"Commission",color:"#3B3D80"},{name:"Fees",color:"#c8952b"}])}
+      ${revReadSplit(months, sc, w)}
       ${isAgg ? "" : `<p class="fin-cap">Commission will divide into new business and renewal once
         the carrier statements are loaded. Until then it is one line, deliberately — a partial
         split would read as weak new business when it is really a carrier we have not loaded.</p>`}
     </div>
 
-    ${isAgg ? revTable(rowsFor(sc.keys), w, sc) : revMonthTable(months, sc.comm, sc.fee, tot)}
+    ${isAgg ? revTable(scopeRows, w, sc) : revMonthTable(months, sc.comm, sc.fee, tot)}
 
     ${isAgg && sc.agg==="office" ? revLegacyNote() : ""}
     ${!isAgg && dim.some(c=>c.notes) ? `<div class="fin-note" style="margin-top:16px">
