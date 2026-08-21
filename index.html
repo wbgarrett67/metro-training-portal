@@ -489,6 +489,19 @@ tbody tr.clk:hover{background:#f8f9fc}
 .fin-an p{margin:0 0 8px;font-size:13.5px;line-height:1.62;color:var(--ink-2)}
 .fin-an p:last-child{margin-bottom:0}
 .fin-an b{color:var(--ink)}
+.fin-an-lead{font-size:15px!important;line-height:1.6!important;color:var(--ink)!important;
+  margin-bottom:11px!important}
+.fin-yoy{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:0 0 13px}
+.fin-yoy-h{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;
+  background:var(--bg);padding:9px 12px;font-size:12px;font-weight:650;color:var(--ink-2);
+  border-bottom:1px solid var(--line)}
+.fin-yoy-h span{color:var(--ink-3);font-weight:600;white-space:nowrap}
+.fin-yoy table{font-size:13px}
+.fin-yoy td,.fin-yoy th{padding:7px 12px}
+.fin-yoy td.n,.fin-yoy th.n{text-align:right;font-variant-numeric:tabular-nums}
+.fin-yoy tbody tr:last-child td{border-bottom:0}
+.fin-yoy-n{margin:0!important;padding:9px 12px;border-top:1px solid var(--line);
+  background:var(--warn-bg);font-size:12.5px!important;color:#6b4a0c!important}
 .fin-an i{color:var(--ink-2)}
 /* On a phone the card scrolls sideways rather than shredding the name column. */
 @media(max-width:640px){ .fin-t td:first-child,.fin-t th:first-child{min-width:132px} }
@@ -1884,42 +1897,85 @@ function revWireControls(){
 /* ---- panel: revenue ---- */
 /* ================= the Analysis blocks =================
    Plain-language commentary under each chart, computed from the same series the
-   chart draws. Two things to know about how this is built:
+   chart draws. Four things about how this is built:
 
    1. It is ARITHMETIC, not prose someone wrote and left to rot. Every figure and
-      every verdict is derived at render time from the loaded months, so it follows
-      the scope and period selectors and it updates itself when new months land.
-      Nothing here can quietly go stale or disagree with the chart above it.
-   2. It says what it does not know. Where the prior-year half of a window is not
-      loaded, it says so rather than showing a change against nothing.
-
-   The verdict chip is deliberately coarse — good news, holding, watch, concern —
-   because the point is a glance, and a precise-looking grade on three months of a
-   seasonal business would be false confidence. */
+      every verdict is derived at render time, so it follows the scope and period
+      selectors and it updates itself when new months land. Nothing here can go
+      quietly stale or disagree with the chart above it.
+   2. It leads with the point. Belinda and Betty Jane are not looking for a figure,
+      they are looking for what the figure means, so the first line is the takeaway
+      in plain English and the numbers come after it.
+   3. Month against the same month a year earlier is the comparison that matters in
+      this business. Everything else is context for it.
+   4. It says what it does not know. Where the prior year is not loaded, it says so
+      rather than showing a change against nothing. */
 
 const AN = {
   good:  '<span class="pill done">Good news</span>',
   hold:  '<span class="pill prog">Holding steady</span>',
   watch: '<span class="pill prog">Worth watching</span>',
-  bad:   '<span class="pill fail">Concern</span>',
+  bad:   '<span class="pill fail">Needs attention</span>',
   none:  '<span class="pill todo">No comparison yet</span>',
   expect:'<span class="pill ext">Running down, as expected</span>',
   odd:   '<span class="pill prog">Unexpected — check this</span>'
 };
-function anBox(chip, paras){
-  return `<div class="fin-an">
-    <div class="fin-an-h">${chip}<b>Analysis</b></div>
-    ${paras.filter(Boolean).map(p=>`<p>${p}</p>`).join("")}
-  </div>`;
-}
-// Verdict from a percentage change. The legacy book gets its own scale, because a
-// run-off book shrinking is the expected case and calling that "good news" would be
-// nonsense — while a legacy book that GROWS is the thing worth a question.
+// The legacy book gets its own scale. A run-off book shrinking is the expected case,
+// and calling that "good news" would be nonsense — while legacy that GROWS is the
+// thing worth a question.
 function anVerdict(pct, opts){
   opts = opts || {};
   if(pct === null || isNaN(pct)) return "none";
   if(opts.legacy) return pct > 2 ? "odd" : "expect";
   return pct >= 5 ? "good" : pct >= -2 ? "hold" : pct >= -10 ? "watch" : "bad";
+}
+function anBox(chip, soWhat, paras, extra){
+  return `<div class="fin-an">
+    <div class="fin-an-h">${chip}<b>Analysis</b></div>
+    ${soWhat ? `<p class="fin-an-lead">${soWhat}</p>` : ""}
+    ${extra || ""}
+    ${(paras||[]).filter(Boolean).map(p=>`<p>${p}</p>`).join("")}
+  </div>`;
+}
+// "about $5,800 a month" does more work for a non-numbers person than "-$17,294".
+const anPerMonth = (d, n) => (!n || n < 2) ? "" :
+  `about ${money(Math.abs(d/n))} a month`;
+const anWord = d => d > 0 ? "ahead of" : d < 0 ? "behind" : "level with";
+
+/* Every month that has a same-month-last-year figure to compare against. */
+function anPairs(tot){
+  const months = revMonths();
+  return months.map((m,i)=>i).filter(i => i-12 >= 0)
+    .map(i => ({i, month:months[i], now:+tot[i]||0, then:+tot[i-12]||0,
+                d:(+tot[i]||0)-(+tot[i-12]||0)}));
+}
+
+/* The month-by-month table. This is the comparison Braden says is the interesting
+   one, so it gets to be a table rather than a sentence — it is easier to scan and
+   it is where an eye naturally goes. Always the most recent six comparable months,
+   independent of the period selector, and the heading says so. */
+function anMonthTable(tot){
+  const all = anPairs(tot);
+  if(!all.length) return "";
+  const rows = all.slice(-6).reverse();
+  const beat = rows.filter(r=>r.d > 0).length;
+  return `<div class="fin-yoy">
+    <div class="fin-yoy-h">Each of the last ${rows.length === 1 ? "month" :
+      rows.length + " months"}, against the same month a year earlier
+      <span>${beat} of ${rows.length} ahead</span></div>
+    <table><thead><tr><th>Month</th><th class="n">This year</th>
+      <th class="n">Year earlier</th><th class="n">Change</th><th class="n">%</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr>
+        <td>${esc(mLong(r.month))}</td>
+        <td class="n">${money0(r.now)}</td>
+        <td class="n">${money0(r.then)}</td>
+        <td class="n ${r.d<0?"fin-neg":r.d>0?"fin-pos":""}">${moneyD(r.d)}</td>
+        <td class="n">${r.then ? pctSpan(finPct(r.now, r.then)) : "—"}</td>
+      </tr>`).join("")}</tbody></table>
+    ${all.length < 18 ? `<p class="fin-yoy-n">We can compare ${all.length} months so far.
+      Once February to July 2026 are loaded this becomes ${all.length + 6}, and the
+      month-by-month picture gets a good deal more reliable.</p>` : ""}
+  </div>`;
 }
 
 /* ---- under the total-revenue chart ---- */
@@ -1929,130 +1985,149 @@ function revReadTotal(months, tot, w, sc, rows){
   const d  = tp === null ? null : tw - tp;
   const p  = tp === null ? null : finPct(tw, tp);
   const isLegacy = sc.agg === "legacy";
+  const isOffices = sc.agg === "office";
   const nMonths = w.idx.length;
-  // "All offices — total took $x" reads badly. Give the sentence a real subject.
-  const subj = sc.agg === "office" ? "The offices together"
-             : sc.agg === "legacy" ? "The legacy book"
+  const subj = isOffices ? "the offices together"
+             : isLegacy  ? "the legacy book"
              : esc(sc.name);
+  const Subj = subj.charAt(0).toUpperCase() + subj.slice(1);
+  const verb = isOffices ? "are" : "is";
 
   if(tp === null){
-    return anBox(AN.none, [
-      `<b>${subj}</b> took ${money0(tw)} over ${esc(w.span)}. The same months a year
-       earlier are not loaded, so there is nothing to compare this against yet — the figure is
-       real, the direction is unknown.`]);
+    return anBox(AN.none,
+      `<b>We cannot say yet whether this is good or bad.</b> ${Subj} took ${money0(tw)} over
+       ${esc(w.span)}, but the same months a year earlier are not loaded, so there is nothing
+       to measure it against.`,
+      [`The figure itself is real. Only the comparison is missing.`],
+      anMonthTable(tot));
   }
 
-  // How many of the months in the window beat their own prior-year counterpart, and
-  // which single month moved the number most in each direction.
-  const pairs = w.idx.filter(i => i-12 >= 0)
-    .map(i => ({i, now:tot[i], then:tot[i-12], d:tot[i]-tot[i-12]}));
-  const beat = pairs.filter(x=>x.d > 0).length;
-  const best = pairs.slice().sort((a,b)=>b.d-a.d)[0];
-  const worst = pairs.slice().sort((a,b)=>a.d-b.d)[0];
-
-  // The smooth check. A three-month window turns on one or two months; twelve does not.
+  const pairs = anPairs(tot);
+  const winPairs = pairs.filter(x => w.idx.indexOf(x.i) >= 0);
+  const beat = winPairs.filter(x=>x.d > 0).length;
+  const best = winPairs.slice().sort((a,b)=>b.d-a.d)[0];
+  const worst = winPairs.slice().sort((a,b)=>a.d-b.d)[0];
   const t12 = finSum(finTail(tot,12)), p12 = finSum(finPrior(tot,12));
   const p12pct = (tot.length >= 24 && p12) ? finPct(t12, p12) : null;
   const agrees = p12pct === null ? null : (p12pct >= 0) === (p >= 0);
 
-  const paras = [];
-
-  const spread = (nMonths > 1 && best && worst && best.i !== worst.i)
-    ? (best.d <= 0
-        // everything fell: "strongest" would be a strange word for the least-bad month
-        ? `The shallowest fall was ${esc(mLong(months[best.i]))} at ${moneyD(best.d)},
-           the deepest ${esc(mLong(months[worst.i]))} at ${moneyD(worst.d)}.`
-        : worst.d >= 0
-        ? `Every month gained, ${esc(mLong(months[best.i]))} most at ${moneyD(best.d)} and
-           ${esc(mLong(months[worst.i]))} least at ${moneyD(worst.d)}.`
-        : `${esc(mLong(months[best.i]))} was the strongest at ${moneyD(best.d)},
-           ${esc(mLong(months[worst.i]))} the weakest at ${moneyD(worst.d)}.`)
-    : ``;
-
-  paras.push(
-    `<b>${subj}</b> took <b>${money0(tw)}</b> over ${esc(w.span)}, against
-     ${money0(tp)} in ${esc(w.pspan)} — <b>${moneyD(d)}</b>, ${pctSpan(p)}.
-     ${nMonths > 1
-        ? `${beat} of the ${pairs.length} months in the window beat the same month last year.`
-        : ``}
-     ${spread}`);
-
-  if(p12pct !== null){
-    paras.push(
-      `Over the <b>last twelve loaded months</b> revenue is ${pctSpan(p12pct)} against the twelve
-       before that${agrees
-         ? `, which points the same way as the period above — the trend is not a one-month wobble.`
-         : `. <b>That runs against the period above.</b> ${nMonths <= 3
-             ? `A ${nMonths === 1 ? "single month" : nMonths + "-month window"} turns on one or two
-                months, so treat the twelve-month figure as the steadier signal and this one as
-                news rather than trend.`
-             : `Worth understanding which of the two is telling you more before acting on either.`}`}`);
+  /* ---- the so-what, in one plain sentence ---- */
+  let soWhat;
+  if(isLegacy){
+    soWhat = d < 0
+      ? `<b>The old book is shrinking, which is what it is supposed to do.</b> It brought in
+         ${money0(tw)} over ${esc(w.span)} — ${money(Math.abs(d))} less than the same months last
+         year${nMonths>1 ? `, ${anPerMonth(d,nMonths)}` : ``}. Nobody sells into these codes, so
+         this line only ever runs down. The question is whether the offices are growing fast
+         enough to replace it.`
+      : `<b>The old book grew, and it should not have.</b> It brought in ${money0(tw)} over
+         ${esc(w.span)}, ${money(Math.abs(d))} MORE than the same months last year. Nobody writes
+         new business into these codes, so a rise usually means a commission landed on an old
+         agent code instead of the office that earned it. Worth checking.`;
+  } else if(d < 0){
+    soWhat = `<b>${Subj} ${verb} running behind last year.</b>
+      ${money0(tw)} came in over ${esc(w.span)}, against ${money0(tp)} in the same months a year
+      earlier — <b>${money(Math.abs(d))} less</b>${nMonths>1 ? `, ${anPerMonth(d,nMonths)}` : ``},
+      or ${pctTxt(p)}.`;
+  } else if(d > 0){
+    soWhat = `<b>${Subj} ${verb} ahead of last year.</b>
+      ${money0(tw)} came in over ${esc(w.span)}, against ${money0(tp)} in the same months a year
+      earlier — <b>${money(Math.abs(d))} more</b>${nMonths>1 ? `, ${anPerMonth(d,nMonths)}` : ``},
+      or ${pctTxt(p)}.`;
+  } else {
+    soWhat = `<b>${Subj} ${verb} level with last year</b> at ${money0(tw)} over
+      ${esc(w.span)}.`;
   }
 
+  const paras = [];
+
+  /* the month detail — the comparison he cares most about */
+  if(nMonths > 1 && best && worst && best.i !== worst.i){
+    paras.push(
+      `<b>Within the period:</b> ${winPairs.length ? `${beat} of the ${winPairs.length} months
+        in this period came in ahead of the same month a year earlier. ` : ``}
+       ${best.d <= 0
+         ? `${esc(mLong(months[best.i]))} held up best, only ${money(Math.abs(best.d))} down, and
+            ${esc(mLong(months[worst.i]))} was the worst at ${money(Math.abs(worst.d))} down.`
+         : worst.d >= 0
+         ? `${esc(mLong(months[best.i]))} was the strongest, ${money(best.d)} up on last year, and
+            even the weakest month, ${esc(mLong(months[worst.i]))}, was ahead.`
+         : `${esc(mLong(months[best.i]))} was ${money(best.d)} up on last year while
+            ${esc(mLong(months[worst.i]))} was ${money(Math.abs(worst.d))} down — the period is
+            not all one story.`}`);
+  }
+
+  /* the longer view, in words rather than jargon */
+  if(p12pct !== null){
+    paras.push(
+      `<b>Over a full year</b> — the last twelve months against the twelve before — revenue is
+       ${pctTxt(p12pct)}. ${agrees
+        ? `That points the same way as the period above, so this is a direction rather than a
+           bad month.`
+        : `<b>That is the opposite direction to the period above.</b> ${nMonths <= 3
+            ? `A short window swings on one or two months. The twelve-month figure is the more
+               reliable of the two, so treat the period above as news and the year as the trend.`
+            : `Worth working out which of the two is telling you more before acting on either.`}`}`);
+  }
+
+  /* who moved it, and what a manager might do about it */
   if(sc.agg && rows && rows.length){
     const withLy = rows.filter(r=>r.tp !== null);
     const up = withLy.filter(r=>r.tw > r.tp);
     const moved = withLy.map(r=>({k:r.k, d:r.tw - r.tp})).sort((a,b)=>b.d-a.d);
     const top = moved[0], bot = moved[moved.length-1];
+    const noun = isOffices ? "offices" : "locations";
     paras.push(
-      `<b>${up.length} of ${withLy.length}</b>
-       ${sc.agg === "office" ? "offices" : "locations"}
-       ${up.length === 1 ? "is" : "are"} up on last year.
-       ${top && top.d > 0
-          ? `${esc(revName(top.k))} added the most at ${moneyD(top.d)}.` : ``}
-       ${bot && bot.d < 0
-          ? `${esc(revName(bot.k))} took the most off at ${moneyD(bot.d)}.` : ``}
+      `<b>Where it came from:</b> ${up.length} of ${withLy.length} ${noun}
+       ${up.length === 1 ? "is" : "are"} ahead of last year.
+       ${top && top.d > 0 ? `${esc(revName(top.k))} added the most, ${money(top.d)}. ` : ``}
+       ${bot && bot.d < 0 ? `${esc(revName(bot.k))} gave up the most, ${money(Math.abs(bot.d))}. ` : ``}
        ${up.length === 0
           ? `<b>Nothing is growing.</b> When every location moves the same way the cause is usually
-             common to all of them — rate, retention or the market — rather than anything one
-             manager is doing.`
+             something they all share — rate increases, retention, the market — rather than
+             anything one manager is doing differently.`
           : up.length === withLy.length
-          ? `Every one of them is up, which points at something shared rather than local.`
-          : ``}`);
+          ? `Every one is up, which again points at something shared rather than local.`
+          : `That spread is the useful part: whatever is working at ${esc(revName(top.k))} is worth
+             understanding before assuming the fall elsewhere is a market problem.`}`);
   }
 
-  if(isLegacy){
+  /* the closing "so what does this mean for me" */
+  if(isOffices){
     paras.push(
-      `Remember which book this is. <b>Legacy revenue falling is the expected case</b> — nobody
-       sells into these codes and the line only runs down. A legacy figure that <i>rises</i> is the
-       one worth a question, because it usually means a commission has been assigned to an old
-       agent code rather than the office that earned it.`);
-  } else if(sc.agg === "office"){
-    paras.push(
-      `This is the earned half of the agency. It excludes the legacy book, which is declining at
-       its own pace and carries almost no cost — so a soft period here is not softened by legacy
-       holding up elsewhere.`);
-  }
-
-  if(!sc.agg && revClassOf()[revScope] === "office"){
+      `<b>Why this number and not the whole agency:</b> this is the earned half of the business —
+       the locations with agents in them, writing new business. The old book is excluded on
+       purpose, because it is falling on its own schedule and would mask what the offices are
+       actually doing.`);
+  } else if(!sc.agg && revClassOf()[revScope] === "office"){
     const cls = revClassOf();
     const keys = Object.keys(cls).filter(k=>cls[k]==="office");
     const allT = revGroupSeries(keys,"total");
-    const shareNow = sumAt(allT, w.idx) ? tw / sumAt(allT, w.idx) * 100 : null;
-    const shareThen = (w.complete && sumAt(allT, w.prior))
-      ? sumAt(tot, w.prior) / sumAt(allT, w.prior) * 100 : null;
+    const denomNow = sumAt(allT, w.idx);
+    const shareNow = denomNow ? tw / denomNow * 100 : null;
+    const denomThen = w.complete ? sumAt(allT, w.prior) : 0;
+    const shareThen = denomThen ? sumAt(tot, w.prior) / denomThen * 100 : null;
     if(shareNow !== null){
       const drift = shareThen === null ? null : shareNow - shareThen;
       paras.push(
-        `This office is <b>${shareNow.toFixed(1)}%</b> of all office revenue in this window${
-          drift === null ? `.`
-          : Math.abs(drift) < 0.5 ? `, about where it was a year ago.`
+        `<b>Against the other offices:</b> this one is ${shareNow.toFixed(1)}% of all office
+         revenue in this period${drift === null ? `.`
+          : Math.abs(drift) < 0.5 ? `, much where it was a year ago.`
           : `, against ${shareThen.toFixed(1)}% a year earlier.`}
          ${drift !== null && drift <= -1
-            ? `It is losing ground relative to the other offices, which is a different question
-               from whether its own revenue fell.`
+            ? `It is losing ground relative to the others — a different question from whether its
+               own revenue fell, and usually a more useful one.`
             : drift !== null && drift >= 1
             ? (d < 0
-               ? `It is gaining ground on the other offices even though its own revenue fell —
-                  the rest fell faster. Worth knowing before reading the change above as a local
-                  problem.`
-               : `It is gaining ground on the other offices, so this is real growth rather than
-                  the agency lifting everything.`)
+               ? `It is gaining ground even though its own revenue fell, because the others fell
+                  faster. Worth knowing before treating this as a local problem.`
+               : `It is gaining ground on the others, so this is real growth rather than the whole
+                  agency lifting.`)
             : ``}`);
     }
   }
 
-  return anBox(AN[anVerdict(p, {legacy:isLegacy})], paras);
+  return anBox(AN[anVerdict(p, {legacy:isLegacy})], soWhat, paras, anMonthTable(tot));
 }
 
 /* ---- under the commission-and-fees chart ---- */
@@ -2065,64 +2140,82 @@ function revReadSplit(months, sc, w){
   const shareThen = (cp !== null && (cp + fp)) ? fp / (cp + fp) * 100 : null;
 
   if(cp === null){
-    return anBox(AN.none, [
-      `Commission ${money0(cw)}, fees ${money0(fw)} over ${esc(w.span)} —
-       ${shareNow === null ? "" : `fees are ${Math.round(shareNow)}% of revenue. `}The prior-year
-       months are not loaded, so there is no change to report yet.`]);
+    return anBox(AN.none,
+      `<b>Commission ${money0(cw)}, fees ${money0(fw)}</b> over ${esc(w.span)}${
+        shareNow === null ? `` : `, so fees are ${Math.round(shareNow)}% of what came in`}.
+       The prior year is not loaded, so there is no change to report yet.`,
+      [`<b>The difference between these two lines matters.</b> Commission is what the office
+        earned by selling. The fee figure is an allocation posted by journal entry from Agency
+        Matrix. When they move differently, that is worth knowing.`]);
   }
 
   const cd = cw - cp, fd = fw - fp, td = cd + fd;
-  const cpct = finPct(cw, cp), fpct = finPct(fw, fp);
+  const cpct = finPct(cw, cp), fpct = fp ? finPct(fw, fp) : null;
   const opposite = (cd > 0 && fd < 0) || (cd < 0 && fd > 0);
-  // Commission is earned. Fees per office are a journal-entry allocation. So the
-  // verdict follows commission even when the total is flattered by the fee line.
+  const commShare = td !== 0 ? Math.abs(cd) / (Math.abs(cd) + Math.abs(fd)) * 100 : null;
   const verdict = cpct === null ? "none"
     : isLegacy ? anVerdict(cpct, {legacy:true})
-    : (cd >= 0 ? anVerdict(cpct)
-       : (td >= 0 ? "watch" : anVerdict(cpct)));
+    : (cd >= 0 ? anVerdict(cpct) : (td >= 0 ? "watch" : anVerdict(cpct)));
+
+  /* ---- the so-what ---- */
+  let soWhat;
+  if(cd < 0 && fd > 0){
+    soWhat = `<b>Careful with this one — the total is flattering it.</b> Commission, which is what
+      the office actually earned, fell ${money(Math.abs(cd))}. Fees rose ${money(fd)} and
+      partly covered the gap. Selling went backwards even if revenue did not.`;
+  } else if(cd > 0 && fd < 0){
+    soWhat = `<b>The right half grew.</b> Commission is up ${money(cd)} — that is real selling —
+      while the fee line gave back ${money(Math.abs(fd))}. Better this way round than the
+      reverse.`;
+  } else if(cd < 0 && fd < 0){
+    soWhat = `<b>Both halves are down.</b> Commission fell ${money(Math.abs(cd))} and fees fell
+      ${money(Math.abs(fd))}. ${commShare !== null && commShare >= 65
+        ? `Commission is most of it, so this is about selling rather than fee income.`
+        : commShare !== null && commShare <= 35
+        ? `Fees are most of it, which is worth checking against the allocation before assuming a
+           sales problem.`
+        : `The two contributed roughly equally.`}`;
+  } else if(cd > 0 && fd > 0){
+    soWhat = `<b>Both halves grew.</b> Commission is up ${money(cd)} and fees up ${money(fd)} —
+      ${commShare !== null && commShare >= 65
+        ? `and commission is most of it, which is the healthy version of this picture.`
+        : `though fees are a fair share of the gain, so check the allocation before crediting it
+           all to selling.`}`;
+  } else {
+    soWhat = `<b>Commission ${money0(cw)}, fees ${money0(fw)}</b> over ${esc(w.span)} — between
+      them, close to flat against last year.`;
+  }
 
   const paras = [];
 
   paras.push(
-    `<b>Commission ${money0(cw)}</b>, ${moneyD(cd)} ${pctSpan(cpct)} on the same months last year.
-     <b>Fees ${money0(fw)}</b>, ${moneyD(fd)}
-     ${fp === 0 ? `(nothing in the prior-year window)` : pctSpan(fpct)}.
-     ${opposite ? `<b>The two are moving in opposite directions</b>, which is the case worth
-       stopping on — the total hides it.` : ``}`);
-
-  if(td !== 0){
-    const drove = Math.abs(cd) >= Math.abs(fd) ? "commission" : "fees";
-    paras.push(
-      `Of the ${moneyD(td)} total change, <b>${moneyD(cd)} came from commission and
-       ${moneyD(fd)} from fees</b> — so ${drove} drove it.
-       ${cd < 0 && fd > 0
-          ? `<b>Read that carefully.</b> Commission is what the office earned; the fee figure per
-             office is an allocation posted by journal entry. Revenue holding up on the fee line
-             while commission falls is not the same as a good period.`
-          : cd > 0 && fd < 0
-          ? `Commission carried this despite the fee line falling, which is the better way round —
-             the earned half is what grew.`
-          : ``}`);
-  }
+    `<b>The numbers:</b> commission ${money0(cw)}, ${moneyD(cd)} ${pctSpan(cpct)} on the same
+     months last year. Fees ${money0(fw)}, ${moneyD(fd)}
+     ${fpct === null ? `(nothing in the prior year to compare)` : pctSpan(fpct)}.
+     ${td !== 0 ? `Together that is ${moneyD(td)}.` : ``}
+     ${opposite ? `<b>They are moving in opposite directions</b>, which the combined revenue
+       figure hides completely — this is exactly why the two are charted apart.` : ``}`);
 
   if(shareNow !== null && shareThen !== null){
     const drift = shareNow - shareThen;
     paras.push(
-      `Fees are <b>${Math.round(shareNow)}%</b> of revenue in this window, against
+      `<b>The mix:</b> fees are ${Math.round(shareNow)}% of revenue here, against
        ${Math.round(shareThen)}% a year earlier${Math.abs(drift) < 1
-        ? ` — essentially unchanged.`
+        ? ` — essentially unchanged, so the shape of the business has not moved.`
         : `, a shift of ${drift > 0 ? "+" : "−"}${Math.abs(drift).toFixed(1)} points.`}
        ${Math.abs(drift) >= 3
-        ? `A move that size in the mix is worth explaining: either the fee schedule or the
+        ? `A move that size deserves an explanation: either the fee schedule changed, the
            allocation changed, or commission moved underneath it.`
         : ``}`);
   }
 
   paras.push(
-    `Fee income here is the Agency Matrix allocation, not the cash swept out of the clearing
-     account, and the two true up once a year in April. Do not reconcile this line to the bank.`);
+    `<b>One thing to remember about the fee line.</b> It is the Agency Matrix allocation posted by
+     journal entry, not the cash swept out of the BancFirst clearing account, and the two settle up
+     once a year in April. It is the right figure for judging an office. It is not a figure to
+     reconcile to the bank.`);
 
-  return anBox(AN[verdict], paras);
+  return anBox(AN[verdict], soWhat, paras);
 }
 
 function finRevenue(){
