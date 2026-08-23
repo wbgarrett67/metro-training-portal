@@ -1781,7 +1781,56 @@ function revGroupSeries(keys, field){
   return months.map((_,i)=>finSum(each.map(s=>s[i])));
 }
 // The same month one year earlier, or null when the series does not reach back.
-const revYoY = (arr,i) => i>=12 ? arr[i-12] : null;
+/* CALENDAR MONTH ARITHMETIC — not array positions.
+   The series used to assume the loaded months were contiguous and looked twelve
+   ARRAY SLOTS back for "the same month last year". That is true only while no
+   month is ever missing. February 2026 arrived on its own with March to July still
+   to come, so the assumption was one upload away from silently comparing, say,
+   July 2026 against March 2025 and reporting it as a year-over-year change.
+   Everything below keys on the YYYY-MM of the month itself. Where the month it
+   wants is not loaded it returns -1, and every caller already handles "no
+   comparison available" by saying so. */
+const mKey = iso => String(iso).slice(0,7);
+function mShift(iso, n){
+  const t = (+String(iso).slice(0,4)) * 12 + (+String(iso).slice(5,7)) - 1 + n;
+  return `${Math.floor(t/12)}-${String(t % 12 + 1).padStart(2,"0")}`;
+}
+let _mIdx = null, _mIdxKey = null;
+function revMonthIndex(){
+  const ms = revMonths(), sig = ms.length + "|" + (ms[0]||"") + "|" + (ms[ms.length-1]||"");
+  if(_mIdxKey !== sig){ _mIdx = {}; ms.forEach((m,i)=>{ _mIdx[mKey(m)] = i; }); _mIdxKey = sig; }
+  return _mIdx;
+}
+// Index of the same calendar month one year earlier, or -1 if it is not loaded.
+function revYoYIdx(i){
+  const ms = revMonths();
+  if(i < 0 || i >= ms.length) return -1;
+  const idx = revMonthIndex(), k = mShift(ms[i], -12);
+  return (k in idx) ? idx[k] : -1;
+}
+const revYoY = (arr,i) => { const j = revYoYIdx(i); return j < 0 ? null : arr[j]; };
+// The n calendar months ending `back` months before the newest loaded month.
+// Missing months are simply absent from the result rather than shifting the window.
+function revCalWin(back, n){
+  const ms = revMonths(); if(!ms.length) return [];
+  const idx = revMonthIndex(), last = ms[ms.length-1], out = [];
+  for(let k = 0; k < n; k++){
+    const key = mShift(last, -(back + k));
+    if(key in idx) out.push(idx[key]);
+  }
+  return out;
+}
+const revLast12  = () => revCalWin(0, 12);
+const revPrior12 = () => revCalWin(12, 12);
+// Calendar months missing between the first and last loaded month.
+function revGaps(){
+  const ms = revMonths(); if(ms.length < 2) return [];
+  const idx = revMonthIndex(), a = ms[0], b = ms[ms.length-1];
+  const span = ((+b.slice(0,4))*12 + (+b.slice(5,7))) - ((+a.slice(0,4))*12 + (+a.slice(5,7)));
+  const out = [];
+  for(let n = 0; n <= span; n++){ const k = mShift(a, n); if(!(k in idx)) out.push(k); }
+  return out;
+}
 
 /* The chart the comparison rule exists for: this year's months against the same
    months last year, on one axis. Needs 24 months of series to draw both lines. */
@@ -1828,7 +1877,7 @@ function revWinDefs(){
     {key:"m3",  idx:months.map((_,i)=>i).slice(Math.max(0, n-3))},
     {key:"ytd", idx:months.map((_,i)=>i).filter(i=>String(months[i]).slice(0,4) === yr)}
   ].map(d => {
-    const prior = d.idx.map(i=>i-12);
+    const prior = d.idx.map(revYoYIdx);
     const complete = prior.every(i=>i>=0);
     return Object.assign({}, d, {
       prior: prior.filter(i=>i>=0), complete,
@@ -1862,9 +1911,9 @@ function revScopeSeries(){
 function revControls(){
   const cls = revClassOf();
   const offices = Object.keys(cls).filter(k=>cls[k]==="office")
-    .sort((a,b)=>finSum(finTail(revSeries(b,"total"),12)) - finSum(finTail(revSeries(a,"total"),12)));
+    .sort((a,b)=>sumAt(revSeries(b,"total"), revLast12()) - sumAt(revSeries(a,"total"), revLast12()));
   const legacy = Object.keys(cls).filter(k=>cls[k]==="legacy")
-    .sort((a,b)=>finSum(finTail(revSeries(b,"total"),12)) - finSum(finTail(revSeries(a,"total"),12)));
+    .sort((a,b)=>sumAt(revSeries(b,"total"), revLast12()) - sumAt(revSeries(a,"total"), revLast12()));
   const w = revWinPick(), defs = revWinDefs();
   const sel = k => revScope===k ? " selected" : "";
   return `<div class="fin-ctl">
@@ -1945,9 +1994,11 @@ const anWord = d => d > 0 ? "ahead of" : d < 0 ? "behind" : "level with";
 /* Every month that has a same-month-last-year figure to compare against. */
 function anPairs(tot){
   const months = revMonths();
-  return months.map((m,i)=>i).filter(i => i-12 >= 0)
-    .map(i => ({i, month:months[i], now:+tot[i]||0, then:+tot[i-12]||0,
-                d:(+tot[i]||0)-(+tot[i-12]||0)}));
+  return months.map((m,i)=>i)
+    .map(i => ({i, j:revYoYIdx(i)}))
+    .filter(x => x.j >= 0)
+    .map(({i,j}) => ({i, month:months[i], now:+tot[i]||0, then:+tot[j]||0,
+                      d:(+tot[i]||0)-(+tot[j]||0)}));
 }
 
 /* The month-by-month table. This is the comparison Braden says is the interesting
@@ -1972,9 +2023,17 @@ function anMonthTable(tot){
         <td class="n ${r.d<0?"fin-neg":r.d>0?"fin-pos":""}">${moneyD(r.d)}</td>
         <td class="n">${r.then ? pctSpan(finPct(r.now, r.then)) : "—"}</td>
       </tr>`).join("")}</tbody></table>
-    ${all.length < 18 ? `<p class="fin-yoy-n">We can compare ${all.length} months so far.
-      Once February to July 2026 are loaded this becomes ${all.length + 6}, and the
-      month-by-month picture gets a good deal more reliable.</p>` : ""}
+    ${(function(){
+      const gaps = revGaps();
+      if(gaps.length) return `<p class="fin-yoy-n"><b>Months missing inside the series:</b>
+        ${gaps.map(g=>esc(mLong(g + "-01"))).join(", ")}. A month with no counterpart is left out
+        of the year-over-year comparison rather than measured against the wrong month, so the
+        counts above skip them.</p>`;
+      if(all.length < 18) return `<p class="fin-yoy-n">We can compare ${all.length} months so far.
+        Every further month loaded adds one more, and the month-by-month picture gets steadily
+        more reliable.</p>`;
+      return "";
+    })()}
   </div>`;
 }
 
@@ -2007,8 +2066,10 @@ function revReadTotal(months, tot, w, sc, rows){
   const beat = winPairs.filter(x=>x.d > 0).length;
   const best = winPairs.slice().sort((a,b)=>b.d-a.d)[0];
   const worst = winPairs.slice().sort((a,b)=>a.d-b.d)[0];
-  const t12 = finSum(finTail(tot,12)), p12 = finSum(finPrior(tot,12));
-  const p12pct = (tot.length >= 24 && p12) ? finPct(t12, p12) : null;
+  const l12i = revLast12(), p12i = revPrior12();
+  const t12 = sumAt(tot, l12i), p12 = sumAt(tot, p12i);
+  // Only compare full twelves against full twelves, or the percentage is a lie.
+  const p12pct = (l12i.length === 12 && p12i.length === 12 && p12) ? finPct(t12, p12) : null;
   const agrees = p12pct === null ? null : (p12pct >= 0) === (p >= 0);
 
   /* ---- the so-what, in one plain sentence ---- */
@@ -2236,7 +2297,7 @@ function finRevenue(){
     return {k,
       cw:sumAt(comm,w.idx), fw:sumAt(fee,w.idx), tw:sumAt(t,w.idx),
       tp: w.complete ? sumAt(t,w.prior) : null,
-      t12: finSum(finTail(t,12)), spark:t,
+      t12: sumAt(t, revLast12()), spark:t,
       closed: dim.to || null, feeds: dim.feeds_office || null};
   }).sort((a,b)=>b.tw-a.tw);
 
