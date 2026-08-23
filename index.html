@@ -1418,8 +1418,8 @@ function mgrFin(){
     return;
   }
   if(finSub === "pl" && !finHasPL()) finSub = "revenue";
-  const subs = [["revenue","Revenue by office"],["programs","Programs"],
-                ["coverage","Data coverage"]];
+  const subs = [["revenue","Revenue by office"],["fees","Fee activity"],
+                ["programs","Programs"],["coverage","Data coverage"]];
   body.innerHTML = `
     <div class="fin-sub">${subs.map(([k,l])=>
       `<button data-fin="${k}" class="${finSub===k?"on":""}">${l}</button>`
@@ -1428,11 +1428,12 @@ function mgrFin(){
     <div id="finBody"></div>`;
   body.querySelectorAll("[data-fin]").forEach(b=>b.addEventListener("click", async ()=>{
     finSub = b.dataset.fin; finLoc = null;
-    if(finSub === "pl" && !FIN) await loadFinPL();
+    if(finSub === "pl"   && !FIN) await loadFinPL();
+    if(finSub === "fees" && !FEE) await loadFee();
     mgrFin();
   }));
   if(finSub === "office") finSub = "revenue";   // retired: the scope selector replaced it
-  ({revenue:finRevenue, programs:finPrograms,
+  ({revenue:finRevenue, fees:finFees, programs:finPrograms,
     coverage:finCoverage, pl:finPL})[finSub]();
 }
 
@@ -2462,6 +2463,468 @@ function finPL(){
     plSub = b.dataset.pl; finLoc = null; finPL();
   }));
   ({agency:finAgency, offices:finOffices, office:finOffice, legacy:finLegacy})[plSub]();
+}
+
+/* ================= Fee Activity =================
+   Fee income from the Agency Matrix Fee Detail — 43 months of transaction-grain data,
+   a different source from the Revenue panels above it.
+
+   FOUR THINGS ABOUT HOW THIS IS BUILT.
+
+   1. THE LEAD IS THIS MONTH AGAINST THE SAME MONTH IN PRIOR YEARS. Braden and Belinda
+      compare a month to its own counterpart a year and two years back, never to the
+      month before. Seasonality in this business is real and a sequential comparison
+      invents movement that is not there. So the first chart on the panel is one month
+      shown across every year we hold.
+
+   2. THE UNIT IS THE LOCATION, NEVER THE AGENT. Four of seven offices are effectively
+      single-agent — Meridian 100%, N Penn 98%, Harvard 96%, 59th Street 96% — so the
+      location number IS the agent number, without a dashboard making a claim about a
+      named person. Braden, 23 Aug 2026: "attributing a Wobble to an agent is really
+      just a misnomer for the location itself."
+
+   3. COUNTS ARE OF POSITIVE ROWS; MONEY IS NET OF REVERSALS. A reversal is not a sale,
+      so it does not count as one — but it is really money coming back out, so it nets
+      against the total.
+
+   4. IT NEVER SEES A CUSTOMER. training_fee_activity returns aggregates only, which is
+      what lets it sit at the 'revenue' gate for Belinda and Betty Jane while fee_line
+      itself stays behind 'full'. */
+
+let FEE = null, feeScope = "all", feeMonth = null, _feeIx = null;
+
+async function loadFee(){
+  try{ FEE = await rpc("training_fee_activity",{p_code:CODE}); _feeIx = null; }
+  catch(e){ FEE = {error:e.message, months:[], locations:[], cells:[], types:[], feetypes:{}}; }
+}
+
+function feeIx(){
+  if(_feeIx) return _feeIx;
+  const cat = {}, tot = {}, typ = {};
+  (FEE.cells||[]).forEach(c=>{
+    cat[c.l+"|"+c.m+"|"+c.c] = c;
+    const k = c.l+"|"+c.m;
+    const o = tot[k] || (tot[k] = {n:0,wd:0,a:0,rv:0});
+    o.n += +c.n||0; o.wd += +c.wd||0; o.a += +c.a||0; o.rv += +c.rv||0;
+  });
+  (FEE.types||[]).forEach(t=>{ typ[t.l+"|"+t.m+"|"+t.k] = t; });
+  return (_feeIx = {cat, tot, typ});
+}
+
+const FEECAT = [["new","New business"],["rei","Reinstatements"],
+                ["pay","Payment fees"],["oth","Other"]];
+const FEESHORT = {new:"New business", rei:"Reinstate", pay:"Payments", oth:"Other"};
+const FEECOL = {new:"#3B3D80", rei:"#8a6d1f", pay:"#2f7d6b", oth:"#8c8c96"};
+
+/* Which locations the scope resolves to. "all" is every location that is still open —
+   a sold office or a departed producer would otherwise drag the comparison down for
+   reasons no manager can act on. */
+function feeKeys(){
+  const locs = FEE.locations||[];
+  if(feeScope !== "all"){ return locs.some(l=>l.k===feeScope) ? [feeScope] : []; }
+  return locs.filter(l=>l.cur).map(l=>l.k);
+}
+function feeScopeName(){
+  if(feeScope === "all") return "All locations";
+  const l = (FEE.locations||[]).find(x=>x.k===feeScope);
+  return l ? l.name : feeScope;
+}
+function feeMonths(){ return FEE.months||[]; }
+function feeCur(){
+  const ms = feeMonths();
+  return (feeMonth && ms.includes(feeMonth)) ? feeMonth : (ms[ms.length-1]||null);
+}
+
+/* Sum a scope for one month. cat null = every category. */
+function feeAt(keys, m, cat){
+  const ix = feeIx(), o = {n:0, wd:0, a:0, rv:0};
+  if(!m) return o;
+  keys.forEach(k=>{
+    const c = cat ? ix.cat[k+"|"+m+"|"+cat] : ix.tot[k+"|"+m];
+    if(c){ o.n += +c.n||0; o.wd += +c.wd||0; o.a += +c.a||0; o.rv += +c.rv||0; }
+  });
+  return o;
+}
+function feeTypeAt(keys, m, code){
+  const ix = feeIx(); let n=0, a=0;
+  keys.forEach(k=>{ const t = ix.typ[k+"|"+m+"|"+code]; if(t){ n += +t.n||0; a += +t.a||0; } });
+  return {n, a};
+}
+// The same calendar month in each year we hold, oldest first.
+function feeSameMonthYears(m){
+  const ms = feeMonths(), out = [];
+  for(let y=4; y>=0; y--){ const k = mShift(m, -12*y); if(ms.includes(k)) out.push(k); }
+  return out;
+}
+
+/* ---- controls ---- */
+function feeControls(){
+  const locs = FEE.locations||[], ms = feeMonths(), cur = feeCur();
+  const keys = feeKeys();
+  const open = locs.filter(l=>l.cur).sort((a,b)=>
+    feeAt([b.k], cur).a - feeAt([a.k], cur).a);
+  const shut = locs.filter(l=>!l.cur).sort((a,b)=>a.name.localeCompare(b.name));
+  const sel = k => feeScope===k ? " selected" : "";
+  const prior = mShift(cur||"", -12);
+  return `<div class="fin-ctl">
+    <label>Show
+      <select id="feeScopeSel">
+        <option value="all"${sel("all")}>All locations</option>
+        <optgroup label="One location">${open.map(l=>
+          `<option value="${esc(l.k)}"${sel(l.k)}>${esc(l.name)}</option>`).join("")}</optgroup>
+        ${shut.length ? `<optgroup label="Closed or former">${shut.map(l=>
+          `<option value="${esc(l.k)}"${sel(l.k)}>${esc(l.name)}</option>`).join("")}</optgroup>` : ""}
+      </select></label>
+    <label>Month
+      <select id="feeMonthSel">${ms.slice().reverse().map(m=>
+        `<option value="${m}"${m===cur?" selected":""}>${esc(mLong(m))}</option>`).join("")}
+      </select></label>
+    <span class="cmp">${ms.includes(prior)
+      ? `Compared with <b>${esc(mLong(prior))}</b>`
+      : `<span class="warnt">No prior-year figure for this month</span>`}</span>
+  </div>`;
+}
+function feeWire(){
+  const s = $("#feeScopeSel"), m = $("#feeMonthSel");
+  if(s) s.addEventListener("change", ()=>{ feeScope = s.value; mgrFin(); });
+  if(m) m.addEventListener("change", ()=>{ feeMonth = m.value; mgrFin(); });
+}
+
+/* ---- the plain-English read on the headline ---- */
+function feeReadTotal(keys, cur, years){
+  const now = feeAt(keys, cur), py = mShift(cur,-12), ms = feeMonths();
+  const then = ms.includes(py) ? feeAt(keys, py) : null;
+  const nm = mLong(cur), name = feeScopeName();
+
+  if(!then){
+    return anBox(AN.none, `<b>${esc(name)}</b> took <b>${money0(now.a)}</b> in fees in
+      ${esc(nm)}. ${esc(mLong(py))} is not loaded, so there is nothing to compare it with yet.`, []);
+  }
+
+  const d = now.a - then.a, p = finPct(now.a, then.a);
+  // Which category moved the number most. That is the "mainly the result of" clause.
+  const moves = FEECAT.map(([c,label])=>{
+    const a = feeAt(keys,cur,c).a, b = feeAt(keys,py,c).a;
+    return {c, label, now:a, then:b, d:a-b, p:finPct(a,b)};
+  }).filter(x=>x.now || x.then);
+  const biggest = moves.slice().sort((a,b)=>Math.abs(b.d)-Math.abs(a.d))[0];
+  const same = biggest && ((biggest.d >= 0) === (d >= 0));
+  const share = (biggest && d) ? Math.abs(biggest.d/d)*100 : null;
+
+  // Two years back, when we have it — one year can be a fluke, two is a direction.
+  const y2 = mShift(cur,-24), then2 = ms.includes(y2) ? feeAt(keys,y2) : null;
+
+  // The direction is already in the word "up" or "down", so the figure must not carry a
+  // sign as well — pctTxt would render "down +12%".
+  const bare = x => (x===null||isNaN(x)) ? "—"
+    : Math.abs(x).toFixed(Math.abs(x)>=10?0:1) + "%";
+  const lead = `<b>${esc(name)}</b> took <b>${money0(now.a)}</b> in fees in ${esc(nm)} —
+    fees were <b>${d>=0?"up":"down"} ${bare(p)}</b> on ${esc(mLong(py))},
+    ${moneyD(d)}${biggest && same
+      ? `, which was mainly the result of <b>${esc(biggest.label.toLowerCase())}</b>
+         (${moneyD(biggest.d)}${share!==null && share<400 ? `, ${Math.round(share)}% of the move` : ``})`
+      : biggest
+      ? `. <b>${esc(biggest.label)}</b> moved the most in dollar terms (${moneyD(biggest.d)})
+         but in the opposite direction to the total, so the change is a mix rather than one cause`
+      : ``}.`;
+
+  const paras = [];
+  paras.push(`${now.n.toLocaleString()} fee transactions against
+    ${then.n.toLocaleString()} a year earlier${then.n
+      ? ` (${pctSpan(finPct(now.n, then.n))})` : ``}.
+    ${now.n && then.n
+      ? `Average fee ${money0(now.a/now.n)} against ${money0(then.a/then.n)}.
+         ${Math.abs(finPct(now.a/now.n, then.a/then.n)) < 3
+            ? `The average is essentially unchanged, so this is a <b>volume</b> story rather than a
+               pricing one.`
+            : `The average moved ${pctSpan(finPct(now.a/now.n, then.a/then.n))}, so part of this is
+               <b>mix</b> — a different blend of fee types — rather than pure volume.`}` : ``}`);
+
+  if(then2){
+    const p2 = finPct(now.a, then2.a);
+    paras.push(`Against <b>${esc(mLong(y2))}</b>, two years back, fees are ${pctSpan(p2)}
+      (${money0(then2.a)} then, ${money0(now.a)} now).
+      ${(p2>=0) === (p>=0)
+        ? `Both comparisons point the same way, so this is a direction rather than one odd month.`
+        : `<b>The two comparisons disagree.</b> One year and two years back point in opposite
+           directions, which usually means one of the three months is the unusual one — worth
+           looking at the chart above before drawing a conclusion.`}`);
+  }
+
+  if(years.length >= 3){
+    const vals = years.map(m=>feeAt(keys,m).a);
+    const best = vals.indexOf(Math.max(...vals)), worst = vals.indexOf(Math.min(...vals));
+    paras.push(`Across the ${years.length} ${esc(MFULL[+cur.slice(5,7)-1])}s we hold, the strongest was
+      <b>${esc(years[best].slice(0,4))}</b> at ${money0(vals[best])} and the weakest
+      <b>${esc(years[worst].slice(0,4))}</b> at ${money0(vals[worst])}.`);
+  }
+
+  if(now.rv || then.rv){
+    const rNow = now.n ? now.rv/now.n*1000 : 0, rThen = then.n ? then.rv/then.n*1000 : 0;
+    paras.push(`<i>Corrections: ${now.rv} reversal${now.rv===1?"":"s"} this month
+      (${rNow.toFixed(1)} per 1,000 transactions) against ${then.rv} a year earlier
+      (${rThen.toFixed(1)} per 1,000). Agency-wide this rate halved between 2024 and 2025.</i>`);
+  }
+
+  return anBox(AN[anVerdict(p)], lead, paras);
+}
+
+/* ---- where the money came from, by fee category ---- */
+function feeReadSplit(keys, cur){
+  const py = mShift(cur,-12), ms = feeMonths();
+  if(!ms.includes(py)) return "";
+  const rows = FEECAT.map(([c,label])=>{
+    const a = feeAt(keys,cur,c), b = feeAt(keys,py,c);
+    return {c, label, now:a, then:b, d:a.a-b.a, dn:a.n-b.n, p:finPct(a.a,b.a)};
+  }).filter(r=>r.now.a || r.then.a);
+  const total = rows.reduce((s,r)=>s+r.d, 0);
+  const up = rows.filter(r=>r.d>0), down = rows.filter(r=>r.d<0);
+  const paras = [];
+
+  const worst = rows.slice().sort((a,b)=>a.d-b.d)[0];
+  const best  = rows.slice().sort((a,b)=>b.d-a.d)[0];
+
+  let lead;
+  if(!down.length){
+    lead = `<b>Every fee category is up</b> on ${esc(mLong(py))}. That is unusual and worth
+      noticing — when all three move together the cause is normally shared, not local.`;
+  } else if(!up.length){
+    lead = `<b>Every fee category is down</b> on ${esc(mLong(py))}. When all three fall together
+      the cause is usually common — traffic through the door, or the size of the book — rather
+      than anything one part of the operation is doing.`;
+  } else {
+    lead = `The categories are moving in <b>different directions</b>:
+      ${esc(best.label.toLowerCase())} ${moneyD(best.d)} while
+      ${esc(worst.label.toLowerCase())} ${moneyD(worst.d)}. The total hides that.`;
+  }
+
+  paras.push(rows.map(r=>
+    `<b>${esc(r.label)}</b> ${money0(r.now.a)} (${r.now.n} transaction${r.now.n===1?"":"s"}),
+     ${moneyD(r.d)} ${r.then.a ? pctSpan(r.p) : `from nothing a year ago`}`).join(" · ") + ".");
+
+  // The categories are not interchangeable — each one means a different thing about the
+  // business, and that is what makes the split worth reading at all.
+  const meaning = [];
+  if(rows.find(r=>r.c==="new" && r.d < 0))
+    meaning.push(`<b>New business fees are the sale itself</b> — one fee, one policy written.
+      A fall here is a selling problem, not a servicing one.`);
+  if(rows.find(r=>r.c==="pay" && r.d < 0))
+    meaning.push(`<b>Payment fees track the size of the book being serviced.</b> Fewer of them
+      means fewer customers coming through to pay, which shows up before the commission does.`);
+  if(rows.find(r=>r.c==="rei" && r.d < 0))
+    meaning.push(`<b>Reinstatement fees only happen when someone lapses and comes back.</b> Down
+      is ambiguous: either fewer policies are lapsing, which is good, or lapsed policies are not
+      being recovered, which is not.`);
+  if(meaning.length) paras.push(meaning.join(" "));
+
+  const t = `<div style="overflow-x:auto"><table class="fin-t" style="width:100%;margin-top:4px">
+    <thead><tr><th>Category</th><th class="n">${esc(mShort(cur))} ${esc(cur.slice(0,4))}</th>
+      <th class="n">${esc(mShort(py))} ${esc(py.slice(0,4))}</th>
+      <th class="n">Change</th><th class="n">%</th><th class="n">Transactions</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr>
+      <td><i style="display:inline-block;width:10px;height:10px;border-radius:3px;
+        background:${FEECOL[r.c]};margin-right:7px"></i>${esc(r.label)}</td>
+      <td class="n">${money0(r.now.a)}</td><td class="n">${money0(r.then.a)}</td>
+      <td class="n">${signed(r.d)}</td>
+      <td class="n">${r.then.a ? pctSpan(r.p) : "—"}</td>
+      <td class="n">${r.now.n} <span style="color:var(--ink-3)">vs ${r.then.n}</span></td>
+    </tr>`).join("")}
+    <tr style="font-weight:700;border-top:2px solid var(--line)">
+      <td>Total</td>
+      <td class="n">${money0(rows.reduce((s,r)=>s+r.now.a,0))}</td>
+      <td class="n">${money0(rows.reduce((s,r)=>s+r.then.a,0))}</td>
+      <td class="n">${signed(total)}</td><td class="n"></td>
+      <td class="n">${rows.reduce((s,r)=>s+r.now.n,0)}
+        <span style="color:var(--ink-3)">vs ${rows.reduce((s,r)=>s+r.then.n,0)}</span></td>
+    </tr></tbody></table></div>`;
+
+  return anBox(AN[anVerdict(finPct(rows.reduce((s,r)=>s+r.now.a,0),
+                                   rows.reduce((s,r)=>s+r.then.a,0)))], lead, paras, t);
+}
+
+/* ---- Ideas ----
+   Suggestions tied to what the indicators actually say, not a fixed list. Each rule
+   states the observation first so nobody has to take the suggestion on faith, and the
+   panel shows at most four so it stays a prompt rather than a lecture. */
+function feeIdeas(keys, cur){
+  const py = mShift(cur,-12), ms = feeMonths();
+  if(!ms.includes(py)) return "";
+  const g = c => ({now:feeAt(keys,cur,c), then:feeAt(keys,py,c)});
+  const nb = g("new"), re = g("rei"), pa = g("pay");
+  const pct = (a,b) => finPct(a,b);
+  const ideas = [];
+
+  const reP = pct(re.now.n, re.then.n), nbP = pct(nb.now.n, nb.then.n),
+        paP = pct(pa.now.n, pa.then.n);
+
+  if(re.then.n >= 3 && reP !== null && reP <= -15) ideas.push({w:90,
+    obs:`Reinstatements are down — ${re.now.n} against ${re.then.n} a year ago (${pctTxt(reP)}).`,
+    idea:`Agents need to be calling cancelled policies more often to encourage reinstatements by
+      phone. A lapsed policy that comes back is cheaper than a new one, and the call has to happen
+      inside the reinstatement window to be worth anything.`});
+
+  if(nbP !== null && nbP <= -10) ideas.push({w:95,
+    obs:`New business is down — ${nb.now.n} policies written against ${nb.then.n} (${pctTxt(nbP)}).`,
+    idea:`This is the sale itself, so look at the front of the funnel: quote volume first, then
+      close rate. If quotes are steady and sales are not, it is a closing problem; if quotes are
+      down too, it is a traffic problem and needs different medicine.`});
+
+  if(paP !== null && paP <= -8) ideas.push({w:80,
+    obs:`Payment fee volume is down — ${pa.now.n} against ${pa.then.n} (${pctTxt(paP)}).`,
+    idea:`Payment fees follow the size of the serviced book, so this usually shows a shrinking
+      book before the commission statements do. Worth checking whether customers have moved to
+      paying the carrier direct, which removes the fee without losing the policy.`});
+
+  if(nbP !== null && paP !== null && nbP < -5 && paP > 2) ideas.push({w:85,
+    obs:`Servicing is holding up (${pctTxt(paP)}) while new business falls (${pctTxt(nbP)}).`,
+    idea:`The book is being looked after but not replenished. That combination is comfortable
+      month to month and expensive over a year — existing customers cover the workload while the
+      pipeline quietly empties.`});
+
+  if(reP !== null && reP >= 25 && re.then.n >= 3) ideas.push({w:70,
+    obs:`Reinstatements are up sharply — ${re.now.n} against ${re.then.n} (${pctTxt(reP)}).`,
+    idea:`Recovering lapses is good, but the lapses themselves are the cost. Worth looking at
+      payment reminders before the cancellation date rather than after it — the reinstatement fee
+      is revenue we would rather not have to earn.`});
+
+  if(nbP !== null && nbP >= 10 && (paP === null || paP >= 0)) ideas.push({w:40,
+    obs:`New business is up ${pctTxt(nbP)} with servicing steady.`,
+    idea:`This is the shape you want. Worth finding out what changed here and whether it
+      travels — a script, a lead source, or a person.`});
+
+  // Product spread: a location writing only auto is leaving the easy cross-sell on the table.
+  const ft = FEE.feetypes||{};
+  const last12 = [];
+  for(let i=0;i<12;i++){ const k = mShift(cur,-i); if(ms.includes(k)) last12.push(k); }
+  const spread = {};
+  Object.keys(ft).forEach(code=>{
+    if(ft[code][1] !== "new") return;
+    spread[code] = last12.reduce((s,m)=>s + feeTypeAt(keys,m,code).n, 0);
+  });
+  const autoN = (spread.personal_auto||0);
+  const homeN = (spread.home_owners||0) + (spread.renters||0);
+  if(autoN >= 60 && homeN/Math.max(autoN,1) < 0.03) ideas.push({w:60,
+    obs:`Over the last ${last12.length} months this scope wrote ${autoN} personal auto policies
+      and only ${homeN} home or renters.`,
+    idea:`That ratio is the cross-sell gap. Every auto customer has somewhere to live, and a
+      home or renters fee is $80 or $45 on a call that is already happening.`});
+
+  if(!ideas.length) return "";
+  const top = ideas.sort((a,b)=>b.w-a.w).slice(0,4);
+  return `<div class="card fin-pad" style="margin-top:16px">
+    <p class="fin-h">Ideas</p>
+    <p class="fin-sub2">Prompts drawn from the indicators above for
+      ${esc(feeScopeName())} in ${esc(mLong(cur))}. Not instructions — starting
+      points for a conversation with the office.</p>
+    <div style="display:flex;flex-direction:column;gap:13px">${top.map(x=>
+      `<div style="border-left:3px solid var(--navy-3);padding:2px 0 2px 13px">
+        <div style="font-size:12.5px;color:var(--ink-3);margin-bottom:4px">${x.obs}</div>
+        <div style="font-size:13.5px;line-height:1.6;color:var(--ink-2)">${x.idea}</div>
+      </div>`).join("")}</div>
+  </div>`;
+}
+
+/* ---- the panel ---- */
+function finFees(){
+  if(!FEE){ $("#finBody").innerHTML =
+    `<div class="card fin-pad"><div class="empty">Loading…</div></div>`; return; }
+  if(FEE.error){ $("#finBody").innerHTML =
+    `<div class="card fin-pad"><div class="empty">${esc(FEE.error)}</div></div>`; return; }
+  const ms = feeMonths();
+  if(!ms.length){ $("#finBody").innerHTML =
+    `<div class="card fin-pad"><div class="empty">No fee months loaded yet.</div></div>`; return; }
+
+  const cur = feeCur(), keys = feeKeys(), py = mShift(cur,-12);
+  const years = feeSameMonthYears(cur);
+  const now = feeAt(keys,cur), then = ms.includes(py) ? feeAt(keys,py) : null;
+  const mName = MFULL[+cur.slice(5,7)-1];
+
+  const tile = (k,v,sub) => `<div class="stat"><div class="k">${k}</div>
+    <div class="v" style="font-size:22px">${v}</div><div class="tsub">${sub}</div></div>`;
+  const vs = (a,b) => b===null ? "no prior-year month"
+    : b===0 ? "nothing a year earlier"
+    : `<span class="fin-num ${a<b?"fin-neg":a>b?"fin-pos":""}">${moneyD(a-b)} ·
+        ${pctTxt(finPct(a,b))}</span> vs a year earlier`;
+
+  // The lead chart: one calendar month, every year we hold it.
+  const yearBars = years.map(m=>({
+    v: feeAt(keys,m).a, label: mLong(m), short: m.slice(0,4),
+    color: m===cur ? "#3B3D80" : "#9a9cc4"
+  }));
+
+  // Twelve months, this year against last, so the month in question sits in its run.
+  const win = [];
+  for(let i=11;i>=0;i--){ const k = mShift(cur,-i); if(ms.includes(k)) win.push(k); }
+  const priorWin = win.map(m=>mShift(m,-12));
+  const lineSeries = [
+    {name:"This year", color:"#3B3D80", v:win.map(m=>feeAt(keys,m).a)},
+    {name:"A year earlier", color:"#b9bad6",
+     v:priorWin.map(m=>ms.includes(m) ? feeAt(keys,m).a : null)}
+  ];
+
+  const catBars = FEECAT.filter(([c])=>feeAt(keys,cur,c).a || (then && feeAt(keys,py,c).a))
+    .map(([c,label])=>({v:feeAt(keys,cur,c).a - (then ? feeAt(keys,py,c).a : 0),
+      label:label+" change", short:FEESHORT[c], color:FEECOL[c]}));
+
+  const loc = (FEE.locations||[]).find(l=>l.k===feeScope);
+
+  $("#finBody").innerHTML = `
+    ${feeControls()}
+
+    <div class="grid-stats" style="margin-top:16px">
+      ${tile(esc(feeScopeName()) + " — " + esc(mLong(cur)), money0(now.a),
+             vs(now.a, then ? then.a : null))}
+      ${tile("New business", money0(feeAt(keys,cur,"new").a),
+             vs(feeAt(keys,cur,"new").a, then ? feeAt(keys,py,"new").a : null))}
+      ${tile("Reinstatements", money0(feeAt(keys,cur,"rei").a),
+             vs(feeAt(keys,cur,"rei").a, then ? feeAt(keys,py,"rei").a : null))}
+      ${tile("Payment fees", money0(feeAt(keys,cur,"pay").a),
+             vs(feeAt(keys,cur,"pay").a, then ? feeAt(keys,py,"pay").a : null))}
+    </div>
+
+    <div class="card fin-pad" style="margin-top:16px">
+      <p class="fin-h">Every ${esc(mName)} we hold</p>
+      <p class="fin-sub2">${esc(feeScopeName())} · fee income in ${esc(mName)}, year by year.
+        This is the comparison that matters in a seasonal business — the same month against
+        itself, never against the month before.</p>
+      ${finBars(yearBars, {h:180, scale:true, alt:mName+" fee income by year"})}
+      ${feeReadTotal(keys, cur, years)}
+    </div>
+
+    <div class="card fin-pad" style="margin-top:16px">
+      <p class="fin-h">The twelve months around it</p>
+      <p class="fin-sub2">Each month against the same month a year earlier, so
+        ${esc(mLong(cur))} can be read in its run rather than on its own.</p>
+      ${finLines(win, lineSeries, {h:180, tight:true, alt:"Fee income, 12 months vs prior year"})}
+      ${finLegend(lineSeries)}
+    </div>
+
+    <div class="card fin-pad" style="margin-top:16px">
+      <p class="fin-h">Where the change came from</p>
+      <p class="fin-sub2">${esc(mLong(cur))} against ${esc(mLong(py))}, by fee category.
+        Bars show the change, not the level.</p>
+      ${then && catBars.length
+        ? finBars(catBars, {h:150, scale:true, alt:"Change by fee category"})
+        : `<div class="empty">No prior-year month to compare against.</div>`}
+      ${feeReadSplit(keys, cur)}
+    </div>
+
+    ${feeIdeas(keys, cur)}
+
+    <p class="fin-cap" style="margin-top:14px">
+      Source: the Agency Matrix Fee Detail report — ${ms.length} months,
+      ${esc(mLong(ms[0]))} to ${esc(mLong(ms[ms.length-1]))}. This is a different source from the
+      Revenue panels, which read the QuickBooks P&amp;L; where the two disagree on a location total
+      the P&amp;L is the answer. Counts are of positive transactions — a reversal is not a sale —
+      while dollar figures are net of reversals.
+      ${feeScope==="all"
+        ? `"All locations" covers currently open locations only, so a sold office or a departed
+           producer does not drag the comparison.`
+        : loc && !loc.cur ? `<b>${esc(loc.name)} is closed or former</b>, so recent months will
+           thin out or stop.` : ``}
+      ${loc && loc.nosat ? ` ${esc(loc.name)} does not open on Saturdays.` : ``}
+    </p>`;
+  feeWire();
 }
 
 function finPrograms(){
