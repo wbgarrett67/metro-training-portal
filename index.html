@@ -70,6 +70,19 @@ button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
 .ovw-card .d{font-size:12.5px;color:var(--ink-3);margin-top:3px;line-height:1.45}
 .ovw-feed{border-left:2px solid var(--line-2);padding:2px 0 9px 12px;margin-bottom:2px}
 .ovw-new{border-left-color:#1E7A46}
+.gsec{border:1px solid var(--line-2);border-radius:11px;padding:14px 16px;margin-bottom:11px}
+.gsec>h4{margin:0 0 8px;font-size:16px;color:var(--navy);font-weight:750}
+.gsec p{margin:0 0 9px;font-size:14px;line-height:1.62;color:var(--ink)}
+.gsec .gmd-ul{margin:0 0 9px;padding-left:20px}
+.gsec .gmd-ul li{font-size:14px;line-height:1.6;margin-bottom:5px}
+.gsec .gmd-h{margin:12px 0 6px;font-size:14px;font-weight:750;color:var(--navy)}
+.gsec.stale{border-color:#E4CE9A;background:#FEFBF4}
+.gmeta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;
+  padding-top:9px;border-top:1px solid var(--line)}
+.gedit textarea{width:100%;min-height:220px;font-family:ui-monospace,Menlo,Consolas,monospace;
+  font-size:12.5px;line-height:1.55}
+.ggap{background:#FDF1F0;border:1px solid #EFC9C6;border-radius:10px;padding:12px 14px;
+  margin-bottom:14px;font-size:13.5px;line-height:1.55}
 .btn-feed svg{width:15px;height:15px;flex:none;stroke:currentColor;fill:none;stroke-width:2;
   stroke-linecap:round;stroke-linejoin:round}
 .wrap{max-width:1180px;margin:0 auto;padding:26px 22px 80px}
@@ -651,7 +664,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     TIPS=null, tipIdx=0, MKT=null, mktQ="", TIPSM=null, tipMFilter="draft",
     CIDX=null, CSHEET=null, mktView="market", mktBackTo="market",
     REV=null, COV=null, FIN=null, FINM=null, FINL={},
-    OVW=null,
+    OVW=null, GUIDE=null,
     TRUST=null, TRUSTT=null, trustScope="open", trustSide="all", trustDone=false,
     trustOpen=new Set(), TRUSTH={},
     finSub="revenue", plSub="agency", finLoc=null,
@@ -3977,7 +3990,170 @@ const OVW_MAP = [
   {tab:"add",      need:"mgr",   t:"Add an agent",    d:()=>`Creates them, assigns tracks, links their calls, and emails their code.`},
   {tab:"market",   need:"any",   t:"Find a market",   d:s=>`Which of our ${s.carriers} markets writes this risk. The search box at the top of every screen.`},
   {tab:"training", need:"any",   t:"My training",     d:()=>`Your own modules and quizzes. Managers have these too, and they count the same way.`},
+  {tab:"guide",    need:"mgr",   t:"Guide to the Portal", d:()=>`The written half — why the numbers mean what they mean, and where the traps are. Editable, and its figures are live.`},
 ];
+
+/* Light markdown. Deliberately small: ## heading, **bold**, *italic*, - bullet, blank line
+   ends a block. Wrapped lines are joined BEFORE the inline pass, so bold that spans a line
+   break still renders — which matters because the prose is hard-wrapped in the database. */
+function gmd(md){
+  const inline = t => esc(t)
+    .replace(/\*\*([\s\S]+?)\*\*/g, "<b>$1</b>")
+    .replace(/(^|[^*])\*([^*\n]+?)\*/g, "$1<i>$2</i>");
+  const out = []; let para = [], items = null;
+  const flushP = () => { if(para.length){ out.push(`<p>${inline(para.join(" "))}</p>`); para = []; } };
+  const flushU = () => {
+    if(items && items.length) out.push(`<ul class="gmd-ul">${
+      items.map(x=>`<li>${inline(x.join(" "))}</li>`).join("")}</ul>`);
+    items = null; };
+  String(md||"").split(/\r?\n/).forEach(raw=>{
+    const l = raw.trim();
+    if(!l){ flushP(); flushU(); return; }
+    if(/^##\s+/.test(l)){ flushP(); flushU();
+      out.push(`<div class="gmd-h">${inline(l.replace(/^##\s+/,""))}</div>`); return; }
+    if(/^-\s+/.test(raw)){ flushP(); items = items||[]; items.push([l.replace(/^-\s+/,"")]); return; }
+    if(items && /^\s+\S/.test(raw)){ items[items.length-1].push(l); return; }
+    flushU(); para.push(l);
+  });
+  flushP(); flushU();
+  return out.join("");
+}
+
+const GNEED = [["any","Everyone with a code"],["mgr","Managers and Braden"],
+  ["owner","Braden only"],["calls","Anyone with call access"],
+  ["calls_full","Named agents and scores (Braden, Belinda)"],
+  ["calls_agg","Patterns only (Betty Jane)"],["fin","Anyone with financial access"],
+  ["fin_full","Full P&L only (Braden)"],["trust","Premium Trust access"]];
+
+async function loadGuide(){
+  try{ GUIDE = await rpc("training_guide",{p_code:CODE, p_include_draft:true}); }
+  catch(e){ GUIDE = {error:e.message}; }
+}
+
+async function openGuide(){
+  if(!GUIDE) await loadGuide();
+  if(GUIDE.error){ toast(GUIDE.error); return; }
+  const modal = $("#modal"); modal.classList.remove("hidden");
+
+  // Coverage: every surface this person can see on the map ought to be explained somewhere.
+  // OVW_MAP is the canonical list of surfaces, so the gap is computed against it rather
+  // than against a second list that would drift away from the first.
+  const covered = new Set(GUIDE.covered||[]);
+  const gaps = OVW && OVW.stats
+    ? [...new Set(OVW_MAP.filter(m=>ovwCan(m.need) && m.tab!=="guide")
+        .filter(m=>!covered.has(m.tab)).map(m=>m.t))]
+    : [];
+
+  modal.innerHTML = `<div class="sheet wide">
+    <div class="sheet-h"><h3>Guide to the Portal</h3>
+      <button class="x" id="gClose">×</button></div>
+    <div class="sheet-b">
+      <p style="margin:-4px 0 16px;color:var(--ink-3);font-size:14px">
+        The written half. <b>Numbers in here are live</b> — they are read from the database each
+        time you open it, so no sentence can carry a stale count. The green
+        <b>Overview</b> button has the map and the counts; this has the reasoning.
+        ${GUIDE.can_edit ? `You can edit any of it — it saves live, like module content.` : ``}
+      </p>
+
+      ${gaps.length ? `<div class="ggap"><b>Not written about yet:</b> ${
+        gaps.map(g=>esc(g)).join(" · ")}. Each of those is something you can reach and nothing
+        here explains. Add a section, or leave it — this is a prompt, not an error.</div>` : ""}
+
+      <div id="gBody">${(GUIDE.sections||[]).map(s=>gsecHtml(s)).join("")}</div>
+
+      ${GUIDE.can_edit ? `<button class="btn line sm" id="gAdd"
+        style="margin-top:6px">Add a section</button>` : ""}
+    </div>
+    <div class="sheet-f">
+      <button class="btn line" id="gBack">Back to Overview</button>
+      <button class="btn line" id="gClose2">Close</button>
+    </div>
+  </div>`;
+
+  gWire();
+  $("#gClose").addEventListener("click", closeModal);
+  $("#gClose2").addEventListener("click", closeModal);
+  $("#gBack").addEventListener("click", openOverview);
+  if($("#gAdd")) $("#gAdd").addEventListener("click", ()=>gEditor(null));
+}
+
+function gsecHtml(s){
+  return `<div class="gsec ${s.stale?"stale":""}" data-gsec="${esc(s.id)}">
+    <h4>${esc(s.title)}${s.status==="draft"
+      ? ` <span class="pill todo">draft</span>` : ""}</h4>
+    <div class="gsec-body">${gmd(s.body)}</div>
+    <div class="gmeta">
+      <span class="tsub">${esc((GNEED.find(g=>g[0]===s.need)||["","?"])[1])}</span>
+      <span style="flex:1"></span>
+      ${s.stale ? `<span class="pill prog" title="Nothing can tell you when written reasoning went out of date. Ninety days is a prompt to re-read it.">not re-read in 90 days</span>
+        <button class="btn line sm" data-greview="${esc(s.id)}">Mark re-read</button>` : ""}
+      ${GUIDE.can_edit ? `<button class="btn line sm" data-gedit="${esc(s.id)}">Edit</button>` : ""}
+    </div></div>`;
+}
+
+function gWire(){
+  const m = $("#modal");
+  m.querySelectorAll("[data-gedit]").forEach(b=>b.addEventListener("click",
+    ()=>gEditor((GUIDE.sections||[]).find(x=>x.id===b.dataset.gedit))));
+  m.querySelectorAll("[data-greview]").forEach(b=>b.addEventListener("click", async ()=>{
+    b.disabled = true;
+    try{ await rpc("training_guide_reviewed",{p_code:CODE, p_id:b.dataset.greview});
+         GUIDE=null; await loadGuide(); openGuide(); toast("Marked as re-read."); }
+    catch(e){ toast(e.message); b.disabled=false; }
+  }));
+}
+
+function gEditor(s){
+  const holder = s ? $(`[data-gsec="${s.id}"]`) : null;
+  const html = `<div class="gedit">
+    <label><span class="tsub">Title</span>
+      <input type="text" id="gT" value="${esc(s?s.title:"")}"></label>
+    <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:8px">
+      <label style="flex:1 1 240px"><span class="tsub">Who sees it</span>
+        <select id="gN">${GNEED.map(([k,l])=>
+          `<option value="${k}" ${s&&s.need===k?"selected":""}>${esc(l)}</option>`).join("")}</select></label>
+      <label style="flex:0 0 150px"><span class="tsub">Explains which tab</span>
+        <input type="text" id="gC" value="${esc(s&&s.covers?s.covers:"")}" placeholder="fin, calls…"></label>
+      <label style="flex:0 0 100px"><span class="tsub">Order</span>
+        <input type="text" id="gO" value="${s?s.sort_order:200}"></label>
+    </div>
+    <label style="display:block;margin-top:8px"><span class="tsub">Body — ## heading, **bold**,
+      *italic*, - bullet. Never type a number; use a {{placeholder}}.</span>
+      <textarea id="gB">${esc(s?s.body_raw||s.body:"")}</textarea></label>
+    <div style="display:flex;gap:8px;margin-top:9px;align-items:center">
+      <button class="btn sm" id="gSave">Save</button>
+      <button class="btn line sm" id="gCancel">Cancel</button>
+      ${s?`<span style="flex:1"></span><button class="btn line sm" id="gDel">Delete</button>`:""}
+    </div>
+    <div class="tsub" style="margin-top:8px">Available placeholders: ${
+      Object.keys((GUIDE.facts)||{}).map(k=>"{{"+k+"}}").join(" · ")}</div>
+  </div>`;
+
+  if(holder){ holder.dataset.prev = holder.innerHTML; holder.innerHTML = html; }
+  else { const d=document.createElement("div"); d.className="gsec"; d.id="gNew";
+         d.innerHTML=html; $("#gBody").appendChild(d); }
+
+  const done = async () => { GUIDE=null; await loadGuide(); openGuide(); };
+  $("#gSave").addEventListener("click", async ()=>{
+    const btn = $("#gSave"); btn.disabled = true;
+    try{
+      await rpc("training_guide_save",{p_code:CODE, p_id:s?s.id:null, p_slug:s?s.slug:null,
+        p_title:$("#gT").value, p_body:$("#gB").value, p_need:$("#gN").value,
+        p_covers:$("#gC").value, p_sort:parseInt($("#gO").value,10)||200, p_status:"published"});
+      toast("Saved. Live to everyone who can see this section.");
+      await done();
+    }catch(e){ toast(e.message); btn.disabled=false; }
+  });
+  $("#gCancel").addEventListener("click", ()=>{
+    if(holder){ holder.innerHTML = holder.dataset.prev; gWire(); }
+    else $("#gNew").remove();
+  });
+  if($("#gDel")) $("#gDel").addEventListener("click", async ()=>{
+    if(!confirm(`Delete "${s.title}"?\n\nThis removes the section for everyone. There is no undo.`)) return;
+    try{ await rpc("training_guide_delete",{p_code:CODE, p_id:s.id});
+         toast("Deleted."); await done(); }catch(e){ toast(e.message); }
+  });
+}
 
 async function loadOverview(){
   try{ OVW = await rpc("training_overview",{p_code:CODE}); }
@@ -4065,6 +4241,7 @@ async function openOverview(){
 
   const go = async (tab, sub) => {
     closeModal();
+    if(tab === "guide"){ openGuide(); return; }
     if(tab === "market"){ openMarket(); return; }
     // setMode directly rather than clicking the toggle: the click handler is async and
     // not awaited, so renderManager() below could run before loadManager() had finished.
