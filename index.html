@@ -43,6 +43,33 @@ button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
 .btn-feed{background:var(--gold);color:#241a06;border:0;padding:7px 13px;border-radius:8px;
   font-size:13px;font-weight:650;display:inline-flex;align-items:center;gap:7px;flex:none}
 .btn-feed:hover{background:#d9a63c}
+/* Overview. Green because it has to be findable by two people who have not signed in
+   for a fortnight, and green is the only unused colour on this bar. No blinking: a
+   permanent blink becomes wallpaper in a week and is an accessibility problem besides.
+   The count does the work, and it goes to zero when they read it. */
+.btn-ovw{background:#1E7A46;color:#fff;border:0;padding:7px 13px;border-radius:8px;
+  font-size:13px;font-weight:650;display:inline-flex;align-items:center;gap:7px;position:relative}
+.btn-ovw:hover{background:#19643a}
+.btn-ovw svg{width:15px;height:15px;flex:none;stroke:currentColor;fill:none;stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round}
+.btn-ovw .ovw-n{background:#fff;color:#1E7A46;border-radius:999px;font-size:11px;font-weight:800;
+  min-width:17px;height:17px;display:inline-flex;align-items:center;justify-content:center;padding:0 5px}
+.ovw-band{margin-bottom:20px}
+.ovw-band h4{font-size:13px;font-weight:750;color:var(--ink-3);letter-spacing:.04em;
+  text-transform:uppercase;margin:0 0 9px}
+.ovw-wait{display:flex;gap:11px;align-items:flex-start;padding:11px 13px;border-radius:10px;
+  background:#F1F8F3;border:1px solid #D5E8DC;margin-bottom:8px;cursor:pointer}
+.ovw-wait:hover{background:#E7F3EB}
+.ovw-wait .n{background:#1E7A46;color:#fff;border-radius:8px;font-weight:800;font-size:14px;
+  min-width:30px;height:26px;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.ovw-map{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:9px}
+.ovw-card{border:1px solid var(--line-2);border-radius:10px;padding:11px 13px;cursor:pointer;
+  background:#fff}
+.ovw-card:hover{background:#F6F7FB;border-color:#B9BFD4}
+.ovw-card .t{font-weight:700;font-size:14px;color:var(--navy)}
+.ovw-card .d{font-size:12.5px;color:var(--ink-3);margin-top:3px;line-height:1.45}
+.ovw-feed{border-left:2px solid var(--line-2);padding:2px 0 9px 12px;margin-bottom:2px}
+.ovw-new{border-left-color:#1E7A46}
 .btn-feed svg{width:15px;height:15px;flex:none;stroke:currentColor;fill:none;stroke-width:2;
   stroke-linecap:round;stroke-linejoin:round}
 .wrap{max-width:1180px;margin:0 auto;padding:26px 22px 80px}
@@ -577,6 +604,10 @@ tbody tr.clk:hover{background:#f8f9fc}
       <button class="btn-mkt" id="mktBtn" title="Which of our markets writes this risk?">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/></svg>
         <span class="lbl">Find a market</span></button>
+      <button class="btn-ovw hidden" id="ovwBtn" title="What is in the Portal, what changed, and what is waiting on you">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h7v14H4z"/><path d="M13 5h7v9h-7z"/>
+          <path d="M13 17h7"/></svg>
+        <span class="lbl">Overview</span><span class="ovw-n hidden" id="ovwN"></span></button>
       <button class="btn-feed" id="feedBtn" title="Tell Braden about a problem or an idea">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4
           a8.9 8.9 0 0 1-3.8-.8L3 21l1.9-4.1A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z"/></svg>
@@ -620,6 +651,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     TIPS=null, tipIdx=0, MKT=null, mktQ="", TIPSM=null, tipMFilter="draft",
     CIDX=null, CSHEET=null, mktView="market", mktBackTo="market",
     REV=null, COV=null, FIN=null, FINM=null, FINL={},
+    OVW=null,
     TRUST=null, TRUSTT=null, trustScope="open", trustSide="all", trustDone=false,
     trustOpen=new Set(), TRUSTH={},
     finSub="revenue", plSub="agency", finLoc=null,
@@ -796,6 +828,7 @@ function forgetCode(){
 $("#signOut").addEventListener("click", ()=>{
   if(PREVIEW){ exitPreview(); return; }
   CODE=ME=STATE=MGR=null; selTrainee=null; lastAdded=null; MODE=null;
+  OVW=null; $("#ovwBtn").classList.add("hidden");
   CM=CMA=null; selCallAgent=null; cmSub="patterns"; cmScope="current"; cmDays=90; cmReturn=null; cmLens="all";
   openMods.clear(); openTracks=null; location.hash=""; forgetCode();
   $("#modeToggle").classList.add("hidden");
@@ -821,6 +854,9 @@ async function boot(){
   $("#whoName").textContent = ME.full_name;
   const staff = isStaff(ME.role);
   $("#modeToggle").classList.toggle("hidden", !staff);
+  // Managers only for now. The map and the "waiting on you" band already branch by role,
+  // so opening this to agents is a one-line change once Braden decides.
+  if(staff) loadOverview(); else $("#ovwBtn").classList.add("hidden");
   // Staff land on the dashboard because that is the job they logged in to do;
   // their own training is one click away.
   await setMode(staff ? "manager" : "training");
@@ -3466,6 +3502,7 @@ function openFeedback(){
 }
 $("#feedBtn").addEventListener("click", openFeedback);
 $("#mktBtn").addEventListener("click", openMarket);
+$("#ovwBtn").addEventListener("click", openOverview);
 
 /* ================= trainee ================= */
 async function loadTrainee(){
@@ -3917,6 +3954,141 @@ async function loadManager(){
   await loadTipsManage();
   renderManager();
 }
+/* ================= Portal Overview =================
+   The map is DECLARED here, immediately above the function that draws the tab bar, so
+   that adding a tab without adding a map entry shows up in the same diff. Every count in
+   it comes from the database at load time — nothing about the size of the portal is typed
+   into this file, because hand-written descriptions of this system have gone stale within
+   a fortnight every single time.
+
+   `need` gates a card the same way the tab bar does. `tab` is where clicking lands you. */
+const OVW_MAP = [
+  {tab:"roster",   need:"mgr",   t:"Roster",          d:s=>`Everyone enrolled — ${s.people} people. Progress, licence standing, and the name that links a person to their calls.`},
+  {tab:"ce",       need:"mgr",   t:"Licensing & CE",  d:()=>`Licence numbers, NPNs, renewal dates, the CE cycle, and commercial-lines upgrade requests.`},
+  {tab:"content",  need:"mgr",   t:"Content editor",  d:s=>`Write and correct module content. ${s.modules} published, ${s.drafts} in draft. Saves live to every agent the moment you save.`},
+  {tab:"tracks",   need:"mgr",   t:"Track catalog",   d:s=>`The ${s.tracks} tracks and which modules sit in each.`},
+  {tab:"calls",    need:"calls", t:"Call monitoring", d:s=>`${s.scored.toLocaleString()} calls scored of ${s.recordings.toLocaleString()} recorded. Flags, transcripts, audio, and coaching.`},
+  {tab:"fin",      need:"fin",   t:"Revenue",         d:()=>`Revenue by office, fee activity, programmes and data coverage.`},
+  {tab:"fin",      need:"trust", t:"Premium Trust",   d:()=>`Trust and clearing accounts reconciled against Agency Matrix receipts. A sub-tab of Revenue.`, sub:"trust"},
+  {tab:"tips",     need:"mgr",   t:"Tips",            d:s=>`${s.tips} did-you-know items harvested from carrier newsletters. Nothing reaches an agent unapproved.`},
+  {tab:"feedback", need:"mgr",   t:"Feedback",        d:()=>`What agents have told us, and where you answer them.`},
+  {tab:"activity", need:"mgr",   t:"Activity",        d:()=>`Who completed what, lately, across the agency.`},
+  {tab:"partners", need:"mgr",   t:"Referral partners", d:s=>`${s.partners} car lots, apartment complexes and dealers. Built and loaded, switched off.`},
+  {tab:"add",      need:"mgr",   t:"Add an agent",    d:()=>`Creates them, assigns tracks, links their calls, and emails their code.`},
+  {tab:"market",   need:"any",   t:"Find a market",   d:s=>`Which of our ${s.carriers} markets writes this risk. The search box at the top of every screen.`},
+  {tab:"training", need:"any",   t:"My training",     d:()=>`Your own modules and quizzes. Managers have these too, and they count the same way.`},
+];
+
+async function loadOverview(){
+  try{ OVW = await rpc("training_overview",{p_code:CODE}); }
+  catch(e){ OVW = {error:e.message}; }
+  ovwBadge();
+}
+
+function ovwBadge(){
+  const b = $("#ovwBtn"), n = $("#ovwN");
+  if(!OVW || OVW.error){ b.classList.add("hidden"); return; }
+  b.classList.remove("hidden");
+  if(OVW.first_visit){
+    b.querySelector(".lbl").textContent = "Start here";
+    n.classList.add("hidden");
+  }else{
+    b.querySelector(".lbl").textContent = "Overview";
+    if(OVW.new_count > 0){ n.textContent = OVW.new_count; n.classList.remove("hidden"); }
+    else n.classList.add("hidden");
+  }
+}
+
+function ovwCan(need){
+  if(need === "any") return true;
+  if(need === "mgr") return !!OVW.is_manager;
+  if(need === "calls") return !!OVW.has_calls;
+  if(need === "fin") return !!OVW.has_fin;
+  if(need === "trust") return !!OVW.has_trust;
+  return false;
+}
+
+async function openOverview(){
+  if(!OVW) await loadOverview();
+  if(OVW.error){ toast(OVW.error); return; }
+  const s = OVW.stats, wasFirst = OVW.first_visit;
+  const modal = $("#modal"); modal.classList.remove("hidden");
+  modal.innerHTML = `<div class="sheet wide">
+    <div class="sheet-h"><h3>The Portal at a glance</h3><button class="x" id="ovwClose">×</button></div>
+    <div class="sheet-b">
+      <p style="margin:-4px 0 18px;color:var(--ink-3);font-size:14px">
+        ${wasFirst
+          ? `Welcome, ${esc(OVW.name)}. Everything the Portal does is listed below, with what is waiting on you at the top.`
+          : `${esc(OVW.name)} — last opened ${esc(when(OVW.seen_at))}.${
+              OVW.new_count ? ` <b style="color:#1E7A46">${OVW.new_count} change${OVW.new_count===1?"":"s"} since.</b>` : " Nothing has changed since."}`}
+      </p>
+
+      ${(OVW.waiting||[]).length ? `<div class="ovw-band">
+        <h4>Waiting on you</h4>
+        ${OVW.waiting.map(w=>`<div class="ovw-wait" data-ovwgo="${esc(w.tab)}">
+          <span class="n">${w.n}</span>
+          <span><b>${esc(w.label)}</b><div class="tsub" style="margin-top:2px">${esc(w.detail)}</div></span>
+        </div>`).join("")}
+        ${OVW.role==="owner" ? `<div class="tsub" style="margin-top:9px">
+          These are only the things the Portal itself can see. Your own list — the decisions and
+          calls nobody else can make — lives in the Claude project as
+          <b>Braden's List — items waiting on you</b>, and is deliberately not copied in here,
+          because a copy would be wrong within a day.</div>` : ""}
+      </div>` : `<div class="ovw-band"><h4>Waiting on you</h4>
+        <div class="tsub">Nothing right now.</div></div>`}
+
+      <div class="ovw-band">
+        <h4>What is here</h4>
+        <div class="ovw-map">${OVW_MAP.filter(m=>ovwCan(m.need)).map(m=>`
+          <div class="ovw-card" data-ovwgo="${esc(m.tab)}" ${m.sub?`data-ovwsub="${esc(m.sub)}"`:""}>
+            <div class="t">${esc(m.t)}</div><div class="d">${esc(m.d(s))}</div>
+          </div>`).join("")}</div>
+      </div>
+
+      <div class="ovw-band">
+        <h4>What changed lately</h4>
+        ${(OVW.feed||[]).slice(0,12).map(f=>`
+          <div class="ovw-feed ${f.is_new?"ovw-new":""}">
+            <div style="font-size:13.5px">${esc(f.who)} ${esc(f.what)}${
+              f.slug?` — <b>${esc(f.slug)}</b>`:""}${f.is_new?` <span class="pill done">new</span>`:""}</div>
+            <div class="tsub">${esc(when(f.at))}</div>
+          </div>`).join("") || `<div class="tsub">Nothing recorded yet.</div>`}
+      </div>
+    </div>
+    <div class="sheet-f"><button class="btn line" id="ovwClose2">Close</button></div>
+  </div>`;
+
+  // Stamping on open is what clears the badge. Do it after rendering, so the page the
+  // person is looking at still shows what was new when they arrived.
+  try{ await rpc("training_overview_seen",{p_code:CODE}); OVW.first_visit=false;
+       OVW.new_count=0; OVW.seen_at=new Date().toISOString(); ovwBadge(); }catch(e){}
+
+  const go = async (tab, sub) => {
+    closeModal();
+    if(tab === "market"){ openMarket(); return; }
+    // setMode directly rather than clicking the toggle: the click handler is async and
+    // not awaited, so renderManager() below could run before loadManager() had finished.
+    if(tab === "training"){ if(MODE !== "training") await setMode("training"); return; }
+    if(!OVW.is_manager) return;
+    if(MODE !== "manager") await setMode("manager");
+    mgrTab = tab; selTrainee = null;
+    if(tab==="content" && !CAT) await loadCatalog();
+    if(tab==="ce" && !CE) await loadCE();
+    if(tab==="calls" && !CM) await loadCallMonitor();
+    if(tab==="feedback") await loadFeedback();
+    if(tab==="partners") await loadPartners();
+    if(tab==="tips") await loadTipsManage();
+    if(tab==="fin" && !REV) await loadFin();
+    if(sub === "trust"){ finSub = "trust"; if(!TRUST) await loadTrust(); }
+    renderManager();
+    window.scrollTo({top:0, behavior:"smooth"});
+  };
+  modal.querySelectorAll("[data-ovwgo]").forEach(el=>el.addEventListener("click",
+    ()=>go(el.dataset.ovwgo, el.dataset.ovwsub)));
+  $("#ovwClose").addEventListener("click", closeModal);
+  $("#ovwClose2").addEventListener("click", closeModal);
+}
+
 function renderManager(){
   const ts = MGR.trainees||[], tracks = MGR.tracks||[];
   const notices = MGR.notices||[], unread = notices.filter(n=>!n.is_read).length;
