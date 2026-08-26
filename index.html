@@ -620,7 +620,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     TIPS=null, tipIdx=0, MKT=null, mktQ="", TIPSM=null, tipMFilter="draft",
     CIDX=null, CSHEET=null, mktView="market", mktBackTo="market",
     REV=null, COV=null, FIN=null, FINM=null, FINL={},
-    TRUST=null, TRUSTT=null, trustScope="open", trustSide="all",
+    TRUST=null, TRUSTT=null, trustScope="open", trustSide="all", trustDone=false,
     trustOpen=new Set(), TRUSTH={},
     finSub="revenue", plSub="agency", finLoc=null,
     revScope="all", revWin="m3",
@@ -1242,7 +1242,7 @@ async function loadTrust(){
     const [s,e,t] = await Promise.all([
       rpc("trust_summary",{p_code:CODE}),
       rpc("trust_exceptions",{p_code:CODE, p_scope:trustScope}),
-      rpc("trust_tasks",{p_code:CODE, p_include_done:false})
+      rpc("trust_tasks",{p_code:CODE, p_include_done:trustDone})
     ]);
     TRUST = {summary:s, rows:e||[]}; TRUSTT = t||[];
   }catch(err){
@@ -3137,6 +3137,9 @@ function finTrust(){
       <div class="tsub" style="margin:4px 0 12px">Standing problems behind the exceptions —
         wrong account on file, a vendor drafting the trust account. Closing one of these stops
         items appearing rather than clearing them one at a time.</div>
+      <div class="fin-sub" style="margin:0 0 12px">
+        <button data-tdonetoggle="1" class="${trustDone?"on":""}">${
+          trustDone?"Showing completed":"Show completed"}</button></div>
       ${!(TRUSTT||[]).length ? `<div class="empty">Nothing open.</div>`
       : `<table class="fin-t"><thead><tr>
           <th>Problem</th><th class="hide-sm">What it needs</th>
@@ -3145,10 +3148,16 @@ function finTrust(){
           <td>${esc(t.problem)}${t.notes?`<div class="tsub" style="margin-top:4px">${esc(t.notes)}</div>`:""}</td>
           <td class="hide-sm"><span class="tsub">${esc(t.resolution_needed||"—")}</span></td>
           <td>${t.requested?'<span class="pill done">✓</span>':'<span class="pill todo">no</span>'}</td>
-          <td>${t.completed?'<span class="pill done">✓</span>':'<span class="pill prog">open</span>'}</td>
+          <td>${t.completed
+            ? `<span class="pill done">✓</span>${t.completed_at
+                ? `<div class="tsub" style="margin-top:3px">${esc(String(t.completed_at).slice(0,10))}</div>`
+                : `<div class="tsub" style="margin-top:3px">no date recorded</div>`}`
+            : '<span class="pill prog">open</span>'}</td>
           <td style="white-space:nowrap">
             ${!t.requested?`<button class="btn line sm" data-treq="${esc(t.id)}">Asked</button> `:""}
-            <button class="btn line sm" data-tdone="${esc(t.id)}">Done</button>
+            ${t.completed
+              ? `<button class="btn line sm" data-tundo="${esc(t.id)}">Undo</button> `
+              : `<button class="btn line sm" data-tdone="${esc(t.id)}">Done</button> `}
             <button class="btn line sm" data-tnoteadd="${esc(t.id)}">Note</button></td>
         </tr>`).join("")}
       </tbody></table>`}
@@ -3192,8 +3201,19 @@ function finTrust(){
   };
   el.querySelectorAll("[data-treq]").forEach(b=>b.addEventListener("click",
     ()=>taskAct(b.dataset.treq, {p_requested:true}, "Marked as asked.")));
-  el.querySelectorAll("[data-tdone]").forEach(b=>b.addEventListener("click",
-    ()=>taskAct(b.dataset.tdone, {p_completed:true}, "Marked done.")));
+  el.querySelectorAll("[data-tdonetoggle]").forEach(b=>b.addEventListener("click", async ()=>{
+    trustDone = !trustDone; await loadTrust(); finTrust();
+  }));
+  // Confirmed, because a completed task drops out of the default view - the row you
+  // just closed is not sitting there to be re-read. Undo exists, but it is behind
+  // "Show completed", so the mis-click is recoverable rather than obvious.
+  el.querySelectorAll("[data-tdone]").forEach(b=>b.addEventListener("click", ()=>{
+    const row = b.closest("tr"), name = row ? row.querySelector("td").childNodes[0].textContent : "this item";
+    if(!confirm(`Mark done?\n\n${name}\n\nIt leaves this list. To bring it back, use "Show completed" and then Undo.`)) return;
+    taskAct(b.dataset.tdone, {p_completed:true}, "Marked done.");
+  }));
+  el.querySelectorAll("[data-tundo]").forEach(b=>b.addEventListener("click",
+    ()=>taskAct(b.dataset.tundo, {p_completed:false}, "Reopened.")));
   el.querySelectorAll("[data-tnoteadd]").forEach(b=>b.addEventListener("click", ()=>{
     const n = prompt("Add a note. It is stamped with today's date and kept above the older ones.");
     if(n && n.trim()) taskAct(b.dataset.tnoteadd, {p_note_append:n.trim()}, "Note added.");
