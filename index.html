@@ -43,6 +43,46 @@ button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
 .btn-feed{background:var(--gold);color:#241a06;border:0;padding:7px 13px;border-radius:8px;
   font-size:13px;font-weight:650;display:inline-flex;align-items:center;gap:7px;flex:none}
 .btn-feed:hover{background:#d9a63c}
+/* Overview. Green because it has to be findable by two people who have not signed in
+   for a fortnight, and green is the only unused colour on this bar. No blinking: a
+   permanent blink becomes wallpaper in a week and is an accessibility problem besides.
+   The count does the work, and it goes to zero when they read it. */
+.btn-ovw{background:#1E7A46;color:#fff;border:0;padding:7px 13px;border-radius:8px;
+  font-size:13px;font-weight:650;display:inline-flex;align-items:center;gap:7px;position:relative}
+.btn-ovw:hover{background:#19643a}
+.btn-ovw svg{width:15px;height:15px;flex:none;stroke:currentColor;fill:none;stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round}
+.btn-ovw .ovw-n{background:#fff;color:#1E7A46;border-radius:999px;font-size:11px;font-weight:800;
+  min-width:17px;height:17px;display:inline-flex;align-items:center;justify-content:center;padding:0 5px}
+.ovw-band{margin-bottom:20px}
+.ovw-band h4{font-size:13px;font-weight:750;color:var(--ink-3);letter-spacing:.04em;
+  text-transform:uppercase;margin:0 0 9px}
+.ovw-wait{display:flex;gap:11px;align-items:flex-start;padding:11px 13px;border-radius:10px;
+  background:#F1F8F3;border:1px solid #D5E8DC;margin-bottom:8px;cursor:pointer}
+.ovw-wait:hover{background:#E7F3EB}
+.ovw-wait .n{background:#1E7A46;color:#fff;border-radius:8px;font-weight:800;font-size:14px;
+  min-width:30px;height:26px;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.ovw-map{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:9px}
+.ovw-card{border:1px solid var(--line-2);border-radius:10px;padding:11px 13px;cursor:pointer;
+  background:#fff}
+.ovw-card:hover{background:#F6F7FB;border-color:#B9BFD4}
+.ovw-card .t{font-weight:700;font-size:14px;color:var(--navy)}
+.ovw-card .d{font-size:12.5px;color:var(--ink-3);margin-top:3px;line-height:1.45}
+.ovw-feed{border-left:2px solid var(--line-2);padding:2px 0 9px 12px;margin-bottom:2px}
+.ovw-new{border-left-color:#1E7A46}
+.gsec{border:1px solid var(--line-2);border-radius:11px;padding:14px 16px;margin-bottom:11px}
+.gsec>h4{margin:0 0 8px;font-size:16px;color:var(--navy);font-weight:750}
+.gsec p{margin:0 0 9px;font-size:14px;line-height:1.62;color:var(--ink)}
+.gsec .gmd-ul{margin:0 0 9px;padding-left:20px}
+.gsec .gmd-ul li{font-size:14px;line-height:1.6;margin-bottom:5px}
+.gsec .gmd-h{margin:12px 0 6px;font-size:14px;font-weight:750;color:var(--navy)}
+.gsec.stale{border-color:#E4CE9A;background:#FEFBF4}
+.gmeta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;
+  padding-top:9px;border-top:1px solid var(--line)}
+.gedit textarea{width:100%;min-height:220px;font-family:ui-monospace,Menlo,Consolas,monospace;
+  font-size:12.5px;line-height:1.55}
+.ggap{background:#FDF1F0;border:1px solid #EFC9C6;border-radius:10px;padding:12px 14px;
+  margin-bottom:14px;font-size:13.5px;line-height:1.55}
 .btn-feed svg{width:15px;height:15px;flex:none;stroke:currentColor;fill:none;stroke-width:2;
   stroke-linecap:round;stroke-linejoin:round}
 .wrap{max-width:1180px;margin:0 auto;padding:26px 22px 80px}
@@ -577,6 +617,10 @@ tbody tr.clk:hover{background:#f8f9fc}
       <button class="btn-mkt" id="mktBtn" title="Which of our markets writes this risk?">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/></svg>
         <span class="lbl">Find a market</span></button>
+      <button class="btn-ovw hidden" id="ovwBtn" title="What is in the Portal, what changed, and what is waiting on you">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h7v14H4z"/><path d="M13 5h7v9h-7z"/>
+          <path d="M13 17h7"/></svg>
+        <span class="lbl">Overview</span><span class="ovw-n hidden" id="ovwN"></span></button>
       <button class="btn-feed" id="feedBtn" title="Tell Braden about a problem or an idea">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4
           a8.9 8.9 0 0 1-3.8-.8L3 21l1.9-4.1A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z"/></svg>
@@ -620,6 +664,9 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     TIPS=null, tipIdx=0, MKT=null, mktQ="", TIPSM=null, tipMFilter="draft",
     CIDX=null, CSHEET=null, mktView="market", mktBackTo="market",
     REV=null, COV=null, FIN=null, FINM=null, FINL={},
+    OVW=null, GUIDE=null,
+    TRUST=null, TRUSTT=null, trustScope="open", trustSide="all", trustDone=false,
+    trustOpen=new Set(), TRUSTH={},
     finSub="revenue", plSub="agency", finLoc=null,
     revScope="all", revWin="m3",
     cmQ={q:"",from:"",to:"",direction:"",call_type:"",agent:"",rule:"",
@@ -794,6 +841,7 @@ function forgetCode(){
 $("#signOut").addEventListener("click", ()=>{
   if(PREVIEW){ exitPreview(); return; }
   CODE=ME=STATE=MGR=null; selTrainee=null; lastAdded=null; MODE=null;
+  OVW=null; $("#ovwBtn").classList.add("hidden");
   CM=CMA=null; selCallAgent=null; cmSub="patterns"; cmScope="current"; cmDays=90; cmReturn=null; cmLens="all";
   openMods.clear(); openTracks=null; location.hash=""; forgetCode();
   $("#modeToggle").classList.add("hidden");
@@ -819,6 +867,9 @@ async function boot(){
   $("#whoName").textContent = ME.full_name;
   const staff = isStaff(ME.role);
   $("#modeToggle").classList.toggle("hidden", !staff);
+  // Managers only for now. The map and the "waiting on you" band already branch by role,
+  // so opening this to agents is a one-line change once Braden decides.
+  if(staff) loadOverview(); else $("#ovwBtn").classList.add("hidden");
   // Staff land on the dashboard because that is the job they logged in to do;
   // their own training is one click away.
   await setMode(staff ? "manager" : "training");
@@ -1203,6 +1254,11 @@ async function loadTipsManage(){
 const finHasFin = () => !!(ME && (ME.financial_access === "revenue"
                                   || ME.financial_access === "full"));
 const finHasPL  = () => !!(ME && ME.financial_access === "full");
+/* Premium Trust is NOT derived from financial_access. That column has two tiers and
+   Belinda and Betty Jane share one, so a tier test would show this to Betty Jane.
+   Named capability, granted per person. Drawing the tab is all this decides — the real
+   gate is training_trust_gate inside every trust_* function. */
+const finHasTrust = () => !!(ME && ME.trust_access === true);
 
 async function loadFin(){
   try{
@@ -1226,6 +1282,20 @@ async function loadFinPL(){
     FIN = o; FINM = m;
   }catch(e){
     FIN = {error:e.message, months:[]}; FINM = {locations:[], cells:[]};
+  }
+}
+
+// Lazy, and only ever for Braden and Belinda. These rows carry customer names.
+async function loadTrust(){
+  try{
+    const [s,e,t] = await Promise.all([
+      rpc("trust_summary",{p_code:CODE}),
+      rpc("trust_exceptions",{p_code:CODE, p_scope:trustScope}),
+      rpc("trust_tasks",{p_code:CODE, p_include_done:trustDone})
+    ]);
+    TRUST = {summary:s, rows:e||[]}; TRUSTT = t||[];
+  }catch(err){
+    TRUST = {error:err.message, rows:[]}; TRUSTT = [];
   }
 }
 
@@ -1399,7 +1469,7 @@ function finEvents(){
 }
 /* ---- TREND ADJUSTMENT ----------------------------------------------------
    Some events are real money that arrived in a month but say nothing about the
-   direction of the business — the March 2026 Progressive annual bonus is the
+   direction of the business - the March 2026 Progressive annual bonus is the
    case this was built for. Left in the trend arithmetic it does damage twice:
    it inflates the trailing twelve months for a year, and then produces an equal
    and opposite fake collapse the month it rolls out of the window.
@@ -1407,7 +1477,7 @@ function finEvents(){
    `training_fin_event.exclude_from_trend` marks those, and the read function
    sums them per month into `trend_adjust`. Three rules:
      1. Only AGENCY-level series are adjusted. Per-office series never are.
-     2. The month's own reported figures are never changed — the bars, the
+     2. The month's own reported figures are never changed - the bars, the
         table and "Net that month" all show what actually happened.
      3. Wherever an adjusted number is displayed, say so and name the amount,
         so nobody finds a figure they cannot reconcile to the P&L.
@@ -1450,17 +1520,21 @@ function mgrFin(){
     <div class="fin-sub">${subs.map(([k,l])=>
       `<button data-fin="${k}" class="${finSub===k?"on":""}">${l}</button>`
     ).join("")}${finHasPL()
-      ? `<button data-fin="pl" class="${finSub==="pl"?"on":""}">Full P&amp;L</button>` : ""}</div>
+      ? `<button data-fin="pl" class="${finSub==="pl"?"on":""}">Full P&amp;L</button>` : ""}${
+      finHasTrust()
+      ? `<button data-fin="trust" class="${finSub==="trust"?"on":""}">Premium Trust</button>` : ""}</div>
     <div id="finBody"></div>`;
   body.querySelectorAll("[data-fin]").forEach(b=>b.addEventListener("click", async ()=>{
     finSub = b.dataset.fin; finLoc = null;
-    if(finSub === "pl"   && !FIN) await loadFinPL();
-    if(finSub === "fees" && !FEE) await loadFee();
+    if(finSub === "pl"    && !FIN)   await loadFinPL();
+    if(finSub === "fees"  && !FEE)   await loadFee();
+    if(finSub === "trust" && !TRUST) await loadTrust();
     mgrFin();
   }));
   if(finSub === "office") finSub = "revenue";   // retired: the scope selector replaced it
+  if(finSub === "trust" && !finHasTrust()) finSub = "revenue";
   ({revenue:finRevenue, fees:finFees, programs:finPrograms,
-    coverage:finCoverage, pl:finPL})[finSub]();
+    coverage:finCoverage, pl:finPL, trust:finTrust})[finSub]();
 }
 
 function finAgency(){
@@ -1528,12 +1602,12 @@ function finAgency(){
     <div class="card fin-pad" style="margin-bottom:16px">
       <p class="fin-h">Agency net income</p>
       <p class="fin-sub2">Every location together, including corporate.
-        These bars are what each month actually reported — nothing is removed.</p>
+        These bars are what each month actually reported - nothing is removed.</p>
       ${finBars(ms.map(m=>({v:+m.net||0, label:mLong(m.month), short:mShort(m.month)})),
         {h:170, alt:"Agency net income by month", scale:true})}
       ${finAdjEvents().length ? `<p class="fin-cap">${finAdjEvents().map(e=>
         `<b>${esc(mLong(e.month))}</b> stands well above the rest because of
-         ${money0(e.monthly_amount)} — ${esc(e.label.split(" — ")[0])}. It is real money and it
+         ${money0(e.monthly_amount)} - ${esc(e.label.split(" \u2014 ")[0])}. It is real money and it
          is shown here in full, but it is held out of the trailing-12 and year-over-year
          figures above, because it says nothing about which way the business is going.`
         ).join(" ")}</p>` : ""}
@@ -1558,7 +1632,7 @@ function finAgency(){
           those two changes account for the whole of it.</li>
         <li>Income is down ${incChange===null?"—":pctTxt(incChange)} year over year while net
           looks better. Both facts are true at once.${
-          adjNote?` That comparison ${esc(adjNote)} — a one-off that would otherwise read
+          adjNote?` That comparison ${esc(adjNote)} - a one-off that would otherwise read
           as growth this year and as a collapse next year.`:""}</li>
         <li>The legacy book runs at roughly ${legMargin===null?"—":Math.round(legMargin)+"%"}
           margin. Its income over the last 12 loaded months is ${decay===null?"—":pctTxt(decay)}
@@ -2990,6 +3064,264 @@ function finPrograms(){
     </div>`;
 }
 
+/* ---------- Premium Trust reconciliation ----------
+   The engine is rebuilt from source every run and every row it emits is new. This panel
+   reads trust_exception, which keys on a fingerprint that survives that rebuild, so a note
+   written in August is still attached to its item in September.
+
+   Cents are shown in full here. Everywhere else on these panels money is rounded to the
+   dollar because the question is "how is the office doing"; here the question is "does this
+   foot", and a rounded reconciliation is not a reconciliation. */
+const tmoney = n => (n===null||n===undefined||n===""||isNaN(+n)) ? "—"
+  : (+n<0?"−":"") + "$" + Math.abs(+n).toLocaleString("en-US",
+      {minimumFractionDigits:2, maximumFractionDigits:2});
+
+const TRUST_STATUS = [
+  ["open","Open"],["investigating","Investigating"],["requested","Change requested"],
+  ["waiting_carrier","Waiting on carrier"],["resolved","Resolved"],
+  ["written_off","Written off"],["not_an_exception","Not an exception"],
+  ["agency_expense","Agency expense, not premium"]];
+const TRUST_LABEL = Object.fromEntries(TRUST_STATUS);
+const TRUST_CLOSED = new Set(["resolved","written_off","not_an_exception","agency_expense"]);
+const trustPill = s => TRUST_CLOSED.has(s) ? "done" : s==="open" ? "todo" : "prog";
+const TRUST_SIDE = {
+  draft_no_receipt:["Draft, no receipt","money left the trust account with nothing behind it"],
+  receipt_no_draft:["Receipt, no draft","we are holding money the carrier has not taken"],
+  credit_card:["Card receipt, no draft","premium sitting in Clearing, not yet remitted"]};
+
+function finTrust(){
+  const el = $("#finBody");
+  if(!TRUST){ el.innerHTML = `<div class="card fin-pad"><div class="empty">Loading…</div></div>`; return; }
+  if(TRUST.error){
+    el.innerHTML = `<div class="card fin-pad"><div class="empty">${esc(TRUST.error)}</div></div>`;
+    return;
+  }
+  const S = TRUST.summary || {};
+  if(!S.run_id){
+    el.innerHTML = `<div class="card fin-pad"><div class="empty">
+      No reconciliation run has been loaded yet.</div></div>`;
+    return;
+  }
+  const rep = S.reported || {}, live = S.live || {};
+  const rows = (TRUST.rows||[]).filter(r => trustSide==="all" || r.side===trustSide);
+  const openRows = (TRUST.rows||[]).filter(r=>!TRUST_CLOSED.has(r.current_status));
+  const openAmt  = openRows.reduce((a,r)=>a + Math.abs(+r.amount||0), 0);
+  const oldest   = openRows.reduce((a,r)=>Math.max(a, +r.age_days||0), 0);
+  const biggest  = openRows.slice().sort((a,b)=>Math.abs(+b.amount)-Math.abs(+a.amount))[0];
+
+  // Reported (what the engine said) against live (what actually loaded). These must agree
+  // on amount. Counts can differ where batch carriers were deliberately aggregated, so a
+  // count difference is annotated rather than flagged - only a money difference is a fault.
+  const checks = ["draft_no_receipt","receipt_no_draft","credit_card"].map(k=>{
+    const r = rep[k]||{}, l = live[k]||{};
+    const ra = Math.round((+r.amount||0)*100), la = Math.round((+l.amount||0)*100);
+    return {k, rc:+r.count||0, lc:+l.count||0, ra:ra/100, la:la/100, ok: ra===la};
+  });
+  const allTie = checks.every(c=>c.ok);
+
+  el.innerHTML = `
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Open items</div>
+        <div class="v">${openRows.length}</div>
+        <div class="tsub">${esc(tmoney(openAmt))} unresolved</div></div>
+      <div class="stat"><div class="k">Oldest open item</div>
+        <div class="v" style="${oldest>60?"color:var(--warn)":""}">${oldest||"—"}${oldest?" days":""}</div>
+        <div class="tsub">counted to today, not typed into a note</div></div>
+      <div class="stat"><div class="k">Largest open item</div>
+        <div class="v" style="font-size:22px">${esc(tmoney(biggest? Math.abs(+biggest.amount):0))}</div>
+        <div class="tsub">${biggest? esc((biggest.bank_desc||biggest.carrier||"—").slice(0,34)) : "none"}</div></div>
+      <div class="stat"><div class="k">Load check</div>
+        <div class="v" style="font-size:22px;color:${allTie?"var(--ok)":"var(--bad)"}">${
+          allTie?"Foots":"Off"}</div>
+        <div class="tsub">loaded rows against the engine's own totals</div></div>
+    </div>
+
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
+                  align-items:baseline;margin-bottom:10px">
+        <b>Run covering ${esc(String(S.period_start))} to ${esc(String(S.period_end))}</b>
+        <span class="tsub">loaded ${esc(when(S.run_at))}</span>
+      </div>
+      <table class="fin-t"><thead><tr>
+        <th>Category</th><th class="n">Engine</th><th class="n">Loaded</th>
+        <th class="n">Amount</th><th></th></tr></thead><tbody>
+        ${checks.map(c=>`<tr>
+          <td>${esc(TRUST_SIDE[c.k][0])}</td>
+          <td class="n">${c.rc}</td>
+          <td class="n">${c.lc}${c.lc!==c.rc
+            ? ` <span class="tsub">(${c.rc-c.lc} folded into carrier totals)</span>`:""}</td>
+          <td class="n">${esc(tmoney(c.la))}</td>
+          <td>${c.ok?'<span class="pill done">✓ ties</span>'
+                   :`<span class="pill fail">engine says ${esc(tmoney(c.ra))}</span>`}</td>
+        </tr>`).join("")}
+      </tbody></table>
+      <div class="fin-note" style="margin-top:12px">
+        <b>Recorded on the run but not loaded as working items.</b>
+        <b>Not yet due</b> ${esc(tmoney((rep.not_due_yet||{}).amount))}
+        (${(rep.not_due_yet||{}).count||0} receipts) — inside the carrier's draft lag, timing only;
+        anything that ages past it comes back as a real item on its own.
+        <b>Pre-report</b> ${esc(tmoney((rep.pre_report||{}).amount))} — receipt pre-dates the window.
+        <b>Clearing / National General</b> ${esc(tmoney((rep.clearing_natgen||{}).amount))} — matched
+        against the clearing account during the wrong-account episode. The one item from that group
+        that is <i>not</i> explained is in the list below.
+        ${rep.variance_note?`<br><br>${esc(rep.variance_note)}`:""}
+      </div>
+    </div>
+
+    <div class="fin-sub" style="margin-bottom:12px">
+      ${[["open","Open"],["closed","Closed"],["all","Everything"]].map(([k,l])=>
+        `<button data-tscope="${k}" class="${trustScope===k?"on":""}">${l}</button>`).join("")}
+      <span style="flex:1"></span>
+      ${[["all","All"],["draft_no_receipt","Our side"],["receipt_no_draft","Their side"],
+         ["credit_card","Card"]].map(([k,l])=>
+        `<button data-tside="${k}" class="${trustSide===k?"on":""}">${l}</button>`).join("")}
+    </div>
+
+    ${!rows.length ? `<div class="card fin-pad"><div class="empty">
+      Nothing here${trustScope==="open"?" — every item in this view has been worked":""}.</div></div>`
+    : `<div class="card" style="overflow-x:auto"><table class="fin-t"><thead><tr>
+        <th class="n">Age</th><th>Date</th><th>What</th><th class="hide-sm">Office</th>
+        <th class="n">Amount</th><th>Status</th><th></th>
+      </tr></thead><tbody>
+      ${rows.map(r=>{
+        const dt = r.bank_date || r.receipt_date;
+        const what = r.side==="draft_no_receipt"
+          ? (r.bank_desc||"—")
+          : (r.is_aggregate ? (r.carrier||"—")+" — all unmatched receipts"
+                            : (r.customer||"—") + (r.carrier?` · ${r.carrier}`:""));
+        const isOpen = trustOpen.has(r.id);
+        return `<tr class="${isOpen?"tr-open":""}">
+          <td class="n">${r.age_days==null?"—":r.age_days}</td>
+          <td><span class="tsub">${esc(String(dt||"").slice(5))}</span></td>
+          <td>${esc(what)}${r.is_aggregate
+            ? ` <span class="pill score" title="Batch carrier: which customer surfaces is not stable between runs, so this is tracked as one carrier amount">aggregate</span>`:""}</td>
+          <td class="hide-sm"><span class="tsub">${esc(r.office||"—")}</span></td>
+          <td class="n"><b>${esc(tmoney(Math.abs(+r.amount||0)))}</b></td>
+          <td><span class="pill ${trustPill(r.current_status)}">${
+            esc(TRUST_LABEL[r.current_status]||r.current_status)}</span>${
+            r.in_current_run===false
+              ? ` <span class="pill todo" title="The latest run no longer emits this item. It may have cleared on its own - which is not the same as somebody deciding it was fine.">not in latest run</span>`:""}</td>
+          <td><button class="btn line sm" data-texp="${esc(r.id)}">${isOpen?"Hide":"Details"}</button></td>
+        </tr>
+        ${isOpen ? `<tr><td colspan="7" style="background:#f7f8fc">
+          <div style="padding:4px 2px 10px">
+            ${r.engine_note?`<div class="fin-note" style="margin-bottom:12px">${esc(r.engine_note)}</div>`:""}
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+              <label style="flex:0 0 200px">
+                <span class="tsub">Status</span>
+                <select data-tstatus="${esc(r.id)}">${TRUST_STATUS.map(([k,l])=>
+                  `<option value="${k}" ${r.current_status===k?"selected":""}>${esc(l)}</option>`
+                ).join("")}</select></label>
+              <label style="flex:1 1 320px">
+                <span class="tsub">What did you find?</span>
+                <input type="text" data-tnote="${esc(r.id)}" placeholder="Optional, but this is the part that survives the next rebuild"></label>
+              <button class="btn sm" data-tsave="${esc(r.id)}">Save</button>
+            </div>
+            <div data-thist="${esc(r.id)}">${trustHistoryHtml(r.id)}</div>
+          </div></td></tr>` : ""}`;
+      }).join("")}
+      </tbody></table></div>`}
+
+    <div class="card fin-pad" style="margin-top:20px">
+      <b>Account and vendor clean-up</b>
+      <div class="tsub" style="margin:4px 0 12px">Standing problems behind the exceptions —
+        wrong account on file, a vendor drafting the trust account. Closing one of these stops
+        items appearing rather than clearing them one at a time.</div>
+      <div class="fin-sub" style="margin:0 0 12px">
+        <button data-tdonetoggle="1" class="${trustDone?"on":""}">${
+          trustDone?"Showing completed":"Show completed"}</button></div>
+      ${!(TRUSTT||[]).length ? `<div class="empty">Nothing open.</div>`
+      : `<table class="fin-t"><thead><tr>
+          <th>Problem</th><th class="hide-sm">What it needs</th>
+          <th>Asked</th><th>Done</th><th></th></tr></thead><tbody>
+        ${TRUSTT.map(t=>`<tr>
+          <td>${esc(t.problem)}${t.notes?`<div class="tsub" style="margin-top:4px">${esc(t.notes)}</div>`:""}</td>
+          <td class="hide-sm"><span class="tsub">${esc(t.resolution_needed||"—")}</span></td>
+          <td>${t.requested?'<span class="pill done">✓</span>':'<span class="pill todo">no</span>'}</td>
+          <td>${t.completed
+            ? `<span class="pill done">✓</span>${t.completed_at
+                ? `<div class="tsub" style="margin-top:3px">${esc(String(t.completed_at).slice(0,10))}</div>`
+                : `<div class="tsub" style="margin-top:3px">no date recorded</div>`}`
+            : '<span class="pill prog">open</span>'}</td>
+          <td style="white-space:nowrap">
+            ${!t.requested?`<button class="btn line sm" data-treq="${esc(t.id)}">Asked</button> `:""}
+            ${t.completed
+              ? `<button class="btn line sm" data-tundo="${esc(t.id)}">Undo</button> `
+              : `<button class="btn line sm" data-tdone="${esc(t.id)}">Done</button> `}
+            <button class="btn line sm" data-tnoteadd="${esc(t.id)}">Note</button></td>
+        </tr>`).join("")}
+      </tbody></table>`}
+    </div>`;
+
+  el.querySelectorAll("[data-tscope]").forEach(b=>b.addEventListener("click", async ()=>{
+    trustScope = b.dataset.tscope; trustOpen.clear(); await loadTrust(); finTrust();
+  }));
+  el.querySelectorAll("[data-tside]").forEach(b=>b.addEventListener("click", ()=>{
+    trustSide = b.dataset.tside; finTrust();
+  }));
+  el.querySelectorAll("[data-texp]").forEach(b=>b.addEventListener("click", async ()=>{
+    const id = b.dataset.texp;
+    if(trustOpen.has(id)){ trustOpen.delete(id); finTrust(); return; }
+    trustOpen.add(id);
+    if(!TRUSTH[id]){
+      try{ TRUSTH[id] = await rpc("trust_history",{p_code:CODE, p_exception_id:id}); }
+      catch(e){ TRUSTH[id] = []; }
+    }
+    finTrust();
+  }));
+  el.querySelectorAll("[data-tsave]").forEach(b=>b.addEventListener("click", async ()=>{
+    const id = b.dataset.tsave;
+    const st = el.querySelector(`[data-tstatus="${id}"]`).value;
+    const nt = el.querySelector(`[data-tnote="${id}"]`).value;
+    b.disabled = true;
+    try{
+      await rpc("trust_resolve",{p_code:CODE, p_exception_id:id, p_status:st, p_note:nt});
+      delete TRUSTH[id];
+      TRUSTH[id] = await rpc("trust_history",{p_code:CODE, p_exception_id:id});
+      await loadTrust();
+      toast("Saved. This travels with the item through the next rebuild.");
+    }catch(e){ toast(e.message); }
+    b.disabled = false;
+    finTrust();
+  }));
+  const taskAct = async (id, params, msg) => {
+    try{ await rpc("trust_task_update", Object.assign({p_code:CODE, p_task_id:id}, params));
+         await loadTrust(); toast(msg); finTrust(); }
+    catch(e){ toast(e.message); }
+  };
+  el.querySelectorAll("[data-treq]").forEach(b=>b.addEventListener("click",
+    ()=>taskAct(b.dataset.treq, {p_requested:true}, "Marked as asked.")));
+  el.querySelectorAll("[data-tdonetoggle]").forEach(b=>b.addEventListener("click", async ()=>{
+    trustDone = !trustDone; await loadTrust(); finTrust();
+  }));
+  // Confirmed, because a completed task drops out of the default view - the row you
+  // just closed is not sitting there to be re-read. Undo exists, but it is behind
+  // "Show completed", so the mis-click is recoverable rather than obvious.
+  el.querySelectorAll("[data-tdone]").forEach(b=>b.addEventListener("click", ()=>{
+    const row = b.closest("tr"), name = row ? row.querySelector("td").childNodes[0].textContent : "this item";
+    if(!confirm(`Mark done?\n\n${name}\n\nIt leaves this list. To bring it back, use "Show completed" and then Undo.`)) return;
+    taskAct(b.dataset.tdone, {p_completed:true}, "Marked done.");
+  }));
+  el.querySelectorAll("[data-tundo]").forEach(b=>b.addEventListener("click",
+    ()=>taskAct(b.dataset.tundo, {p_completed:false}, "Reopened.")));
+  el.querySelectorAll("[data-tnoteadd]").forEach(b=>b.addEventListener("click", ()=>{
+    const n = prompt("Add a note. It is stamped with today's date and kept above the older ones.");
+    if(n && n.trim()) taskAct(b.dataset.tnoteadd, {p_note_append:n.trim()}, "Note added.");
+  }));
+}
+
+function trustHistoryHtml(id){
+  const h = TRUSTH[id];
+  if(!h) return `<div class="tsub">Loading history…</div>`;
+  if(!h.length) return `<div class="tsub">No work recorded against this item yet.</div>`;
+  return `<div class="tsub" style="margin-bottom:6px"><b>History</b></div>
+    ${h.map(x=>`<div style="border-left:2px solid var(--line-2);padding:2px 0 8px 10px;margin-bottom:2px">
+      <div style="font-size:13px">${esc(TRUST_LABEL[x.status]||x.status)}${
+        x.note?` — ${esc(x.note)}`:""}</div>
+      <div class="tsub">${esc(x.by_name||"—")} · ${esc(when(x.at))}</div>
+    </div>`).join("")}`;
+}
+
 function finCoverage(){
   const ms = (COV && COV.months) || [];
   if(!ms.length){ $("#finBody").innerHTML =
@@ -3224,6 +3556,7 @@ function openFeedback(){
 }
 $("#feedBtn").addEventListener("click", openFeedback);
 $("#mktBtn").addEventListener("click", openMarket);
+$("#ovwBtn").addEventListener("click", openOverview);
 
 /* ================= trainee ================= */
 async function loadTrainee(){
@@ -3675,6 +4008,305 @@ async function loadManager(){
   await loadTipsManage();
   renderManager();
 }
+/* ================= Portal Overview =================
+   The map is DECLARED here, immediately above the function that draws the tab bar, so
+   that adding a tab without adding a map entry shows up in the same diff. Every count in
+   it comes from the database at load time — nothing about the size of the portal is typed
+   into this file, because hand-written descriptions of this system have gone stale within
+   a fortnight every single time.
+
+   `need` gates a card the same way the tab bar does. `tab` is where clicking lands you. */
+const OVW_MAP = [
+  {tab:"roster",   need:"mgr",   t:"Roster",          d:s=>`Everyone enrolled — ${s.people} people. Progress, licence standing, and the name that links a person to their calls.`},
+  {tab:"ce",       need:"mgr",   t:"Licensing & CE",  d:()=>`Licence numbers, NPNs, renewal dates, the CE cycle, and commercial-lines upgrade requests.`},
+  {tab:"content",  need:"mgr",   t:"Content editor",  d:s=>`Write and correct module content. ${s.modules} published, ${s.drafts} in draft. Saves live to every agent the moment you save.`},
+  {tab:"tracks",   need:"mgr",   t:"Track catalog",   d:s=>`The ${s.tracks} tracks and which modules sit in each.`},
+  {tab:"calls",    need:"calls", t:"Call monitoring", d:s=>`${s.scored.toLocaleString()} calls scored of ${s.recordings.toLocaleString()} recorded. Flags, transcripts, audio, and coaching.`},
+  {tab:"fin",      need:"fin",   t:"Revenue",         d:()=>`Revenue by office, fee activity, programmes and data coverage.`},
+  {tab:"fin",      need:"trust", t:"Premium Trust",   d:()=>`Trust and clearing accounts reconciled against Agency Matrix receipts. A sub-tab of Revenue.`, sub:"trust"},
+  {tab:"tips",     need:"mgr",   t:"Tips",            d:s=>`${s.tips} did-you-know items harvested from carrier newsletters. Nothing reaches an agent unapproved.`},
+  {tab:"feedback", need:"mgr",   t:"Feedback",        d:()=>`What agents have told us, and where you answer them.`},
+  {tab:"activity", need:"mgr",   t:"Activity",        d:()=>`Who completed what, lately, across the agency.`},
+  {tab:"partners", need:"mgr",   t:"Referral partners", d:s=>`${s.partners} car lots, apartment complexes and dealers. Built and loaded, switched off.`},
+  {tab:"add",      need:"mgr",   t:"Add an agent",    d:()=>`Creates them, assigns tracks, links their calls, and emails their code.`},
+  {tab:"market",   need:"any",   t:"Find a market",   d:s=>`Which of our ${s.carriers} markets writes this risk. The search box at the top of every screen.`},
+  {tab:"training", need:"any",   t:"My training",     d:()=>`Your own modules and quizzes. Managers have these too, and they count the same way.`},
+  {tab:"guide",    need:"mgr",   t:"Guide to the Portal", d:()=>`The written half — why the numbers mean what they mean, and where the traps are. Editable, and its figures are live.`},
+];
+
+/* Light markdown. Deliberately small: ## heading, **bold**, *italic*, - bullet, blank line
+   ends a block. Wrapped lines are joined BEFORE the inline pass, so bold that spans a line
+   break still renders — which matters because the prose is hard-wrapped in the database. */
+function gmd(md){
+  const inline = t => esc(t)
+    .replace(/\*\*([\s\S]+?)\*\*/g, "<b>$1</b>")
+    .replace(/(^|[^*])\*([^*\n]+?)\*/g, "$1<i>$2</i>");
+  const out = []; let para = [], items = null;
+  const flushP = () => { if(para.length){ out.push(`<p>${inline(para.join(" "))}</p>`); para = []; } };
+  const flushU = () => {
+    if(items && items.length) out.push(`<ul class="gmd-ul">${
+      items.map(x=>`<li>${inline(x.join(" "))}</li>`).join("")}</ul>`);
+    items = null; };
+  String(md||"").split(/\r?\n/).forEach(raw=>{
+    const l = raw.trim();
+    if(!l){ flushP(); flushU(); return; }
+    if(/^##\s+/.test(l)){ flushP(); flushU();
+      out.push(`<div class="gmd-h">${inline(l.replace(/^##\s+/,""))}</div>`); return; }
+    if(/^-\s+/.test(raw)){ flushP(); items = items||[]; items.push([l.replace(/^-\s+/,"")]); return; }
+    if(items && /^\s+\S/.test(raw)){ items[items.length-1].push(l); return; }
+    flushU(); para.push(l);
+  });
+  flushP(); flushU();
+  return out.join("");
+}
+
+const GNEED = [["any","Everyone with a code"],["mgr","Managers and Braden"],
+  ["owner","Braden only"],["calls","Anyone with call access"],
+  ["calls_full","Named agents and scores (Braden, Belinda)"],
+  ["calls_agg","Patterns only (Betty Jane)"],["fin","Anyone with financial access"],
+  ["fin_full","Full P&L only (Braden)"],["trust","Premium Trust access"]];
+
+async function loadGuide(){
+  try{ GUIDE = await rpc("training_guide",{p_code:CODE, p_include_draft:true}); }
+  catch(e){ GUIDE = {error:e.message}; }
+}
+
+async function openGuide(){
+  if(!GUIDE) await loadGuide();
+  if(GUIDE.error){ toast(GUIDE.error); return; }
+  const modal = $("#modal"); modal.classList.remove("hidden");
+
+  // Coverage: every surface this person can see on the map ought to be explained somewhere.
+  // OVW_MAP is the canonical list of surfaces, so the gap is computed against it rather
+  // than against a second list that would drift away from the first.
+  const covered = new Set(GUIDE.covered||[]);
+  const gaps = OVW && OVW.stats
+    ? [...new Set(OVW_MAP.filter(m=>ovwCan(m.need) && m.tab!=="guide")
+        .filter(m=>!covered.has(m.tab)).map(m=>m.t))]
+    : [];
+
+  modal.innerHTML = `<div class="sheet wide">
+    <div class="sheet-h"><h3>Guide to the Portal</h3>
+      <button class="x" id="gClose">×</button></div>
+    <div class="sheet-b">
+      <p style="margin:-4px 0 16px;color:var(--ink-3);font-size:14px">
+        The written half. <b>Numbers in here are live</b> — they are read from the database each
+        time you open it, so no sentence can carry a stale count. The green
+        <b>Overview</b> button has the map and the counts; this has the reasoning.
+        ${GUIDE.can_edit ? `You can edit any of it — it saves live, like module content.` : ``}
+      </p>
+
+      ${gaps.length ? `<div class="ggap"><b>Not written about yet:</b> ${
+        gaps.map(g=>esc(g)).join(" · ")}. Each of those is something you can reach and nothing
+        here explains. Add a section, or leave it — this is a prompt, not an error.</div>` : ""}
+
+      <div id="gBody">${(GUIDE.sections||[]).map(s=>gsecHtml(s)).join("")}</div>
+
+      ${GUIDE.can_edit ? `<button class="btn line sm" id="gAdd"
+        style="margin-top:6px">Add a section</button>` : ""}
+    </div>
+    <div class="sheet-f">
+      <button class="btn line" id="gBack">Back to Overview</button>
+      <button class="btn line" id="gClose2">Close</button>
+    </div>
+  </div>`;
+
+  gWire();
+  $("#gClose").addEventListener("click", closeModal);
+  $("#gClose2").addEventListener("click", closeModal);
+  $("#gBack").addEventListener("click", openOverview);
+  if($("#gAdd")) $("#gAdd").addEventListener("click", ()=>gEditor(null));
+}
+
+function gsecHtml(s){
+  return `<div class="gsec ${s.stale?"stale":""}" data-gsec="${esc(s.id)}">
+    <h4>${esc(s.title)}${s.status==="draft"
+      ? ` <span class="pill todo">draft</span>` : ""}</h4>
+    <div class="gsec-body">${gmd(s.body)}</div>
+    <div class="gmeta">
+      <span class="tsub">${esc((GNEED.find(g=>g[0]===s.need)||["","?"])[1])}</span>
+      <span style="flex:1"></span>
+      ${s.stale ? `<span class="pill prog" title="Nothing can tell you when written reasoning went out of date. Ninety days is a prompt to re-read it.">not re-read in 90 days</span>
+        <button class="btn line sm" data-greview="${esc(s.id)}">Mark re-read</button>` : ""}
+      ${GUIDE.can_edit ? `<button class="btn line sm" data-gedit="${esc(s.id)}">Edit</button>` : ""}
+    </div></div>`;
+}
+
+function gWire(){
+  const m = $("#modal");
+  m.querySelectorAll("[data-gedit]").forEach(b=>b.addEventListener("click",
+    ()=>gEditor((GUIDE.sections||[]).find(x=>x.id===b.dataset.gedit))));
+  m.querySelectorAll("[data-greview]").forEach(b=>b.addEventListener("click", async ()=>{
+    b.disabled = true;
+    try{ await rpc("training_guide_reviewed",{p_code:CODE, p_id:b.dataset.greview});
+         GUIDE=null; await loadGuide(); openGuide(); toast("Marked as re-read."); }
+    catch(e){ toast(e.message); b.disabled=false; }
+  }));
+}
+
+function gEditor(s){
+  const holder = s ? $(`[data-gsec="${s.id}"]`) : null;
+  const html = `<div class="gedit">
+    <label><span class="tsub">Title</span>
+      <input type="text" id="gT" value="${esc(s?s.title:"")}"></label>
+    <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:8px">
+      <label style="flex:1 1 240px"><span class="tsub">Who sees it</span>
+        <select id="gN">${GNEED.map(([k,l])=>
+          `<option value="${k}" ${s&&s.need===k?"selected":""}>${esc(l)}</option>`).join("")}</select></label>
+      <label style="flex:0 0 150px"><span class="tsub">Explains which tab</span>
+        <input type="text" id="gC" value="${esc(s&&s.covers?s.covers:"")}" placeholder="fin, calls…"></label>
+      <label style="flex:0 0 100px"><span class="tsub">Order</span>
+        <input type="text" id="gO" value="${s?s.sort_order:200}"></label>
+    </div>
+    <label style="display:block;margin-top:8px"><span class="tsub">Body — ## heading, **bold**,
+      *italic*, - bullet. Never type a number; use a {{placeholder}}.</span>
+      <textarea id="gB">${esc(s?s.body_raw||s.body:"")}</textarea></label>
+    <div style="display:flex;gap:8px;margin-top:9px;align-items:center">
+      <button class="btn sm" id="gSave">Save</button>
+      <button class="btn line sm" id="gCancel">Cancel</button>
+      ${s?`<span style="flex:1"></span><button class="btn line sm" id="gDel">Delete</button>`:""}
+    </div>
+    <div class="tsub" style="margin-top:8px">Available placeholders: ${
+      Object.keys((GUIDE.facts)||{}).map(k=>"{{"+k+"}}").join(" · ")}</div>
+  </div>`;
+
+  if(holder){ holder.dataset.prev = holder.innerHTML; holder.innerHTML = html; }
+  else { const d=document.createElement("div"); d.className="gsec"; d.id="gNew";
+         d.innerHTML=html; $("#gBody").appendChild(d); }
+
+  const done = async () => { GUIDE=null; await loadGuide(); openGuide(); };
+  $("#gSave").addEventListener("click", async ()=>{
+    const btn = $("#gSave"); btn.disabled = true;
+    try{
+      await rpc("training_guide_save",{p_code:CODE, p_id:s?s.id:null, p_slug:s?s.slug:null,
+        p_title:$("#gT").value, p_body:$("#gB").value, p_need:$("#gN").value,
+        p_covers:$("#gC").value, p_sort:parseInt($("#gO").value,10)||200, p_status:"published"});
+      toast("Saved. Live to everyone who can see this section.");
+      await done();
+    }catch(e){ toast(e.message); btn.disabled=false; }
+  });
+  $("#gCancel").addEventListener("click", ()=>{
+    if(holder){ holder.innerHTML = holder.dataset.prev; gWire(); }
+    else $("#gNew").remove();
+  });
+  if($("#gDel")) $("#gDel").addEventListener("click", async ()=>{
+    if(!confirm(`Delete "${s.title}"?\n\nThis removes the section for everyone. There is no undo.`)) return;
+    try{ await rpc("training_guide_delete",{p_code:CODE, p_id:s.id});
+         toast("Deleted."); await done(); }catch(e){ toast(e.message); }
+  });
+}
+
+async function loadOverview(){
+  try{ OVW = await rpc("training_overview",{p_code:CODE}); }
+  catch(e){ OVW = {error:e.message}; }
+  ovwBadge();
+}
+
+function ovwBadge(){
+  const b = $("#ovwBtn"), n = $("#ovwN");
+  if(!OVW || OVW.error){ b.classList.add("hidden"); return; }
+  b.classList.remove("hidden");
+  if(OVW.first_visit){
+    b.querySelector(".lbl").textContent = "Start here";
+    n.classList.add("hidden");
+  }else{
+    b.querySelector(".lbl").textContent = "Overview";
+    if(OVW.new_count > 0){ n.textContent = OVW.new_count; n.classList.remove("hidden"); }
+    else n.classList.add("hidden");
+  }
+}
+
+function ovwCan(need){
+  if(need === "any") return true;
+  if(need === "mgr") return !!OVW.is_manager;
+  if(need === "calls") return !!OVW.has_calls;
+  if(need === "fin") return !!OVW.has_fin;
+  if(need === "trust") return !!OVW.has_trust;
+  return false;
+}
+
+async function openOverview(){
+  if(!OVW) await loadOverview();
+  if(OVW.error){ toast(OVW.error); return; }
+  const s = OVW.stats, wasFirst = OVW.first_visit;
+  const modal = $("#modal"); modal.classList.remove("hidden");
+  modal.innerHTML = `<div class="sheet wide">
+    <div class="sheet-h"><h3>The Portal at a glance</h3><button class="x" id="ovwClose">×</button></div>
+    <div class="sheet-b">
+      <p style="margin:-4px 0 18px;color:var(--ink-3);font-size:14px">
+        ${wasFirst
+          ? `Welcome, ${esc(OVW.name)}. Everything the Portal does is listed below, with what is waiting on you at the top.`
+          : `${esc(OVW.name)} — last opened ${esc(when(OVW.seen_at))}.${
+              OVW.new_count ? ` <b style="color:#1E7A46">${OVW.new_count} change${OVW.new_count===1?"":"s"} since.</b>` : " Nothing has changed since."}`}
+      </p>
+
+      ${(OVW.waiting||[]).length ? `<div class="ovw-band">
+        <h4>Waiting on you</h4>
+        ${OVW.waiting.map(w=>`<div class="ovw-wait" data-ovwgo="${esc(w.tab)}">
+          <span class="n">${w.n}</span>
+          <span><b>${esc(w.label)}</b><div class="tsub" style="margin-top:2px">${esc(w.detail)}</div></span>
+        </div>`).join("")}
+        ${OVW.role==="owner" ? `<div class="tsub" style="margin-top:9px">
+          These are only the things the Portal itself can see. Your own list — the decisions and
+          calls nobody else can make — lives in the Claude project as
+          <b>Braden's List — items waiting on you</b>, and is deliberately not copied in here,
+          because a copy would be wrong within a day.</div>` : ""}
+      </div>` : `<div class="ovw-band"><h4>Waiting on you</h4>
+        <div class="tsub">Nothing right now.</div></div>`}
+
+      <div class="ovw-band">
+        <h4>What is here</h4>
+        <div class="ovw-map">${OVW_MAP.filter(m=>ovwCan(m.need)).map(m=>`
+          <div class="ovw-card" data-ovwgo="${esc(m.tab)}" ${m.sub?`data-ovwsub="${esc(m.sub)}"`:""}>
+            <div class="t">${esc(m.t)}</div><div class="d">${esc(m.d(s))}</div>
+          </div>`).join("")}</div>
+      </div>
+
+      <div class="ovw-band">
+        <h4>What changed lately</h4>
+        ${(OVW.feed||[]).slice(0,12).map(f=>`
+          <div class="ovw-feed ${f.is_new?"ovw-new":""}">
+            <div style="font-size:13.5px">${esc(f.who)} ${esc(f.what)}${
+              f.slug?` — <b>${esc(f.slug)}</b>`:""}${f.is_new?` <span class="pill done">new</span>`:""}</div>
+            <div class="tsub">${esc(when(f.at))}</div>
+          </div>`).join("") || `<div class="tsub">Nothing recorded yet.</div>`}
+      </div>
+    </div>
+    <div class="sheet-f"><button class="btn line" id="ovwClose2">Close</button></div>
+  </div>`;
+
+  // Stamping on open is what clears the badge. Do it after rendering, so the page the
+  // person is looking at still shows what was new when they arrived.
+  try{ await rpc("training_overview_seen",{p_code:CODE}); OVW.first_visit=false;
+       OVW.new_count=0; OVW.seen_at=new Date().toISOString(); ovwBadge(); }catch(e){}
+
+  const go = async (tab, sub) => {
+    closeModal();
+    if(tab === "guide"){ openGuide(); return; }
+    if(tab === "market"){ openMarket(); return; }
+    // setMode directly rather than clicking the toggle: the click handler is async and
+    // not awaited, so renderManager() below could run before loadManager() had finished.
+    if(tab === "training"){ if(MODE !== "training") await setMode("training"); return; }
+    if(!OVW.is_manager) return;
+    if(MODE !== "manager") await setMode("manager");
+    mgrTab = tab; selTrainee = null;
+    if(tab==="content" && !CAT) await loadCatalog();
+    if(tab==="ce" && !CE) await loadCE();
+    if(tab==="calls" && !CM) await loadCallMonitor();
+    if(tab==="feedback") await loadFeedback();
+    if(tab==="partners") await loadPartners();
+    if(tab==="tips") await loadTipsManage();
+    if(tab==="fin" && !REV) await loadFin();
+    if(sub === "trust"){ finSub = "trust"; if(!TRUST) await loadTrust(); }
+    renderManager();
+    window.scrollTo({top:0, behavior:"smooth"});
+  };
+  modal.querySelectorAll("[data-ovwgo]").forEach(el=>el.addEventListener("click",
+    ()=>go(el.dataset.ovwgo, el.dataset.ovwsub)));
+  $("#ovwClose").addEventListener("click", closeModal);
+  $("#ovwClose2").addEventListener("click", closeModal);
+}
+
 function renderManager(){
   const ts = MGR.trainees||[], tracks = MGR.tracks||[];
   const notices = MGR.notices||[], unread = notices.filter(n=>!n.is_read).length;
