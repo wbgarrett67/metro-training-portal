@@ -664,6 +664,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     TIPS=null, tipIdx=0, MKT=null, mktQ="", TIPSM=null, tipMFilter="draft",
     CIDX=null, CSHEET=null, mktView="market", mktBackTo="market",
     REV=null, COV=null, FIN=null, FINM=null, FINL={},
+    CARR=null, carrPick=null,
     OVW=null, GUIDE=null,
     TRUST=null, TRUSTT=null, trustScope="open", trustSide="all", trustDone=false,
     trustOpen=new Set(), TRUSTH={},
@@ -1365,6 +1366,9 @@ function finBars(rows, opt){
 /* One or more lines over the same month axis. series = [{name,color,v:[...]}] */
 function finLines(months, series, opt){
   opt = opt||{};
+  // Values are money unless the caller says otherwise. The Carriers panel plots
+  // policy counts here, and an axis labelled "$1,314" for 1,314 policies is a lie.
+  const vfmt = opt.fmt || money0;
   // The viewBox width must match the rendered width or the browser scales the whole
   // drawing up, labels and all. A 12-month chart therefore gets wider spacing rather
   // than a narrow box stretched across the card.
@@ -1396,16 +1400,16 @@ function finLines(months, series, opt){
         stroke-linejoin="round" stroke-linecap="round"/>
         ${s.v.map((v,i)=> v===null||v===undefined ? "" :
           `<circle cx="${x(i).toFixed(1)}" cy="${y(+v).toFixed(1)}" r="2.6" fill="${s.color}"
-            ><title>${esc(s.name)} · ${esc(mLong(months[i]))}: ${money0(v)}</title></circle>`).join("")}`;
+            ><title>${esc(s.name)} · ${esc(mLong(months[i]))}: ${vfmt(v)}</title></circle>`).join("")}`;
     }).join("")}
     ${months.map((m,i)=> i%every===0
       ? `<text x="${x(i).toFixed(1)}" y="${H+3}" font-size="10.5" fill="var(--ink-3)"
            text-anchor="middle">${esc(mShort(m))}</text>` : "").join("")}
     ${opt.tight ? `
       <text x="2" y="${(y(dMax)-5).toFixed(1)}" font-size="10"
-        fill="var(--ink-3)">${esc(money0(dMax))}</text>
+        fill="var(--ink-3)">${esc(vfmt(dMax))}</text>
       <text x="2" y="${(y(dMin)+12).toFixed(1)}" font-size="10"
-        fill="var(--ink-3)">${esc(money0(dMin))}</text>` : ""}
+        fill="var(--ink-3)">${esc(vfmt(dMin))}</text>` : ""}
   </svg>`;
 }
 
@@ -1515,6 +1519,7 @@ function mgrFin(){
   }
   if(finSub === "pl" && !finHasPL()) finSub = "revenue";
   const subs = [["revenue","Revenue by office"],["fees","Fee activity"],
+                ["carriers","Carriers"],
                 ["programs","Programs"],["coverage","Data coverage"]];
   body.innerHTML = `
     <div class="fin-sub">${subs.map(([k,l])=>
@@ -1528,12 +1533,13 @@ function mgrFin(){
     finSub = b.dataset.fin; finLoc = null;
     if(finSub === "pl"    && !FIN)   await loadFinPL();
     if(finSub === "fees"  && !FEE)   await loadFee();
+    if(finSub === "carriers" && !CARR) await loadCarriers();
     if(finSub === "trust" && !TRUST) await loadTrust();
     mgrFin();
   }));
   if(finSub === "office") finSub = "revenue";   // retired: the scope selector replaced it
   if(finSub === "trust" && !finHasTrust()) finSub = "revenue";
-  ({revenue:finRevenue, fees:finFees, programs:finPrograms,
+  ({revenue:finRevenue, fees:finFees, carriers:finCarriers, programs:finPrograms,
     coverage:finCoverage, pl:finPL, trust:finTrust})[finSub]();
 }
 
@@ -3320,6 +3326,403 @@ function trustHistoryHtml(id){
         x.note?` — ${esc(x.note)}`:""}</div>
       <div class="tsub">${esc(x.by_name||"—")} · ${esc(when(x.at))}</div>
     </div>`).join("")}`;
+}
+
+/* ---- CARRIERS -------------------------------------------------------------
+   What is going on inside each carrier's book, and inside the agency's book as
+   a whole: new business, renewals, payments, policies that came back, policies
+   that cancelled.
+
+   This panel sits behind finHasFin(), the same 'revenue' gate as the rest of the
+   Revenue tab, so Braden, Belinda and Betty Jane all see it and nobody else does.
+   training_carrier_overview returns AGGREGATE ROWS ONLY — no insured name and no
+   policy number crosses the wire — which is why Belinda and Betty Jane can see the
+   whole picture without being raised to 'full'.
+
+   THREE THINGS THIS PANEL MUST KEEP SAYING, because each one has already produced
+   a wrong answer during the build:
+
+   1. COVERAGE. The loaded carriers are a share of commission income, not all of
+      it. Every agency-level figure here is "of what we can see", and the share is
+      printed at the top rather than buried in a footnote.
+
+   2. THE CARRIERS DO NOT SPEAK THE SAME LANGUAGE. Progressive names seven
+      transaction types; Traders names two; Travelers four; USIC prints none at
+      all on any of its 6,385 lines. Where a carrier cannot answer a question, the
+      cell says so. It never shows a zero, because a zero means "none happened"
+      and the truth is "the statement does not say".
+
+   3. WARM-UP. A policy whose first appearance inside the loaded window is a
+      renewal looks like new business, because nothing before the window exists.
+      Measured against Progressive's own labels this was 49–77% wrong for the
+      first six months and 2% wrong by month fourteen. Months inside a carrier's
+      warm-up are drawn but never counted, and they are visibly marked. */
+
+const carrHas = () => !!(CARR && !CARR.error && (CARR.carriers||[]).length);
+// These charts count policies, not dollars.
+const carrN = n => (n===null||n===undefined||isNaN(+n)) ? "\u2014"
+  : Math.round(+n).toLocaleString("en-US") + " policies";
+
+async function loadCarriers(){
+  try{ CARR = await rpc("training_carrier_overview",{p_code:CODE}); }
+  catch(e){ CARR = {error:e.message, carriers:[], months:[], books:[], native:[]}; }
+}
+
+const CARR_STATE = [
+  ["new",       "New business", "#1a7f52"],
+  ["renewal",   "Renewals",     "#3B3D80"],
+  ["continuing","Payments",     "#8a8db8"],
+  ["returned",  "Came back",    "#c8952b"]
+];
+
+function carrMonths(code){
+  return (CARR.months||[]).filter(m => m.carrier === code)
+         .sort((a,b)=> a.month < b.month ? -1 : 1);
+}
+function carrCard(code){ return (CARR.carriers||[]).find(c => c.code === code); }
+
+/* The agency roll-up has to add months across carriers whose series start in
+   different months. Summing them raw would draw a staircase that says nothing
+   about the business — Traders starting in May 2025 would look like growth. So
+   the roll-up spans only months where every carrier it counts is present and
+   past its warm-up, and it names the span underneath.
+
+   But requiring EVERY carrier would let the smallest one veto the whole view.
+   Travelers is 0.7% of loaded commission over seven months with a six-month
+   warm-up, which leaves it one usable month — and demanding its presence would
+   blank the agency chart entirely on account of a carrier that rounds to zero.
+   So a carrier has to be MATERIAL to hold the span open. It is still counted in
+   every month it appears in; it just does not get a veto, and the panel says
+   which carriers were set aside. */
+const CARR_MATERIAL = 0.02;      // 2% of loaded commission
+
+function carrMaterial(){
+  const cs = CARR.carriers||[];
+  const all = cs.reduce((a,c)=> a + (+c.commission||0), 0) || 1;
+  return cs.filter(c => (+c.commission||0)/all >= CARR_MATERIAL);
+}
+function carrImmaterial(){
+  const keep = new Set(carrMaterial().map(c=>c.code));
+  return (CARR.carriers||[]).filter(c => !keep.has(c.code));
+}
+function carrCommonMonths(){
+  const need = carrMaterial().map(c=>c.code);
+  if(!need.length) return [];
+  const seen = {};
+  (CARR.months||[]).forEach(m => {
+    if(need.includes(m.carrier)) (seen[m.month] = seen[m.month] || new Set()).add(m.carrier);
+  });
+  return Object.keys(seen).filter(k => seen[k].size === need.length).sort();
+}
+
+function finCarriers(){
+  const host = $("#finBody");
+  if(!CARR){ host.innerHTML = `<div class="card fin-pad"><div class="empty">Loading…</div></div>`; return; }
+  if(CARR.error){
+    host.innerHTML = `<div class="card fin-pad"><div class="empty">${esc(CARR.error)}</div></div>`; return; }
+  if(!carrHas()){
+    host.innerHTML = `<div class="card fin-pad"><div class="empty">
+      No carrier commission statements are loaded yet.</div></div>`; return; }
+  if(carrPick && !carrCard(carrPick)) carrPick = null;
+  carrPick ? carrDetail() : carrOverview();
+}
+
+function carrCoverBanner(){
+  const cov = CARR.coverage || {};
+  const inc = +cov.window_income || 0, got = +cov.window_loaded || 0;
+  const pct = inc ? got/inc*100 : 0;
+  const W = finCW(), H = 12;
+  return `
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <div class="fin-h" style="margin-top:0">What these panels can see</div>
+      <svg viewBox="0 0 ${W} ${H}" class="fin-chart" style="height:${H}px" role="img"
+        aria-label="${pct.toFixed(0)} percent of commission income is loaded">
+        <rect x="0" y="0" width="${W}" height="${H}" rx="6" fill="var(--line)"/>
+        <rect x="0" y="0" width="${(W*Math.min(1,pct/100)).toFixed(1)}" height="${H}" rx="6"
+          fill="#3B3D80"/>
+      </svg>
+      <p class="fin-cap" style="margin-top:10px">
+        <b>${pct.toFixed(0)}% of commission income</b> — ${money0(got)} of ${money0(inc)} over the
+        last twelve months — arrives from a carrier whose statements are loaded. The rest comes from
+        carriers not yet gathered, so <b>every agency-level count on this page is a count of what we
+        can see, not of the whole agency.</b> The one-off Progressive annual bonus is excluded from
+        the ${money0(inc)}, because no monthly statement will ever contain it.</p>
+    </div>`;
+}
+
+function carrOverview(){
+  const cs = (CARR.carriers||[]).slice().sort((a,b)=> (+b.commission||0)-(+a.commission||0));
+  const common = carrCommonMonths();
+
+  /* Agency mix, over the months every loaded carrier shares. Warm-up months are
+     excluded outright — including them would put the whole of Progressive's first
+     half-year of phantom "new business" into the agency total. */
+  const need = new Set(carrMaterial().map(c=>c.code));
+  const usable = common.filter(mo =>
+    (CARR.months||[]).filter(m=>m.month===mo && need.has(m.carrier)).every(m=>!m.in_warmup));
+  const setAside = carrImmaterial();
+  const agg = usable.map(mo => {
+    const rows = (CARR.months||[]).filter(m => m.month===mo);
+    const s = k => rows.reduce((a,r)=> a + (+r[k]||0), 0);
+    return {month:mo, new:s("new"), renewal:s("renewal"), continuing:s("continuing"),
+            returned:s("returned"), cancelled:s("cancelled"),
+            commission:s("commission"), policies:s("policies")};
+  });
+  const tot = k => agg.reduce((a,r)=> a + (+r[k]||0), 0);
+  const totalMoves = tot("new")+tot("renewal")+tot("continuing")+tot("returned");
+
+  $("#finBody").innerHTML = `
+    ${carrCoverBanner()}
+
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Carriers loaded</div>
+        <div class="v">${cs.length}</div>
+        <div class="tsub">${esc(cs.map(c=>c.name.split(" (")[0].split(" —")[0]).join(", "))}</div></div>
+      <div class="stat"><div class="k">Policies tracked</div>
+        <div class="v">${cs.reduce((a,c)=>a+(+c.policies||0),0).toLocaleString("en-US")}</div>
+        <div class="tsub">distinct policies seen at least once</div></div>
+      <div class="stat"><div class="k">Commission read</div>
+        <div class="v">${money0(cs.reduce((a,c)=>a+(+c.commission||0),0))}</div>
+        <div class="tsub">every statement tied to its own printed total</div></div>
+      <div class="stat"><div class="k">New business</div>
+        <div class="v">${tot("new").toLocaleString("en-US")}</div>
+        <div class="tsub">${usable.length} month${usable.length===1?"":"s"} all carriers share</div></div>
+    </div>
+
+    <div class="card fin-pad">
+      <div class="fin-h" style="margin-top:0">Every carrier, side by side</div>
+      <div style="overflow-x:auto">
+      <table class="fin-t"><thead><tr>
+        <th>Carrier</th><th class="n">Months</th><th class="n">Policies</th>
+        <th class="n">Premium</th><th class="n">Commission</th><th class="n">Rate</th>
+        <th class="hide-sm">Period</th>
+      </tr></thead><tbody>${cs.map(c=>{
+        const rate = (+c.premium) ? (+c.commission)/(+c.premium)*100 : null;
+        return `<tr class="clk" data-carr="${esc(c.code)}">
+          <td><b>${esc(c.name)}</b><div class="tsub">${esc(c.grain||"")}</div></td>
+          <td class="n">${c.statements}</td>
+          <td class="n">${(+c.policies||0).toLocaleString("en-US")}</td>
+          <td class="n">${money0(c.premium)}</td>
+          <td class="n"><b>${money0(c.commission)}</b></td>
+          <td class="n">${rate===null?"—":rate.toFixed(1)+"%"}</td>
+          <td class="hide-sm"><span class="tsub">${c.first_month?esc(mLong(c.first_month)):"—"}
+            – ${c.last_month?esc(mLong(c.last_month)):"—"}</span></td>
+        </tr>`; }).join("")}</tbody></table></div>
+      <p class="fin-cap" style="margin-bottom:4px">Pick a carrier to open it.</p>
+      <p class="fin-cap">Rate is commission divided by premium across the whole loaded period. It is
+        a blend, not a contract rate — Traders alone pays 12%, 12.5%, 13% and 15% depending on the
+        policy, and a shift in that mix moves the blend without any rate ever changing.</p>
+    </div>
+
+    ${usable.length ? `
+    <div class="card fin-pad" style="margin-top:16px">
+      <div class="fin-h" style="margin-top:0">What the book did, all loaded carriers together</div>
+      ${finLines(agg.map(a=>a.month), CARR_STATE.map(([k,,col]) =>
+        ({name:CARR_STATE.find(s=>s[0]===k)[1], color:col, v:agg.map(a=>+a[k]||0)})),
+        {tight:true, fmt:carrN, alt:"Monthly policy movements by type"})}
+      ${finLegend(CARR_STATE.map(([,name,col])=>({name, color:col})))}
+      <div style="overflow-x:auto;margin-top:14px">
+      <table class="fin-t"><thead><tr><th>Month</th>
+        ${CARR_STATE.map(([,n])=>`<th class="n">${esc(n)}</th>`).join("")}
+        <th class="n">Cancelled</th><th class="n">Policies</th><th class="n">Commission</th>
+      </tr></thead><tbody>${agg.slice().reverse().map(a=>`
+        <tr><td>${esc(mLong(a.month))}</td>
+          ${CARR_STATE.map(([k])=>`<td class="n">${(+a[k]||0).toLocaleString("en-US")}</td>`).join("")}
+          <td class="n">${(+a.cancelled||0).toLocaleString("en-US")}</td>
+          <td class="n">${(+a.policies||0).toLocaleString("en-US")}</td>
+          <td class="n">${money0(a.commission)}</td></tr>`).join("")}
+        <tr style="border-top:2px solid var(--line-2)"><td><b>Total</b></td>
+          ${CARR_STATE.map(([k])=>`<td class="n"><b>${tot(k).toLocaleString("en-US")}</b></td>`).join("")}
+          <td class="n"><b>${tot("cancelled").toLocaleString("en-US")}</b></td>
+          <td class="n">—</td><td class="n"><b>${money0(tot("commission"))}</b></td></tr>
+      </tbody></table></div>
+      <p class="fin-cap">
+        <b>How to read this.</b> One row per policy per month, counted once however many lines the
+        statement printed for it. <i>Payments</i> dominates because two of the four loaded carriers
+        bill monthly — a payment is an instalment inside a term, not a renewal, and it says only that
+        the policy is still there. <i>New business</i> is
+        ${totalMoves ? (tot("new")/totalMoves*100).toFixed(1) : "0"}% of all movement, which is the
+        number worth watching. <i>Came back</i> means the policy was absent a month and reappeared;
+        it is not the same as a formal reinstatement and it has innocent explanations, a late payment
+        being the commonest.</p>
+      <p class="fin-cap">Spanning ${esc(mLong(usable[0]))} – ${esc(mLong(usable[usable.length-1]))},
+        the months in which every carrier that carries real weight is present and out of its warm-up
+        window. Carriers start at different dates, so adding all of them across all months would draw
+        a staircase of arrivals and read as growth.${setAside.length ? `
+        ${esc(setAside.map(c=>c.name.split(" (")[0]).join(", "))}
+        ${setAside.length===1?"is":"are"} counted in every month
+        ${setAside.length===1?"it appears":"they appear"} in but
+        ${setAside.length===1?"does":"do"} not hold the span open, being under
+        ${(CARR_MATERIAL*100).toFixed(0)}% of loaded commission — otherwise the smallest carrier in
+        the set would decide how far back the whole agency view could go.` : ""}</p>
+    </div>` : `
+    <div class="fin-note" style="margin-top:16px">There is not yet a month in which every loaded
+      carrier is present and past its warm-up window, so no combined agency view is drawn. Open a
+      carrier below to see it on its own.</div>`}
+
+    <div class="card fin-pad" style="margin-top:16px">
+      <div class="fin-h" style="margin-top:0">What each carrier can and cannot tell us</div>
+      <div style="overflow-x:auto">
+      <table class="fin-t"><thead><tr>
+        <th>Carrier</th><th>Names its transactions</th><th>Can show renewals</th>
+        <th class="n">Warm-up</th><th class="hide-sm">Why</th>
+      </tr></thead><tbody>${cs.map(c=>`
+        <tr><td>${esc(c.name.split(" (")[0])}</td>
+          <td>${c.has_native_types
+            ? '<span class="pill done">yes</span>'
+            : '<span class="pill fail">no</span>'}</td>
+          <td>${c.can_see_renewal
+            ? '<span class="pill done">yes</span>'
+            : '<span class="pill fail">no</span>'}</td>
+          <td class="n">${c.warmup_months} mo</td>
+          <td class="hide-sm"><span class="tsub">${esc(c.warmup_basis||"")}</span></td>
+        </tr>`).join("")}</tbody></table></div>
+      <p class="fin-cap">A <b>no</b> here is a fact about the carrier's paperwork, not a gap in the
+        load. USIC prints no transaction type on any line and its policy numbers carry no term
+        counter, so its renewals are genuinely unknowable from the statement — which is why they show
+        as <i>not stated</i> rather than as zero. Getting that answer would need a different USIC
+        report, not more of this one.</p>
+    </div>`;
+
+  $("#finBody").querySelectorAll("[data-carr]").forEach(b =>
+    b.addEventListener("click", () => { carrPick = b.dataset.carr; finCarriers();
+      window.scrollTo({top:0, behavior:"smooth"}); }));
+}
+
+function carrDetail(){
+  const c = carrCard(carrPick);
+  const ms = carrMonths(carrPick);
+  const usable = ms.filter(m => !m.in_warmup);
+  const warm = ms.filter(m => m.in_warmup);
+  const books = (CARR.books||[]).filter(b => b.carrier === carrPick);
+  const nat = (CARR.native||[]).filter(n => n.carrier === carrPick)
+                .sort((a,b)=> (+b.lines||0)-(+a.lines||0));
+  const tot = k => usable.reduce((a,r)=> a + (+r[k]||0), 0);
+  const bookTot = books.reduce((a,b)=> a + (+b.commission||0), 0);
+
+  /* First month against last month is a comparison of two single months, and one month of
+     a commission statement moves on billing timing as much as on business. So compare the
+     first three usable months against the last three, and say so on the tile. With fewer
+     than six usable months there is nothing honest to compare and the stat says so, rather
+     than inventing a trend out of two points. */
+  const ENDS = 3;
+  const canTrend = usable.length >= ENDS*2;
+  const avgOf = (rows,k) => rows.reduce((a,r)=>a+(+r[k]||0),0)/(rows.length||1);
+  const head = usable.slice(0, ENDS), tail = usable.slice(-ENDS);
+  const commChange = canTrend && avgOf(head,"commission")
+    ? finPct(avgOf(tail,"commission"), avgOf(head,"commission")) : null;
+  const polChange = canTrend && avgOf(head,"policies")
+    ? finPct(avgOf(tail,"policies"), avgOf(head,"policies")) : null;
+  const yr4 = m => String(m).slice(0,4);
+  const trendSpan = canTrend
+    ? mShort(head[0].month)+" "+yr4(head[0].month)+" \u2192 "
+      +mShort(tail[tail.length-1].month)+" "+yr4(tail[tail.length-1].month)
+    : "needs "+(ENDS*2)+" months clear of warm-up";
+
+  $("#finBody").innerHTML = `
+    <button class="fin-back" id="carrBack">← All carriers</button>
+
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Commission</div>
+        <div class="v">${money0(c.commission)}</div>
+        <div class="tsub">${c.statements} statements, ${(+c.lines||0).toLocaleString("en-US")} lines</div></div>
+      <div class="stat"><div class="k">Policies</div>
+        <div class="v">${(+c.policies||0).toLocaleString("en-US")}</div>
+        <div class="tsub">distinct, over the whole period</div></div>
+      <div class="stat"><div class="k">Commission trend</div>
+        <div class="v" style="font-size:24px">${commChange===null?"\u2014":pctSpan(commChange)}</div>
+        <div class="tsub">${esc(trendSpan)}${canTrend?", first 3 months against last 3":""}</div></div>
+      <div class="stat"><div class="k">Policy count trend</div>
+        <div class="v" style="font-size:24px">${polChange===null?"\u2014":pctSpan(polChange)}</div>
+        <div class="tsub">${
+          (commChange!==null && polChange!==null && commChange<0 && polChange<0
+             && commChange < polChange)
+            ? "commission falling faster than count \u2014 what is left is smaller too"
+          : (commChange!==null && polChange!==null && commChange>0 && polChange<0)
+            ? "fewer policies, more money \u2014 larger policies"
+          : "\u00a0"}</div></div>
+    </div>
+
+    ${warm.length ? `<div class="fin-note" style="margin-bottom:16px">
+      <b>${warm.length} warm-up month${warm.length===1?"":"s"}
+      (${esc(mLong(warm[0].month))}${warm.length>1?" – "+esc(mLong(warm[warm.length-1].month)):""})
+      are shown but not counted.</b> Before the loaded window has run one full policy term, a policy
+      renewing for the first time inside it cannot be told apart from a brand-new one. ${esc(c.warmup_basis||"")}
+    </div>` : ""}
+
+    <div class="card fin-pad">
+      <div class="fin-h" style="margin-top:0">${esc(c.name)} — month by month</div>
+      ${finLines(ms.map(m=>m.month), [
+        {name:"Commission", color:"#3B3D80", v:ms.map(m=>+m.commission||0)}
+      ], {tight:true, alt:"Monthly commission"})}
+      <div style="overflow-x:auto;margin-top:14px">
+      <table class="fin-t"><thead><tr>
+        <th>Month</th><th class="n">Policies</th>
+        ${CARR_STATE.map(([,n])=>`<th class="n">${esc(n)}</th>`).join("")}
+        <th class="n">Cancelled</th><th class="n">Premium</th><th class="n">Commission</th>
+      </tr></thead><tbody>${ms.slice().reverse().map(m=>`
+        <tr${m.in_warmup?' style="opacity:.55"':""}>
+          <td>${esc(mLong(m.month))}${m.in_warmup?' <span class="tsub">warm-up</span>':""}</td>
+          <td class="n">${(+m.policies||0).toLocaleString("en-US")}</td>
+          ${CARR_STATE.map(([k])=> `<td class="n">${
+            (k==="renewal" && !c.can_see_renewal)
+              ? '<span class="tsub">not stated</span>'
+              : (+m[k]||0).toLocaleString("en-US")}</td>`).join("")}
+          <td class="n">${c.has_native_types
+            ? (+m.cancelled||0).toLocaleString("en-US")
+            : '<span class="tsub">not stated</span>'}</td>
+          <td class="n">${money0(m.premium)}</td>
+          <td class="n"><b>${money0(m.commission)}</b></td></tr>`).join("")}
+        <tr style="border-top:2px solid var(--line-2)"><td><b>Counted total</b></td>
+          <td class="n">—</td>
+          ${CARR_STATE.map(([k])=> `<td class="n"><b>${
+            (k==="renewal" && !c.can_see_renewal) ? "—" : tot(k).toLocaleString("en-US")}</b></td>`).join("")}
+          <td class="n"><b>${c.has_native_types ? tot("cancelled").toLocaleString("en-US") : "—"}</b></td>
+          <td class="n"><b>${money0(tot("premium"))}</b></td>
+          <td class="n"><b>${money0(tot("commission"))}</b></td></tr>
+      </tbody></table></div>
+      ${warm.length ? `<p class="fin-cap">The counted total excludes the greyed warm-up
+        month${warm.length===1?"":"s"}, so it will not match the ${money0(c.commission)} headline
+        above, which is the whole loaded period.</p>` : ""}
+    </div>
+
+    <div class="fin-grid2" style="margin-top:16px">
+      <div class="card fin-pad">
+        <div class="fin-h" style="margin-top:0">Where the book sits</div>
+        <table class="fin-t"><thead><tr><th>Office / book</th>
+          <th class="n">Policies</th><th class="n">Commission</th><th class="n">Share</th>
+        </tr></thead><tbody>${books.map(b=>`
+          <tr><td>${esc(b.book)}</td>
+            <td class="n">${(+b.policies||0).toLocaleString("en-US")}</td>
+            <td class="n">${money0(b.commission)}</td>
+            <td class="n">${bookTot?((+b.commission)/bookTot*100).toFixed(1)+"%":"—"}</td>
+          </tr>`).join("")}</tbody></table>
+        ${books.some(b=>b.book==="Unassigned") ? `<p class="fin-cap"><b>Unassigned</b> is commission
+          the statement did not attribute to an office. It is money we were paid; it is not money we
+          cannot trace to a location by other means.</p>` : ""}
+      </div>
+
+      <div class="card fin-pad">
+        <div class="fin-h" style="margin-top:0">What the statement itself calls things</div>
+        ${nat.length ? `<table class="fin-t"><thead><tr>
+          <th>The carrier's word</th><th>Ours</th><th class="n">Lines</th><th class="n">Commission</th>
+        </tr></thead><tbody>${nat.map(n=>`
+          <tr><td>${esc(n.native)}</td>
+            <td><span class="tsub">${esc((n.house||"").toLowerCase().replace(/_/g," "))}</span></td>
+            <td class="n">${(+n.lines||0).toLocaleString("en-US")}</td>
+            <td class="n">${money0(n.commission)}</td></tr>`).join("")}</tbody></table>
+          <p class="fin-cap">Kept in the carrier's own words alongside ours, so a figure here can
+            always be checked against the paper statement without translating it first.</p>`
+        : `<p class="fin-cap"><b>This carrier names nothing.</b> ${esc(c.name.split(" (")[0])}
+            prints no transaction type on any of its ${(+c.lines||0).toLocaleString("en-US")} lines,
+            so everything in the table above is read from policy history instead — whether a policy
+            had been seen before, and whether it was here last month. That is enough to tell new
+            from continuing, and not enough to tell a renewal from an instalment.</p>`}
+      </div>
+    </div>`;
+
+  $("#carrBack").addEventListener("click", () => { carrPick = null; finCarriers();
+    window.scrollTo({top:0, behavior:"smooth"}); });
 }
 
 function finCoverage(){
