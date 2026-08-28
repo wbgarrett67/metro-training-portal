@@ -671,6 +671,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     REV=null, COV=null, FIN=null, FINM=null, FINL={},
     CARR=null, carrPick=null,
     CUST=null, custView="lapsed", custQ="",
+    LOC=null, locPick=null,
     OVW=null, GUIDE=null,
     TRUST=null, TRUSTT=null, trustScope="open", trustSide="all", trustDone=false,
     trustOpen=new Set(), TRUSTH={},
@@ -3433,6 +3434,10 @@ function finCarriers(){
     host.innerHTML = `<div class="card fin-pad"><div class="empty">
       No carrier commission statements are loaded yet.</div></div>`; return; }
   if(carrPick && !carrCard(carrPick)) carrPick = null;
+  // The location view is its own branch and carries no customer panel — the customer
+  // list is scoped by carrier, not by office, so showing it here would be a different
+  // question answered with the wrong rows.
+  if(locPick){ locDetail(); return; }
   // The customer list is scoped to the picked carrier, so a change of carrier
   // invalidates it. Refetch, then re-render once the rows are in.
   if(carrHasCust() && !CUST){
@@ -3502,6 +3507,8 @@ function carrOverview(){
         <div class="v">${tot("new").toLocaleString("en-US")}</div>
         <div class="tsub">${usable.length} month${usable.length===1?"":"s"} all carriers share</div></div>
     </div>
+
+    ${locPicker()}
 
     <div class="card fin-pad">
       <div class="fin-h" style="margin-top:0">Every carrier, side by side</div>
@@ -3599,7 +3606,7 @@ function carrOverview(){
     </div>`;
 
   $("#finBody").insertAdjacentHTML("beforeend", custPanel());
-  custRender(); custWire();
+  custRender(); custWire(); locWire();
 
   $("#finBody").querySelectorAll("[data-carr]").forEach(b =>
     b.addEventListener("click", () => { carrPick = b.dataset.carr; CUST = null; finCarriers();
@@ -3871,6 +3878,187 @@ function custWire(){
     await loadCustomers(); finCarriers(); };
   if(go) go.addEventListener("click", run);
   if(q)  q.addEventListener("keydown", e => { if(e.key === "Enter") run(); });
+}
+
+/* ---- ONE LOCATION, ALL CARRIERS ------------------------------------------
+   The transpose of the carrier view. Braden, 28 August 2026: "could I have the
+   choice of looking up individual locations across all carriers?"
+
+   The carrier view answers "how is Traders doing?". This answers "how is Harvard
+   doing?", which is the question an office manager actually has, and it is the
+   only screen that shows an office placing business differently from the rest of
+   the agency.
+
+   Fetched on demand — 19 books across 4 carriers and 20 months is ~800 rows
+   nobody looks at until they choose one. */
+
+const LOC_CARR_COLORS = ["#3B3D80","#c8952b","#1a7f52","#b3261e","#7a5710","#8a8db8"];
+
+async function loadLocation(book){
+  try{ LOC = await rpc("training_carrier_location", {p_code:CODE, p_book:book}); }
+  catch(e){ LOC = {error:e.message, carriers:[], months:[]}; }
+}
+
+/* The dropdown list comes from the overview payload, which already carries one row
+   per carrier per book — so the options cost nothing extra. Ordered by what the
+   book is worth, because that is the order somebody looks for them in. */
+function locOptions(){
+  const by = {};
+  ((CARR && CARR.books) || []).forEach(b => {
+    by[b.book] = (by[b.book] || 0) + (+b.commission || 0);
+  });
+  return Object.keys(by).sort((a,b) => by[b] - by[a]);
+}
+
+function locPicker(){
+  const opts = locOptions();
+  if(!opts.length) return "";
+  return `
+    <div class="card fin-pad" style="margin-bottom:16px;display:flex;gap:12px;
+         align-items:center;flex-wrap:wrap">
+      <div>
+        <div class="fin-h" style="margin:0 0 2px">${locPick
+          ? "Look at a different office" : "Look at one office across every carrier"}</div>
+        <span class="tsub">${locPick
+          ? "Switch without going back."
+          : "The other way round from the table below — one location, all carriers."}</span>
+      </div>
+      <select id="locSel" style="margin-left:auto;padding:8px 12px;border:1px solid var(--line);
+        border-radius:8px;font:inherit;background:#fff;min-width:min(240px,100%)">
+        <option value="">Choose an office…</option>
+        ${opts.map(o=>`<option value="${esc(o)}"${locPick===o?" selected":""}>${esc(o)}</option>`).join("")}
+      </select>
+    </div>`;
+}
+
+function locWire(){
+  const sel = $("#locSel"); if(!sel) return;
+  sel.addEventListener("change", async () => {
+    locPick = sel.value || null; LOC = null; carrPick = null; CUST = null;
+    if(locPick) await loadLocation(locPick);
+    finCarriers(); window.scrollTo({top:0, behavior:"smooth"});
+  });
+}
+
+function locDetail(){
+  const host = $("#finBody");
+  if(!LOC){ host.innerHTML = `<div class="card fin-pad"><div class="empty">Loading…</div></div>`; return; }
+  if(LOC.error){
+    host.innerHTML = `<div class="card fin-pad"><div class="empty">${esc(LOC.error)}</div></div>`; return; }
+
+  const cs = LOC.carriers || [], t = LOC.totals || {};
+  const months = [...new Set((LOC.months||[]).map(m=>m.month))].sort();
+  const share12 = (+t.agency_commission_12)
+    ? (+t.commission_12)/(+t.agency_commission_12)*100 : null;
+
+  /* One line per carrier over a shared month axis. A carrier absent in a month is
+     null rather than zero, so its line stops instead of diving to the floor and
+     inventing a collapse that never happened. */
+  const series = cs.map((c,i) => ({
+    name: c.name.split(" (")[0], color: LOC_CARR_COLORS[i % LOC_CARR_COLORS.length],
+    v: months.map(mo => {
+      const r = (LOC.months||[]).find(x => x.month===mo && x.carrier===c.code);
+      return r ? +r.commission||0 : null;
+    })
+  }));
+
+  const totNew = cs.reduce((a,c)=>a+(+c.new||0),0);
+  const totRen = cs.reduce((a,c)=>a+(+c.renewal||0),0);
+  const totCon = cs.reduce((a,c)=>a+(+c.continuing||0),0);
+  const totRet = cs.reduce((a,c)=>a+(+c.returned||0),0);
+  const anyBlind = cs.some(c => !c.can_see_renewal);
+
+  host.innerHTML = `
+    <button class="fin-back" id="locBack">← All carriers</button>
+    ${locPicker()}
+
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Commission</div>
+        <div class="v">${money0(t.commission)}</div>
+        <div class="tsub">${t.first_month?esc(mMY(t.first_month)):"—"} – ${
+          t.last_month?esc(mMY(t.last_month)):"—"}, loaded carriers only</div></div>
+      <div class="stat"><div class="k">Policies</div>
+        <div class="v">${(+t.policies||0).toLocaleString("en-US")}</div>
+        <div class="tsub">distinct, across ${t.carriers} carrier${t.carriers===1?"":"s"}</div></div>
+      <div class="stat"><div class="k">Share of the agency</div>
+        <div class="v">${share12===null?"—":share12.toFixed(1)+"%"}</div>
+        <div class="tsub">of loaded commission, last 12 months</div></div>
+      <div class="stat"><div class="k">New business</div>
+        <div class="v">${totNew.toLocaleString("en-US")}</div>
+        <div class="tsub">policy-months, warm-up excluded</div></div>
+    </div>
+
+    <div class="card fin-pad">
+      <div class="fin-h" style="margin-top:0">${esc(LOC.book)} — who this office writes with</div>
+      <div style="overflow-x:auto">
+      <table class="fin-t"><thead><tr>
+        <th>Carrier</th><th class="n">Policies</th><th class="n">Premium</th>
+        <th class="n">Commission</th><th class="n">Share here</th>
+        <th class="n">Agency</th><th class="n">Difference</th>
+      </tr></thead><tbody>${cs.map(c=>{
+        const gap = (c.share_here===null||c.share_agency===null) ? null
+                  : (+c.share_here) - (+c.share_agency);
+        return `<tr>
+          <td>${esc(c.name.split(" (")[0])}</td>
+          <td class="n">${(+c.policies||0).toLocaleString("en-US")}</td>
+          <td class="n">${money0(c.premium)}</td>
+          <td class="n"><b>${money0(c.commission)}</b></td>
+          <td class="n">${c.share_here===null?"—":(+c.share_here).toFixed(1)+"%"}</td>
+          <td class="n"><span class="tsub">${c.share_agency===null?"—":(+c.share_agency).toFixed(1)+"%"}</span></td>
+          <td class="n">${gap===null?"—":
+            `<span class="fin-num ${Math.abs(gap)<5?"":gap>0?"fin-pos":"fin-neg"}">${
+              (gap>0?"+":gap<0?"−":"")+Math.abs(gap).toFixed(1)}pt</span>`}</td>
+        </tr>`;}).join("")}</tbody></table></div>
+      <p class="fin-cap"><b>The last column is the point of this screen.</b> It is this office's share
+        of a carrier minus the whole agency's share of the same carrier, both over the last twelve
+        months so no carrier gets credit for simply having been loaded further back. A large positive
+        means this office leans on that carrier much harder than the rest of the agency does; a large
+        negative means it barely uses a carrier everybody else does. Anything inside about 5 points is
+        ordinary variation and is left unmarked.</p>
+      <p class="fin-cap"><b>Shares are of the loaded carriers only, not of this office's whole book.</b>
+        Roughly 38% of agency commission comes from carriers not yet gathered, and there is no reason
+        to assume that missing share is spread evenly across offices — so an office can look
+        concentrated here simply because the carriers it favours are the ones not loaded yet.</p>
+    </div>
+
+    ${months.length ? `
+    <div class="card fin-pad" style="margin-top:16px">
+      <div class="fin-h" style="margin-top:0">Commission by carrier, month by month</div>
+      ${finLines(months, series, {tight:true, alt:"Monthly commission by carrier for this office"})}
+      ${finLegend(series.map(s=>({name:s.name, color:s.color})))}
+      <p class="fin-cap">A line stops where that carrier's loaded period stops rather than dropping to
+        zero — the carriers were loaded from different start dates, and a line falling to the floor
+        would read as an office losing a carrier it never lost.</p>
+    </div>` : ""}
+
+    <div class="card fin-pad" style="margin-top:16px">
+      <div class="fin-h" style="margin-top:0">What this office's book did</div>
+      <div style="overflow-x:auto">
+      <table class="fin-t"><thead><tr>
+        <th>Carrier</th>${CARR_STATE.map(([,n])=>`<th class="n">${esc(n)}</th>`).join("")}
+      </tr></thead><tbody>${cs.map(c=>`
+        <tr><td>${esc(c.name.split(" (")[0])}</td>
+          ${CARR_STATE.map(([k])=>`<td class="n">${
+            (k==="renewal" && !c.can_see_renewal)
+              ? '<span class="tsub">not stated</span>'
+              : (+c[k]||0).toLocaleString("en-US")}</td>`).join("")}
+        </tr>`).join("")}
+        <tr style="border-top:2px solid var(--line-2)"><td><b>Total</b></td>
+          <td class="n"><b>${totNew.toLocaleString("en-US")}</b></td>
+          <td class="n"><b>${anyBlind?totRen.toLocaleString("en-US")+"*":totRen.toLocaleString("en-US")}</b></td>
+          <td class="n"><b>${totCon.toLocaleString("en-US")}</b></td>
+          <td class="n"><b>${totRet.toLocaleString("en-US")}</b></td></tr>
+      </tbody></table></div>
+      ${anyBlind ? `<p class="fin-cap">* The renewal total is short by however many renewals happened at
+        ${esc(cs.filter(c=>!c.can_see_renewal).map(c=>c.name.split(" (")[0]).join(" and "))},
+        which print no transaction type and number no terms. It is a floor, not a count.</p>` : ""}
+    </div>`;
+
+  locWire();
+  $("#locBack").addEventListener("click", () => {
+    locPick = null; LOC = null; CUST = null; finCarriers();
+    window.scrollTo({top:0, behavior:"smooth"});
+  });
 }
 
 function finCoverage(){
