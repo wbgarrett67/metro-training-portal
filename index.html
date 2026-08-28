@@ -476,6 +476,11 @@ tbody tr.clk:hover{background:#f8f9fc}
   padding:6px 13px;font:inherit;font-size:13px;font-weight:600;color:var(--ink-2);cursor:pointer}
 .fin-sub button:hover{border-color:var(--navy-3);color:var(--navy)}
 .fin-sub button.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.fin-cust{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.fin-cust button{background:var(--bg);border:1px solid var(--line);border-radius:99px;
+  padding:5px 12px;font:inherit;font-size:12.5px;font-weight:600;color:var(--ink-2);cursor:pointer}
+.fin-cust button:hover{border-color:var(--navy-3);color:var(--navy)}
+.fin-cust button.on{background:var(--navy-3);border-color:var(--navy-3);color:#fff}
 .fin-pad{padding:18px 20px}
 .fin-h{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
   color:var(--ink-3);margin:0 0 4px}
@@ -665,6 +670,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     CIDX=null, CSHEET=null, mktView="market", mktBackTo="market",
     REV=null, COV=null, FIN=null, FINM=null, FINL={},
     CARR=null, carrPick=null,
+    CUST=null, custView="lapsed", custQ="",
     OVW=null, GUIDE=null,
     TRUST=null, TRUSTT=null, trustScope="open", trustSide="all", trustDone=false,
     trustOpen=new Set(), TRUSTH={},
@@ -1316,6 +1322,8 @@ const pctSpan = p => `<span class="fin-num ${p<0?"fin-neg":p>0?"fin-pos":""}">${
 const MFULL = ["January","February","March","April","May","June","July","August",
   "September","October","November","December"];
 const mLong = iso => { const p=String(iso).slice(0,7).split("-"); return MFULL[+p[1]-1]+" "+p[0]; };
+const mMY = iso => { const p=String(iso).slice(0,7).split("-");
+  return M3[+p[1]-1] + " " + p[0]; };
 const mShort = iso => { const p=String(iso).slice(0,7).split("-");
   return (+p[1]===1 ? "'"+p[0].slice(2) : M3[+p[1]-1]); };
 const finSum = arr => arr.reduce((a,x)=>a + (+x||0), 0);
@@ -1534,6 +1542,7 @@ function mgrFin(){
     if(finSub === "pl"    && !FIN)   await loadFinPL();
     if(finSub === "fees"  && !FEE)   await loadFee();
     if(finSub === "carriers" && !CARR) await loadCarriers();
+    if(finSub === "carriers" && !CUST) await loadCustomers();
     if(finSub === "trust" && !TRUST) await loadTrust();
     mgrFin();
   }));
@@ -3424,6 +3433,11 @@ function finCarriers(){
     host.innerHTML = `<div class="card fin-pad"><div class="empty">
       No carrier commission statements are loaded yet.</div></div>`; return; }
   if(carrPick && !carrCard(carrPick)) carrPick = null;
+  // The customer list is scoped to the picked carrier, so a change of carrier
+  // invalidates it. Refetch, then re-render once the rows are in.
+  if(carrHasCust() && !CUST){
+    loadCustomers().then(() => { custRender(); custWire(); });
+  }
   carrPick ? carrDetail() : carrOverview();
 }
 
@@ -3584,8 +3598,11 @@ function carrOverview(){
         report, not more of this one.</p>
     </div>`;
 
+  $("#finBody").insertAdjacentHTML("beforeend", custPanel());
+  custRender(); custWire();
+
   $("#finBody").querySelectorAll("[data-carr]").forEach(b =>
-    b.addEventListener("click", () => { carrPick = b.dataset.carr; finCarriers();
+    b.addEventListener("click", () => { carrPick = b.dataset.carr; CUST = null; finCarriers();
       window.scrollTo({top:0, behavior:"smooth"}); }));
 }
 
@@ -3613,10 +3630,8 @@ function carrDetail(){
     ? finPct(avgOf(tail,"commission"), avgOf(head,"commission")) : null;
   const polChange = canTrend && avgOf(head,"policies")
     ? finPct(avgOf(tail,"policies"), avgOf(head,"policies")) : null;
-  const yr4 = m => String(m).slice(0,4);
   const trendSpan = canTrend
-    ? mShort(head[0].month)+" "+yr4(head[0].month)+" \u2192 "
-      +mShort(tail[tail.length-1].month)+" "+yr4(tail[tail.length-1].month)
+    ? mMY(head[0].month)+" \u2192 "+mMY(tail[tail.length-1].month)
     : "needs "+(ENDS*2)+" months clear of warm-up";
 
   $("#finBody").innerHTML = `
@@ -3721,8 +3736,141 @@ function carrDetail(){
       </div>
     </div>`;
 
-  $("#carrBack").addEventListener("click", () => { carrPick = null; finCarriers();
+  $("#finBody").insertAdjacentHTML("beforeend", custPanel());
+  custRender(); custWire();
+
+  $("#carrBack").addEventListener("click", () => { carrPick = null; CUST = null; finCarriers();
     window.scrollTo({top:0, behavior:"smooth"}); });
+}
+
+/* ---- CARRIER CUSTOMERS ----------------------------------------------------
+   Insured names, policy numbers and a policy's history. Braden granted this to
+   himself, Belinda and Betty Jane on 28 August 2026.
+
+   It is behind carrier_customer_access, a NAMED CAPABILITY, not a tier. Raising
+   financial_access to 'full' would have worked too and would have been wrong: that
+   column has two tiers and its upper one also opens the Full P&L — payroll, owner
+   draws, house accounts. This flag opens customer detail in this tab and nothing
+   else, and it revokes per person with one update. Same reasoning that produced
+   trust_access; it is now the house pattern rather than the exception.
+
+   This flag is checked in three places and only the last one matters: here, to draw
+   the panel; in loadCustomers, to avoid a pointless request; and inside
+   training_carrier_customers, which is the real gate. */
+
+const carrHasCust = () => !!(ME && ME.carrier_customer_access === true);
+
+const CUST_VIEWS = [
+  ["lapsed","Gone",       "policies that stopped appearing"],
+  ["new",   "Just landed","first seen in the last three months"],
+  ["shared","At two carriers","the same name on two carriers' books"],
+  ["search","Find one",   "by name or policy number"]
+];
+
+async function loadCustomers(){
+  if(!carrHasCust()){ CUST = {rows:[], total:0, denied:true}; return; }
+  try{
+    CUST = await rpc("training_carrier_customers", {
+      p_code: CODE, p_carrier: carrPick || null,
+      p_view: custView, p_search: custView === "search" ? (custQ || null) : null });
+  }catch(e){ CUST = {error:e.message, rows:[], total:0}; }
+}
+
+/* Every carrier's "gone" threshold is different and the difference is large, so the
+   panel explains itself rather than leaving a reader to assume 1,588 customers walked
+   out this month. */
+function custRuleLine(){
+  const rules = (CUST && CUST.rules) || [];
+  if(!rules.length) return "";
+  const only = carrPick ? rules.filter(r => r.carrier === carrPick) : rules;
+  return only.map(r => `${esc(r.name.split(" (")[0])} after
+    <b>${r.lapse_after_months} silent month${r.lapse_after_months===1?"":"s"}</b>`).join(" · ");
+}
+
+function custPanel(){
+  if(!carrHasCust()) return "";
+  return `
+    <div class="card fin-pad" style="margin-top:16px">
+      <div class="fin-h" style="margin-top:0">Customers${carrPick?"":" — all carriers"}</div>
+      <div class="fin-cust">${CUST_VIEWS.map(([k,l])=>
+        `<button data-cust="${k}" class="${custView===k?"on":""}">${esc(l)}</button>`).join("")}</div>
+      ${custView==="search" ? `<div style="margin-bottom:12px">
+        <input id="custQ" type="search" placeholder="Insured name or policy number"
+          value="${esc(custQ||"")}" style="width:min(360px,100%);padding:9px 12px;
+          border:1px solid var(--line);border-radius:8px;font:inherit">
+        <button class="btn" id="custGo" style="padding:9px 16px;margin-left:8px">Search</button>
+      </div>` : ""}
+      <div id="custBody"></div>
+    </div>`;
+}
+
+function custRender(){
+  const host = $("#custBody"); if(!host) return;
+  if(!CUST){ host.innerHTML = `<div class="empty">Loading…</div>`; return; }
+  if(CUST.error){ host.innerHTML = `<div class="empty">${esc(CUST.error)}</div>`; return; }
+  const rows = CUST.rows || [], total = +CUST.total || 0, cap = +CUST.cap || 300;
+  const blurb = (CUST_VIEWS.find(v=>v[0]===custView)||[])[2] || "";
+
+  if(custView === "search" && !CUST.search){
+    host.innerHTML = `<p class="fin-cap" style="margin:0">Type a name or a policy number.
+      Names are matched loosely — punctuation and word order are ignored, so
+      <i>Smith, John</i> and <i>John Smith</i> both find the same person.</p>`;
+    return;
+  }
+
+  host.innerHTML = `
+    <p class="fin-cap" style="margin:0 0 10px">
+      <b>${total.toLocaleString("en-US")}</b> ${esc(blurb)}${
+      total > cap ? ` — showing the ${cap} largest. This is a screen, not an export.` : ""}
+      ${custView==="lapsed" ? `<br>Counted as gone: ${custRuleLine()}. Those thresholds come from how
+        often each carrier bills, not from a house rule — a monthly-pay book shows nearly every live
+        policy every month, while a healthy Progressive policy is invisible between renewals.` : ""}
+      ${custView==="shared" ? `<br><b>These are candidates, not confirmed matches.</b> Two people who
+        share a name produce one row, and one person whose name is spelled differently by two
+        carriers produces none.
+        ${(CUST.name_match_note && (CUST.name_match_note.excluded||[]).length)
+          ? `<b>Progressive cannot take part at all</b> — it abbreviates insured names, so its
+             entries can never string-match a full name from another carrier. A zero here is not
+             evidence that nobody moves to or from Progressive.` : ""}` : ""}
+    </p>
+    ${rows.length ? `<div style="overflow-x:auto">
+      <table class="fin-t"><thead><tr>
+        <th>Insured</th><th>Policy</th><th class="hide-sm">Carrier</th><th class="hide-sm">Office</th>
+        <th class="n">First seen</th><th class="n">Last seen</th>
+        ${custView==="lapsed"?`<th class="n">Silent</th>`:""}
+        <th class="n">Months</th><th class="n">Commission</th>
+      </tr></thead><tbody>${rows.map(r=>`
+        <tr><td>${esc(r.insured||"—")}</td>
+          <td><span class="tsub">${esc(r.policy||"—")}</span></td>
+          <td class="hide-sm"><span class="tsub">${esc(r.carrier_code)}</span></td>
+          <td class="hide-sm">${esc(r.book_name||"—")}</td>
+          <td class="n">${r.first_month?esc(mMY(r.first_month)):"—"}</td>
+          <td class="n">${r.last_month?esc(mMY(r.last_month)):"—"}</td>
+          ${custView==="lapsed"?`<td class="n">${r.months_silent}</td>`:""}
+          <td class="n">${r.months_seen}</td>
+          <td class="n">${money0(r.commission)}</td></tr>`).join("")}
+      </tbody></table></div>` : `<div class="empty">Nothing matches.</div>`}
+    ${custView==="lapsed" && rows.length ? `<p class="fin-cap">Sorted by what the policy was worth
+      over its life, so the top of the list is where a win-back call is worth most. A policy here has
+      stopped appearing on the statement; it has not necessarily cancelled — a policy paid up in full
+      or moved to another of our carriers looks identical from here.</p>` : ""}
+    ${custView==="new" && rows.length ? `<p class="fin-cap">Newest first. A policy appears here for
+      its first few months, then leaves this list on its own.</p>` : ""}`;
+}
+
+function custWire(){
+  const host = $("#custBody"); if(!host) return;
+  document.querySelectorAll("[data-cust]").forEach(b =>
+    b.addEventListener("click", async () => {
+      custView = b.dataset.cust; CUST = null;
+      if(custView !== "search") await loadCustomers();
+      finCarriers();
+    }));
+  const go = $("#custGo"), q = $("#custQ");
+  const run = async () => { custQ = (q.value||"").trim(); CUST = null;
+    await loadCustomers(); finCarriers(); };
+  if(go) go.addEventListener("click", run);
+  if(q)  q.addEventListener("keydown", e => { if(e.key === "Enter") run(); });
 }
 
 function finCoverage(){
