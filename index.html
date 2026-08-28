@@ -672,6 +672,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     CARR=null, carrPick=null,
     CUST=null, custView="lapsed", custQ="",
     LOC=null, locPick=null,
+    PER=null, perPreset="all", perFrom="", perTo="",
     OVW=null, GUIDE=null,
     TRUST=null, TRUSTT=null, trustScope="open", trustSide="all", trustDone=false,
     trustOpen=new Set(), TRUSTH={},
@@ -1543,6 +1544,7 @@ function mgrFin(){
     if(finSub === "pl"    && !FIN)   await loadFinPL();
     if(finSub === "fees"  && !FEE)   await loadFee();
     if(finSub === "carriers" && !CARR) await loadCarriers();
+    if(finSub === "carriers" && !PER)  await loadPeriod();
     if(finSub === "carriers" && !CUST) await loadCustomers();
     if(finSub === "trust" && !TRUST) await loadTrust();
     mgrFin();
@@ -3470,7 +3472,19 @@ function carrCoverBanner(){
 }
 
 function carrOverview(){
-  const cs = (CARR.carriers||[]).slice().sort((a,b)=> (+b.commission||0)-(+a.commission||0));
+  /* Figures follow the period picker; names, grain and statement counts do not, because
+     they describe the carrier rather than the window. Joined here so the table cannot show
+     a period total in one column and an all-time total in the next. */
+  const perCar = (PER && PER.current && PER.current.carriers) || null;
+  const cs = (perCar
+      ? perCar.map(pc => Object.assign({}, (CARR.carriers||[]).find(c=>c.code===pc.carrier_code) || {},
+          {code: pc.carrier_code, policies: pc.policies, premium: pc.premium,
+           commission: pc.commission, in_warmup: pc.in_warmup}))
+      : (CARR.carriers||[]).slice())
+    .sort((a,b)=> (+b.commission||0)-(+a.commission||0));
+  const perSpan = (PER && PER.current && PER.current.from)
+    ? mMY(PER.current.from) + (PER.current.from===PER.current.to ? "" : " – " + mMY(PER.current.to))
+    : null;
   const common = carrCommonMonths();
 
   /* Agency mix, over the months every loaded carrier shares. Warm-up months are
@@ -3495,19 +3509,23 @@ function carrOverview(){
 
     <div class="grid-stats">
       <div class="stat"><div class="k">Carriers loaded</div>
-        <div class="v">${cs.length}</div>
-        <div class="tsub">${esc(cs.map(c=>c.name.split(" (")[0].split(" —")[0]).join(", "))}</div></div>
+        <div class="v">${(CARR.carriers||[]).length}</div>
+        <div class="tsub">${esc((CARR.carriers||[]).map(c=>
+          c.name.split(" (")[0].split(" \u2014")[0]).join(", "))}</div></div>
       <div class="stat"><div class="k">Policies tracked</div>
-        <div class="v">${cs.reduce((a,c)=>a+(+c.policies||0),0).toLocaleString("en-US")}</div>
-        <div class="tsub">distinct policies seen at least once</div></div>
+        <div class="v">${(CARR.carriers||[]).reduce((a,c)=>a+(+c.policies||0),0).toLocaleString("en-US")}</div>
+        <div class="tsub">distinct, over everything loaded \u2014 not the period below</div></div>
       <div class="stat"><div class="k">Commission read</div>
-        <div class="v">${money0(cs.reduce((a,c)=>a+(+c.commission||0),0))}</div>
-        <div class="tsub">every statement tied to its own printed total</div></div>
+        <div class="v">${money0((CARR.carriers||[]).reduce((a,c)=>a+(+c.commission||0),0))}</div>
+        <div class="tsub">everything loaded, each statement tied to its printed total</div></div>
       <div class="stat"><div class="k">New business</div>
         <div class="v">${tot("new").toLocaleString("en-US")}</div>
-        <div class="tsub">${usable.length} month${usable.length===1?"":"s"} all carriers share</div></div>
+        <div class="tsub">over the ${usable.length} month${usable.length===1?"":"s"} all carriers
+          share \u2014 not the period below</div></div>
     </div>
 
+    ${carrPeriodBar()}
+    ${carrPeriodCard()}
     ${locPicker()}
 
     <div class="card fin-pad">
@@ -3516,7 +3534,7 @@ function carrOverview(){
       <table class="fin-t"><thead><tr>
         <th>Carrier</th><th class="n">Months</th><th class="n">Policies</th>
         <th class="n">Premium</th><th class="n">Commission</th><th class="n">Rate</th>
-        <th class="hide-sm">Period</th>
+        <th class="hide-sm">${perSpan ? "In period" : "Period"}</th>
       </tr></thead><tbody>${cs.map(c=>{
         const rate = (+c.premium) ? (+c.commission)/(+c.premium)*100 : null;
         return `<tr class="clk" data-carr="${esc(c.code)}">
@@ -3526,11 +3544,14 @@ function carrOverview(){
           <td class="n">${money0(c.premium)}</td>
           <td class="n"><b>${money0(c.commission)}</b></td>
           <td class="n">${rate===null?"—":rate.toFixed(1)+"%"}</td>
-          <td class="hide-sm"><span class="tsub">${c.first_month?esc(mLong(c.first_month)):"—"}
-            – ${c.last_month?esc(mLong(c.last_month)):"—"}</span></td>
+          <td class="hide-sm"><span class="tsub">${perSpan ? esc(perSpan)
+            : (c.first_month?esc(mLong(c.first_month)):"—")
+              + " – " + (c.last_month?esc(mLong(c.last_month)):"—")}</span></td>
         </tr>`; }).join("")}</tbody></table></div>
       <p class="fin-cap" style="margin-bottom:4px">Pick a carrier to open it.</p>
-      <p class="fin-cap">Rate is commission divided by premium across the whole loaded period. It is
+      <p class="fin-cap">${perSpan
+        ? `Every figure in this table is for <b>${esc(PER.label||"the selected period")}</b>. `
+        : ""}Rate is commission divided by premium across the period shown. It is
         a blend, not a contract rate — Traders alone pays 12%, 12.5%, 13% and 15% depending on the
         policy, and a shift in that mix moves the blend without any rate ever changing.</p>
     </div>
@@ -3606,7 +3627,7 @@ function carrOverview(){
     </div>`;
 
   $("#finBody").insertAdjacentHTML("beforeend", custPanel());
-  custRender(); custWire(); locWire();
+  custRender(); custWire(); locWire(); carrPeriodWire();
 
   $("#finBody").querySelectorAll("[data-carr]").forEach(b =>
     b.addEventListener("click", () => { carrPick = b.dataset.carr; CUST = null; finCarriers();
@@ -3643,6 +3664,10 @@ function carrDetail(){
 
   $("#finBody").innerHTML = `
     <button class="fin-back" id="carrBack">← All carriers</button>
+    <p class="fin-cap" style="margin:0 0 12px"><b>This page ignores the period picker.</b> It shows
+      everything loaded for ${esc(c.name.split(" (")[0])}, because a carrier's warm-up window and
+      its own vocabulary only make sense against its whole series. Use the office view or the
+      overview for a period.</p>
 
     <div class="grid-stats">
       <div class="stat"><div class="k">Commission</div>
@@ -3934,8 +3959,9 @@ function locPicker(){
 function locWire(){
   const sel = $("#locSel"); if(!sel) return;
   sel.addEventListener("change", async () => {
-    locPick = sel.value || null; LOC = null; carrPick = null; CUST = null;
+    locPick = sel.value || null; LOC = null; carrPick = null; CUST = null; PER = null;
     if(locPick) await loadLocation(locPick);
+    await loadPeriod();                 // the period is scoped to the office
     finCarriers(); window.scrollTo({top:0, behavior:"smooth"});
   });
 }
@@ -3971,6 +3997,8 @@ function locDetail(){
   host.innerHTML = `
     <button class="fin-back" id="locBack">← All carriers</button>
     ${locPicker()}
+    ${carrPeriodBar()}
+    ${carrPeriodCard()}
 
     <div class="grid-stats">
       <div class="stat"><div class="k">Commission</div>
@@ -4054,11 +4082,194 @@ function locDetail(){
         which print no transaction type and number no terms. It is a floor, not a count.</p>` : ""}
     </div>`;
 
-  locWire();
-  $("#locBack").addEventListener("click", () => {
-    locPick = null; LOC = null; CUST = null; finCarriers();
-    window.scrollTo({top:0, behavior:"smooth"});
+  locWire(); carrPeriodWire();
+  $("#locBack").addEventListener("click", async () => {
+    locPick = null; LOC = null; CUST = null; PER = null;
+    await loadPeriod();
+    finCarriers(); window.scrollTo({top:0, behavior:"smooth"});
   });
+}
+
+/* ---- PERIOD SELECTION -----------------------------------------------------
+   Braden, 28 August 2026: "I would also like to be able to choose the timeline —
+   last month, one year to date from current month, current month vs same month,
+   or a custom date range, on both an agency and location level."
+
+   Applies to the OVERVIEW and the LOCATION view, which is what was asked for. The
+   single-carrier drill-down deliberately stays on the whole loaded series and says
+   so on screen — it is the "everything we know about this carrier" page, and a
+   carrier's warm-up and vocabulary make no sense sliced.
+
+   THE ONE THING THAT MATTERS HERE. The first build of this compared the last twelve
+   months against the twelve before them and reported a 290% rise. It was false: the
+   earlier window predates Progressive and Traders being loaded, so a nearly empty
+   period was being compared against a full one. It looked like the best year in the
+   agency's history and nobody reading the screen would have caught it.
+
+   So a comparison now uses only carriers with a COMPLETE set of months in BOTH
+   windows, both sides equally, with the excluded carriers named. Where none qualify
+   there is no comparison at all — the screen says the history does not reach back
+   far enough instead of printing a number. */
+
+const PER_PRESETS = [
+  ["all",        "All loaded"],
+  ["last_month", "Latest month"],
+  ["last_3",     "Last 3 months"],
+  ["last_12",    "Last 12 months"],
+  ["ytd",        "Year to date"],
+  ["custom",     "Custom range"]
+];
+
+async function loadPeriod(){
+  try{
+    PER = await rpc("training_carrier_period", {
+      p_code: CODE,
+      p_preset: perPreset,
+      p_book: locPick || null,
+      p_from: (perPreset === "custom" && perFrom) ? perFrom + "-01" : null,
+      p_to:   (perPreset === "custom" && perTo)   ? perTo   + "-01" : null });
+  }catch(e){ PER = {error:e.message}; }
+}
+
+/* Month inputs are <input type="month">, which yields "2026-07". The RPC wants a date,
+   so the day is added on the way out and stripped on the way in. Bounded by the data,
+   not by the calendar — offering a month nobody has loaded invites an empty screen. */
+function perBounds(){
+  const ms = ((CARR && CARR.months) || []).map(m => String(m.month).slice(0,7)).sort();
+  return {min: ms[0] || "", max: ms[ms.length-1] || ""};
+}
+
+function carrPeriodBar(){
+  const b = perBounds();
+  return `
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <div class="fin-h" style="margin-top:0">Period</div>
+      <div class="fin-cust" style="margin-bottom:0">${PER_PRESETS.map(([k,l])=>
+        `<button data-per="${k}" class="${perPreset===k?"on":""}">${esc(l)}</button>`).join("")}</div>
+      ${perPreset==="custom" ? `
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
+        <label class="tsub">From <input id="perFrom" type="month" value="${esc(perFrom)}"
+          min="${esc(b.min)}" max="${esc(b.max)}" style="padding:7px 10px;border:1px solid var(--line);
+          border-radius:8px;font:inherit;margin-left:4px"></label>
+        <label class="tsub">To <input id="perTo" type="month" value="${esc(perTo)}"
+          min="${esc(b.min)}" max="${esc(b.max)}" style="padding:7px 10px;border:1px solid var(--line);
+          border-radius:8px;font:inherit;margin-left:4px"></label>
+        <button class="btn" id="perGo" style="padding:8px 16px">Apply</button>
+        <span class="tsub">Data runs ${esc(mMY(b.min+"-01"))} – ${esc(mMY(b.max+"-01"))}.</span>
+      </div>` : ""}
+    </div>`;
+}
+
+function carrPeriodWire(){
+  document.querySelectorAll("[data-per]").forEach(btn =>
+    btn.addEventListener("click", async () => {
+      perPreset = btn.dataset.per;
+      if(perPreset === "custom" && !perFrom){
+        const b = perBounds();
+        // Default a custom range to the last six months of data rather than to nothing,
+        // so pressing Custom shows something instead of an empty form.
+        perTo = b.max;
+        const d = new Date(b.max + "-01T00:00:00Z"); d.setUTCMonth(d.getUTCMonth() - 5);
+        perFrom = d.toISOString().slice(0,7);
+        if(perFrom < b.min) perFrom = b.min;
+      }
+      if(perPreset !== "custom"){ PER = null; await loadPeriod(); }
+      finCarriers();
+    }));
+  const go = $("#perGo");
+  if(go) go.addEventListener("click", async () => {
+    const f = $("#perFrom").value, t = $("#perTo").value;
+    if(!f || !t) return;
+    perFrom = f <= t ? f : t; perTo = f <= t ? t : f;   // tolerate reversed pickers
+    PER = null; await loadPeriod(); finCarriers();
+  });
+}
+
+/* The headline for the chosen period, and — kept visibly apart from it — the only
+   comparison the data will support. They are different populations and must never be
+   read as one number. */
+function carrPeriodCard(){
+  if(!PER) return `<div class="card fin-pad" style="margin-bottom:16px"><div class="empty">Loading…</div></div>`;
+  if(PER.error) return `<div class="card fin-pad" style="margin-bottom:16px"><div class="empty">${esc(PER.error)}</div></div>`;
+  const cur = PER.current || {}, t = cur.totals || {};
+  const cmp = PER.cmp;
+  const span = cur.from
+    ? `${esc(mMY(cur.from))}${cur.from===cur.to ? "" : " – " + esc(mMY(cur.to))}`
+    : "every loaded month";
+  const nameOf = c => {
+    const m = (PER.meta||[]).find(x => x.code === c);
+    return m ? m.name.split(" (")[0] : c;
+  };
+
+  let cmpHtml;
+  if(PER.cmp_blocked){
+    cmpHtml = `<div class="fin-note" style="margin:0">
+      <b>No year-over-year comparison for this period.</b> ${esc(PER.cmp_blocked)}</div>`;
+  }else if(cmp){
+    const now = +cmp.now.totals.commission, then = +cmp.then.totals.commission;
+    const pol0 = +cmp.now.totals.policies,  pol1 = +cmp.then.totals.policies;
+    const pc = then ? (now-then)/Math.abs(then)*100 : null;
+    const pp = pol1 ? (pol0-pol1)/Math.abs(pol1)*100 : null;
+    const used = cmp.carriers_used || [], excl = cmp.carriers_excluded || [];
+    cmpHtml = `
+      <div class="fin-h" style="margin:18px 0 8px">Against ${esc(PER.cmp_label||"the prior period")}</div>
+      <div class="fin-grid2">
+        <div>
+          <table class="fin-t"><thead><tr><th></th>
+            <th class="n">${esc(mMY(cmp.now.from))}${cmp.now.from===cmp.now.to?"":"–"+esc(mMY(cmp.now.to))}</th>
+            <th class="n">${esc(mMY(cmp.then.from))}${cmp.then.from===cmp.then.to?"":"–"+esc(mMY(cmp.then.to))}</th>
+            <th class="n">Change</th></tr></thead><tbody>
+            <tr><td>Commission</td><td class="n">${money0(now)}</td><td class="n">${money0(then)}</td>
+              <td class="n">${pc===null?"—":pctSpan(pc)}</td></tr>
+            <tr><td>Policies</td><td class="n">${pol0.toLocaleString("en-US")}</td>
+              <td class="n">${pol1.toLocaleString("en-US")}</td>
+              <td class="n">${pp===null?"—":pctSpan(pp)}</td></tr>
+          </tbody></table>
+        </div>
+        <div>
+          <p class="fin-cap" style="margin:0">
+            <b>Compared on ${esc(used.map(nameOf).join(", ")) || "nothing"}</b> — the
+            ${used.length===1?"only carrier":"only carriers"} with a complete set of months in
+            both periods.${excl.length ? ` <b>${esc(excl.map(nameOf).join(" and "))}</b>
+            ${excl.length===1?"is":"are"} left out of both sides, because
+            ${excl.length===1?"its":"their"} loaded history does not cover the earlier period —
+            including ${excl.length===1?"it":"them"} would compare a full period against a
+            nearly empty one and invent a rise.` : ""}
+            <br><b>So these two figures are smaller than the ${money0(t.commission)} above</b>,
+            which is every carrier that traded in the period. Do not mix them.</p>
+        </div>
+      </div>`;
+  }else{
+    cmpHtml = `<p class="fin-cap" style="margin:14px 0 0">No comparison is drawn for
+      <i>${esc(PER.label||"this period")}</i>. Pick a bounded period to compare one against another.</p>`;
+  }
+
+  return `
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <div class="fin-h" style="margin-top:0">${esc(PER.book ? PER.book+" · " : "")}${esc(span)}</div>
+      <div class="grid-stats" style="margin-bottom:0">
+        <div class="stat"><div class="k">Commission</div>
+          <div class="v">${money0(t.commission)}</div>
+          <div class="tsub">${esc(PER.label||"")}, all carriers that traded</div></div>
+        <div class="stat"><div class="k">Policies</div>
+          <div class="v">${(+t.policies||0).toLocaleString("en-US")}</div>
+          <div class="tsub">distinct in the period, not added across months</div></div>
+        <div class="stat"><div class="k">New business</div>
+          <div class="v">${(+t.new||0).toLocaleString("en-US")}</div>
+          <div class="tsub">${cur.touches_warmup
+            ? "<b>includes warm-up months — overstated</b>" : "warm-up excluded"}</div></div>
+        <div class="stat"><div class="k">Renewals</div>
+          <div class="v">${(+t.renewal||0).toLocaleString("en-US")}</div>
+          <div class="tsub">a floor where a carrier states none</div></div>
+      </div>
+      ${cur.touches_warmup ? `<div class="fin-note" style="margin:14px 0 0">
+        <b>This period reaches into the warm-up window for
+        ${esc(((cur.warmup_carriers)||[]).map(nameOf).join(", "))}.</b> Inside it, a policy
+        renewing for the first time cannot be told from a brand-new one, so the new-business
+        figure above is too high. The comparison below is unaffected — it is computed the same
+        way on both sides.</div>` : ""}
+      ${cmpHtml}
+    </div>`;
 }
 
 function finCoverage(){
