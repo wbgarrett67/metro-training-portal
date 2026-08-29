@@ -3411,10 +3411,23 @@ function carrCard(code){ return (CARR.carriers||[]).find(c => c.code === code); 
    view from seven usable months to two. Being SMALL and being SHORT are different
    problems and the size threshold does not catch the second one.
 
-   So the span is held open by the largest set of material carriers that still
-   share at least a year of months: sort by first month, and drop the latest
-   starter until the shared window reaches CARR_MIN_SPAN. Deterministic, and it
-   does not need a new hand-tuned percentage every time a carrier lands.
+   The first version of this rule sorted by first month and dropped the LATEST
+   starter until the window reached CARR_MIN_SPAN. National Lloyds broke that on
+   29 Aug 2026, and broke it silently. It is 3.74% of loaded commission and it has
+   the LONGEST series in the database — 55 statements back to March 2021 — so it
+   sorts first and can never be popped. But the carrier only bills when it has
+   something to bill, so its months have holes in them: three inside the window the
+   rest of the book shares. Dropping late starters could not reach the obstruction,
+   so the set collapsed to two carriers and the roll-up quietly lost Progressive,
+   Traders, Falcon, National General and Equity — about 85% of the book — while
+   still calling itself the agency view.
+
+   Starting late and being full of holes are two ways of failing to share a window,
+   and sorting by start date only sees the first. So the rule now asks the question
+   directly: while the shared window is under CARR_MIN_SPAN, drop whichever carrier
+   opens it widest by leaving, ties going to the smaller carrier so the big earners
+   are the last to go. Deterministic, needs no hand-tuned percentage, and it finds
+   the obstruction wherever it sits in the ordering.
 
    A carrier set aside for EITHER reason is also left out of the roll-up's sums,
    not merely denied a veto. That is a change from the first version, and it was
@@ -3445,21 +3458,46 @@ function carrSharedMonths(codes){
   });
   return Object.keys(seen).filter(k => seen[k].size === need.size).sort();
 }
-/* The material carriers that hold the span open. Drops the latest starter, one at
-   a time, until what remains shares at least a year — never below one carrier. */
-function carrSpanSet(){
-  const first = {};
-  (CARR.months||[]).forEach(m => {
-    if(!first[m.carrier] || m.month < first[m.carrier]) first[m.carrier] = m.month; });
-  const cs = carrMaterial().slice()
-    .sort((a,b) => String(first[a.code]||"").localeCompare(String(first[b.code]||"")));
-  while(cs.length > 1 && carrSharedMonths(cs.map(c=>c.code)).length < CARR_MIN_SPAN) cs.pop();
-  return cs;
+/* Every month a carrier reports, as a Set, keyed by carrier code. */
+function carrMonthsBy(){
+  const has = {};
+  (CARR.months||[]).forEach(m => (has[m.carrier] = has[m.carrier] || new Set()).add(m.month));
+  return has;
 }
-/* Material, but too short a history to hold the span open. */
-function carrShortHistory(){
+/* The material carriers that hold the span open. While the shared window is short
+   of a year, drop whichever carrier opens it widest by leaving; ties go to the
+   smaller carrier. Never goes below one carrier. */
+function carrSpanSet(){
+  const work = carrMaterial().slice();
+  while(work.length > 1 && carrSharedMonths(work.map(c=>c.code)).length < CARR_MIN_SPAN){
+    let best = null;
+    work.forEach((c, i) => {
+      const gain = carrSharedMonths(work.filter((_,j)=>j!==i).map(x=>x.code)).length;
+      const size = +c.commission||0;
+      if(!best || gain > best.gain || (gain === best.gain && size < best.size))
+        best = {i, gain, size};
+    });
+    work.splice(best.i, 1);
+  }
+  return work;
+}
+/* Material, but unable to share the window — and WHY, which is not always the same
+   reason. "late" means the carrier has no data that far back. "gappy" means it does,
+   but with months missing inside the window. Saying "too short" for a five-year
+   series with holes in it would be a false label, and false labels are how the
+   panel went wrong before. */
+function carrHeldOut(){
   const keep = new Set(carrSpanSet().map(c=>c.code));
-  return carrMaterial().filter(c => !keep.has(c.code));
+  const common = carrCommonMonths(), has = carrMonthsBy();
+  const lo = common[0] || "";
+  return carrMaterial().filter(c => !keep.has(c.code)).map(c => {
+    const mine = has[c.code] || new Set();
+    const first = Array.from(mine).sort()[0] || "";
+    const missing = common.filter(mo => !mine.has(mo));
+    return Object.assign({}, c, {
+      hold_reason: (!first || first > lo) ? "late" : (missing.length ? "gappy" : "late"),
+      hold_missing: missing.length, hold_first: first });
+  });
 }
 function carrCommonMonths(){ return carrSharedMonths(carrSpanSet().map(c=>c.code)); }
 
@@ -3530,7 +3568,9 @@ function carrOverview(){
   const usable = common.filter(mo =>
     (CARR.months||[]).filter(m=>m.month===mo && need.has(m.carrier)).every(m=>!m.in_warmup));
   const setAside = carrImmaterial();
-  const setShort = carrShortHistory();
+  const heldOut = carrHeldOut();
+  const setLate  = heldOut.filter(c => c.hold_reason === "late");
+  const setGappy = heldOut.filter(c => c.hold_reason === "gappy");
   /* Only the span set is summed. A carrier that does not hold the span open does not
      get counted in it either — see the note above carrSpanSet. */
   const agg = usable.map(mo => {
@@ -3651,14 +3691,22 @@ function carrOverview(){
         <br><br>${esc(setAside.map(c=>c.name.split(" (")[0]).join(", "))}
         ${setAside.length===1?"is":"are"} left out of this panel, being under
         ${(CARR_MATERIAL*100).toFixed(0)}% of loaded commission — otherwise the smallest carrier in
-        the set would decide how far back the whole agency view could go.` : ""}${setShort.length ? `
-        ${setAside.length ? "" : "<br><br>"}${esc(setShort.map(c=>c.name.split(" (")[0]).join(", "))}
-        ${setShort.length===1?"is":"are"} left out for a different reason: big enough to matter, but
-        ${setShort.length===1?"its history is":"their histories are"} too short to hold a year open,
-        and letting ${setShort.length===1?"it":"them"} set the left edge would shorten this view for
-        everything else.` : ""}${(setAside.length||setShort.length) ? `
+        the set would decide how far back the whole agency view could go.` : ""}${setLate.length ? `
+        ${setAside.length ? "" : "<br><br>"}${esc(setLate.map(c=>c.name.split(" (")[0]).join(", "))}
+        ${setLate.length===1?"is":"are"} left out for a different reason: big enough to matter, but
+        ${setLate.length===1?"its history is":"their histories are"} too short to hold a year open,
+        and letting ${setLate.length===1?"it":"them"} set the left edge would shorten this view for
+        everything else.` : ""}${setGappy.length ? `
+        ${(setAside.length||setLate.length) ? "" : "<br><br>"}
+        ${esc(setGappy.map(c=>c.name.split(" (")[0]).join(", "))}
+        ${setGappy.length===1?"is":"are"} left out for a third reason, and it is not shortness —
+        ${setGappy.length===1?"it has":"they have"} history to spare. ${setGappy.length===1?"It bills":"They bill"}
+        only in months with something to bill, so ${setGappy.length===1?"its":"their"} months have holes
+        in them — ${esc(setGappy.map(c=>`${c.hold_missing} missing from this window for ${c.name.split(" (")[0]}`).join("; "))}.
+        A month is only usable here if every carrier in the set reports it, so keeping
+        ${setGappy.length===1?"it":"them"} in would have cut the window rather than widened it.` : ""}${(setAside.length||setLate.length||setGappy.length) ? `
         Every carrier named here is shown in full on its own card below; what
-        ${(setAside.length+setShort.length)===1?"it is":"they are"} kept out of is
+        ${(setAside.length+setLate.length+setGappy.length)===1?"it is":"they are"} kept out of is
         <i>this</i> combined total, so that the same set of carriers is behind every month of it.` : ""}</p>
     </div>` : `
     <div class="fin-note" style="margin-top:16px">There is not yet a month in which every carrier
