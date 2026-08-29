@@ -3403,10 +3403,29 @@ function carrCard(code){ return (CARR.carriers||[]).find(c => c.code === code); 
    Travelers is 0.7% of loaded commission over seven months with a six-month
    warm-up, which leaves it one usable month — and demanding its presence would
    blank the agency chart entirely on account of a carrier that rounds to zero.
-   So a carrier has to be MATERIAL to hold the span open. It is still counted in
-   every month it appears in; it just does not get a veto, and the panel says
-   which carriers were set aside. */
+   So a carrier has to be MATERIAL to hold the span open.
+
+   Materiality alone is not enough, though, and National General proved it on
+   28 Aug 2026. It is 2.47% of loaded commission — comfortably material — but its
+   statements only start in Dec 2025. Letting it hold the span open cut the agency
+   view from seven usable months to two. Being SMALL and being SHORT are different
+   problems and the size threshold does not catch the second one.
+
+   So the span is held open by the largest set of material carriers that still
+   share at least a year of months: sort by first month, and drop the latest
+   starter until the shared window reaches CARR_MIN_SPAN. Deterministic, and it
+   does not need a new hand-tuned percentage every time a carrier lands.
+
+   A carrier set aside for EITHER reason is also left out of the roll-up's sums,
+   not merely denied a veto. That is a change from the first version, and it was
+   not cosmetic: a set-aside carrier is typically new, so its early months are
+   warm-up months full of phantom "new business" — policies called new only
+   because our data starts. Counting those while excluding the warm-up months of
+   the carriers that DO hold the span put 97 phantom new-business policy-months,
+   carrying MINUS $109.64, into a figure the caption calls the number worth
+   watching. Each carrier is still shown in full on its own card. */
 const CARR_MATERIAL = 0.02;      // 2% of loaded commission
+const CARR_MIN_SPAN = 12;        // months the span set must share
 
 function carrMaterial(){
   const cs = CARR.carriers||[];
@@ -3417,15 +3436,32 @@ function carrImmaterial(){
   const keep = new Set(carrMaterial().map(c=>c.code));
   return (CARR.carriers||[]).filter(c => !keep.has(c.code));
 }
-function carrCommonMonths(){
-  const need = carrMaterial().map(c=>c.code);
-  if(!need.length) return [];
-  const seen = {};
+/* Months shared by a given set of carrier codes. */
+function carrSharedMonths(codes){
+  if(!codes.length) return [];
+  const need = new Set(codes), seen = {};
   (CARR.months||[]).forEach(m => {
-    if(need.includes(m.carrier)) (seen[m.month] = seen[m.month] || new Set()).add(m.carrier);
+    if(need.has(m.carrier)) (seen[m.month] = seen[m.month] || new Set()).add(m.carrier);
   });
-  return Object.keys(seen).filter(k => seen[k].size === need.length).sort();
+  return Object.keys(seen).filter(k => seen[k].size === need.size).sort();
 }
+/* The material carriers that hold the span open. Drops the latest starter, one at
+   a time, until what remains shares at least a year — never below one carrier. */
+function carrSpanSet(){
+  const first = {};
+  (CARR.months||[]).forEach(m => {
+    if(!first[m.carrier] || m.month < first[m.carrier]) first[m.carrier] = m.month; });
+  const cs = carrMaterial().slice()
+    .sort((a,b) => String(first[a.code]||"").localeCompare(String(first[b.code]||"")));
+  while(cs.length > 1 && carrSharedMonths(cs.map(c=>c.code)).length < CARR_MIN_SPAN) cs.pop();
+  return cs;
+}
+/* Material, but too short a history to hold the span open. */
+function carrShortHistory(){
+  const keep = new Set(carrSpanSet().map(c=>c.code));
+  return carrMaterial().filter(c => !keep.has(c.code));
+}
+function carrCommonMonths(){ return carrSharedMonths(carrSpanSet().map(c=>c.code)); }
 
 function finCarriers(){
   const host = $("#finBody");
@@ -3490,12 +3526,15 @@ function carrOverview(){
   /* Agency mix, over the months every loaded carrier shares. Warm-up months are
      excluded outright — including them would put the whole of Progressive's first
      half-year of phantom "new business" into the agency total. */
-  const need = new Set(carrMaterial().map(c=>c.code));
+  const need = new Set(carrSpanSet().map(c=>c.code));
   const usable = common.filter(mo =>
     (CARR.months||[]).filter(m=>m.month===mo && need.has(m.carrier)).every(m=>!m.in_warmup));
   const setAside = carrImmaterial();
+  const setShort = carrShortHistory();
+  /* Only the span set is summed. A carrier that does not hold the span open does not
+     get counted in it either — see the note above carrSpanSet. */
   const agg = usable.map(mo => {
-    const rows = (CARR.months||[]).filter(m => m.month===mo);
+    const rows = (CARR.months||[]).filter(m => m.month===mo && need.has(m.carrier));
     const s = k => rows.reduce((a,r)=> a + (+r[k]||0), 0);
     return {month:mo, new:s("new"), renewal:s("renewal"), continuing:s("continuing"),
             returned:s("returned"), cancelled:s("cancelled"),
@@ -3558,7 +3597,7 @@ function carrOverview(){
 
     ${usable.length ? `
     <div class="card fin-pad" style="margin-top:16px">
-      <div class="fin-h" style="margin-top:0">What the book did, all loaded carriers together</div>
+      <div class="fin-h" style="margin-top:0">What the book did, across the carriers that share this span</div>
       ${finLines(agg.map(a=>a.month), CARR_STATE.map(([k,,col]) =>
         ({name:CARR_STATE.find(s=>s[0]===k)[1], color:col, v:agg.map(a=>+a[k]||0)})),
         {tight:true, fmt:carrN, alt:"Monthly policy movements by type"})}
@@ -3580,26 +3619,36 @@ function carrOverview(){
       </tbody></table></div>
       <p class="fin-cap">
         <b>How to read this.</b> One row per policy per month, counted once however many lines the
-        statement printed for it. <i>Payments</i> dominates because two of the four loaded carriers
-        bill monthly — a payment is an instalment inside a term, not a renewal, and it says only that
+        statement printed for it. <i>Payments</i> dominates because some of the carriers behind this
+        panel bill monthly — a payment is an instalment inside a term, not a renewal, and it says only that
         the policy is still there. <i>New business</i> is
         ${totalMoves ? (tot("new")/totalMoves*100).toFixed(1) : "0"}% of all movement, which is the
         number worth watching. <i>Came back</i> means the policy was absent a month and reappeared;
         it is not the same as a formal reinstatement and it has innocent explanations, a late payment
         being the commonest.</p>
       <p class="fin-cap">Spanning ${esc(mLong(usable[0]))} – ${esc(mLong(usable[usable.length-1]))},
-        the months in which every carrier that carries real weight is present and out of its warm-up
-        window. Carriers start at different dates, so adding all of them across all months would draw
-        a staircase of arrivals and read as growth.${setAside.length ? `
-        ${esc(setAside.map(c=>c.name.split(" (")[0]).join(", "))}
-        ${setAside.length===1?"is":"are"} counted in every month
-        ${setAside.length===1?"it appears":"they appear"} in but
-        ${setAside.length===1?"does":"do"} not hold the span open, being under
+        over ${need.size} ${need.size===1?"carrier":"carriers"} —
+        ${esc(carrSpanSet().map(c=>c.name.split(" (")[0]).join(", "))}. Carriers start at different
+        dates, so adding all of them across all months would draw a staircase of arrivals and read as
+        growth. These are the months in which every one of those carriers is present and out of its
+        warm-up window.${setAside.length ? `
+        <br><br>${esc(setAside.map(c=>c.name.split(" (")[0]).join(", "))}
+        ${setAside.length===1?"is":"are"} left out of this panel, being under
         ${(CARR_MATERIAL*100).toFixed(0)}% of loaded commission — otherwise the smallest carrier in
-        the set would decide how far back the whole agency view could go.` : ""}</p>
+        the set would decide how far back the whole agency view could go.` : ""}${setShort.length ? `
+        ${setAside.length ? "" : "<br><br>"}${esc(setShort.map(c=>c.name.split(" (")[0]).join(", "))}
+        ${setShort.length===1?"is":"are"} left out for a different reason: big enough to matter, but
+        ${setShort.length===1?"its history is":"their histories are"} too short to hold a year open,
+        and letting ${setShort.length===1?"it":"them"} set the left edge would shorten this view for
+        everything else.` : ""}${(setAside.length||setShort.length) ? `
+        Every carrier named here is shown in full on its own card below; what
+        ${(setAside.length+setShort.length)===1?"it is":"they are"} kept out of is
+        <i>this</i> combined total, so that the same set of carriers is behind every month of it.` : ""}</p>
     </div>` : `
-    <div class="fin-note" style="margin-top:16px">There is not yet a month in which every loaded
-      carrier is present and past its warm-up window, so no combined agency view is drawn. Open a
+    <div class="fin-note" style="margin-top:16px">There is not yet a month in which every carrier
+      holding the span open is present and past its warm-up window, so no combined agency view is
+      drawn — a combined figure that changed its cast of carriers month to month would be worse than
+      none. Open a
       carrier below to see it on its own.</div>`}
 
     <div class="card fin-pad" style="margin-top:16px">
