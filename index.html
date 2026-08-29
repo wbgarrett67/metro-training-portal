@@ -3571,7 +3571,7 @@ function carrOverview(){
       <div class="fin-h" style="margin-top:0">Every carrier, side by side</div>
       <div style="overflow-x:auto">
       <table class="fin-t"><thead><tr>
-        <th>Carrier</th><th class="n">Months</th><th class="n">Policies</th>
+        <th>Carrier</th><th class="n">Months</th><th class="n">Distinct policies</th>
         <th class="n">Premium</th><th class="n">Commission</th><th class="n">Rate</th>
         <th class="hide-sm">${perSpan ? "In period" : "Period"}</th>
       </tr></thead><tbody>${cs.map(c=>{
@@ -3588,6 +3588,10 @@ function carrOverview(){
               + " – " + (c.last_month?esc(mLong(c.last_month)):"—")}</span></td>
         </tr>`; }).join("")}</tbody></table></div>
       <p class="fin-cap" style="margin-bottom:4px">Pick a carrier to open it.</p>
+      <p class="fin-cap"><b>Distinct policies</b> counts each policy <b>once</b>, however many months it
+        appears in — so it is every policy the carrier has shown us across the whole span, not a count
+        of what is on the books today. The monthly panel below counts something different; see the note
+        under it.</p>
       <p class="fin-cap">${perSpan
         ? `Every figure in this table is for <b>${esc(PER.label||"the selected period")}</b>. `
         : ""}Rate is commission divided by premium across the period shown. It is
@@ -3605,7 +3609,7 @@ function carrOverview(){
       <div style="overflow-x:auto;margin-top:14px">
       <table class="fin-t"><thead><tr><th>Month</th>
         ${CARR_STATE.map(([,n])=>`<th class="n">${esc(n)}</th>`).join("")}
-        <th class="n">Cancelled</th><th class="n">Policies</th><th class="n">Commission</th>
+        <th class="n">Cancelled</th><th class="n">Policies that month</th><th class="n">Commission</th>
       </tr></thead><tbody>${agg.slice().reverse().map(a=>`
         <tr><td>${esc(mLong(a.month))}</td>
           ${CARR_STATE.map(([k])=>`<td class="n">${(+a[k]||0).toLocaleString("en-US")}</td>`).join("")}
@@ -3615,8 +3619,20 @@ function carrOverview(){
         <tr style="border-top:2px solid var(--line-2)"><td><b>Total</b></td>
           ${CARR_STATE.map(([k])=>`<td class="n"><b>${tot(k).toLocaleString("en-US")}</b></td>`).join("")}
           <td class="n"><b>${tot("cancelled").toLocaleString("en-US")}</b></td>
-          <td class="n">—</td><td class="n"><b>${money0(tot("commission"))}</b></td></tr>
+          <td class="n" title="Policy counts are not additive across months">—</td>
+          <td class="n"><b>${money0(tot("commission"))}</b></td></tr>
       </tbody></table></div>
+      <p class="fin-cap"><b>Why this does not match the table above, and why one total is a dash.</b>
+        <i>Policies that month</i> counts the policies that appeared on a statement in that single
+        month — roughly what the book looks like at one moment.
+        <b>Distinct policies</b> in the side-by-side table counts each policy <b>once across its whole
+        span</b>. A book of a few thousand policies, watched for a year with ordinary turnover, will
+        show far more distinct policies than any one month holds, so the two figures are answers to
+        different questions rather than a discrepancy.
+        <b>And the monthly column cannot be added up.</b> A policy present in six months would be
+        counted six times, which is why the total shows a dash where every other column shows a sum.
+        The other columns count <i>events</i> — a renewal, a payment, a cancellation — and events do
+        add.</p>
       <p class="fin-cap">
         <b>How to read this.</b> One row per policy per month, counted once however many lines the
         statement printed for it. <i>Payments</i> dominates because some of the carriers behind this
