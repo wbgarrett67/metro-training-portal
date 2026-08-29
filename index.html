@@ -3418,9 +3418,14 @@ function carrCard(code){ return (CARR.carriers||[]).find(c => c.code === code); 
    sorts first and can never be popped. But the carrier only bills when it has
    something to bill, so its months have holes in them: three inside the window the
    rest of the book shares. Dropping late starters could not reach the obstruction,
-   so the set collapsed to two carriers and the roll-up quietly lost Progressive,
-   Traders, Falcon, National General and Equity — about 85% of the book — while
-   still calling itself the agency view.
+   so the rule ate the big carriers instead, trying to get round it.
+
+   Measured against the live data rather than estimated — the first write-up of this
+   comment guessed and was wrong: the old rule keeps National Lloyds, USIC and Falcon
+   over 14 shared months, and throws away Progressive, Traders, Equity and National
+   General — 79% of loaded commission — to hold the window one month longer. The new
+   rule keeps six carriers over 13 months, 94.3% of commission. The panel would have
+   gone on calling the first of those the agency view.
 
    Starting late and being full of holes are two ways of failing to share a window,
    and sorting by start date only sees the first. So the rule now asks the question
