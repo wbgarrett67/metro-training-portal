@@ -4346,9 +4346,35 @@ const inWin = m => { const b = bankBounds();
    any period the picker offers and any office the filter picks — which is the
    whole point. The per-carrier export in comm_quickbooks stays as it was; it
    covers one fixed period and cannot follow the picker. */
+/* The QuickBooks comparison needs a window BOTH sides actually cover.
+
+   The P&L starts in January 2024. The loaded statements start in April 2021 but
+   are only two carriers until mid-2025. So on "All loaded" the selected window is
+   unbounded and the comparison would put $2,432,663 of QuickBooks income against
+   $859,594 of loaded statements and call it 35% coverage — a figure that is mostly
+   about months neither side shares, not about carriers we are missing.
+
+   So the comparison is clamped to the overlap of the two series, and the window it
+   actually used is printed on the card. The rest of the panel still follows the
+   period picker; only this comparison is clamped, because only this comparison
+   subtracts one source from another. */
+function qbWindow(){
+  const b = bankBounds();
+  const qm = (BANK && BANK.qb_months || []).map(r=>String(r.month)).sort();
+  const pm = (BANK && BANK.months || []).map(r=>String(r.month)).sort();
+  if(!qm.length || !pm.length) return {from:null, to:null, clamped:false};
+  const lo = qm[0] > pm[0] ? qm[0] : pm[0];
+  const hi = qm[qm.length-1] < pm[pm.length-1] ? qm[qm.length-1] : pm[pm.length-1];
+  const from = (b.from && b.from > lo) ? b.from : lo;
+  const to   = (b.to   && b.to   < hi) ? b.to   : hi;
+  return {from, to, clamped: (!b.from || b.from < lo) || (!b.to || b.to > hi)};
+}
+const inQW = m => { const w = qbWindow();
+  return (!w.from || String(m) >= w.from) && (!w.to || String(m) <= w.to); };
+
 function qbRows(book){
   return (BANK && BANK.qb_months || []).filter(r =>
-    inWin(r.month) && (!book || r.book === book));
+    inQW(r.month) && (!book || r.book === book));
 }
 const qbSum = book => qbRows(book).reduce((a,r)=> a + (+r.amount||0), 0);
 /* One-off money sitting inside those QuickBooks figures that no commission
@@ -4357,7 +4383,7 @@ const qbSum = book => qbRows(book).reduce((a,r)=> a + (+r.amount||0), 0);
    office that never received it. */
 function qbOneOff(book){
   return (BANK && BANK.qb_one_off || []).filter(e =>
-    inWin(e.month) && (!book || e.book === book));
+    inQW(e.month) && (!book || e.book === book));
 }
 const qbOneOffSum = book => qbOneOff(book).reduce((a,e)=> a + (+e.amount||0), 0);
 /* The Portal's own cash, split by office the same way the agency's journal entry
@@ -4369,9 +4395,14 @@ function bankBookRows(book, code){
 }
 const bankBookSum = (book, code) =>
   bankBookRows(book, code).reduce((a,r)=> a + (+r.commission||0), 0);
-/* The Portal figure to compare against QuickBooks: office-scoped when an office
-   is chosen, the whole agency otherwise. */
-const portalCash = () => locPick ? bankBookSum(locPick) : bankSum(null);
+/* The Portal figure to compare against QuickBooks: office-scoped when an office is
+   chosen, and over the SAME clamped window as the QuickBooks side. */
+function portalCash(){
+  if(locPick) return (BANK && BANK.books || []).filter(r =>
+      inQW(r.month) && r.book === locPick).reduce((a,r)=>a+(+r.commission||0),0);
+  return (BANK && BANK.months || []).filter(r => inQW(r.month))
+    .reduce((a,r)=>a+(+r.commission||0),0);
+}
 const qbBook = () => locPick || null;
 
 /* Office-aware money for one carrier. With an office chosen both sides come from
@@ -4675,6 +4706,15 @@ function carrDetailBank(code, card){
 /* The banked panel. Shown only when the Banked basis is picked, and it is the
    only place on this tab where a figure may be set beside a QuickBooks figure. */
 function carrBankCard(){
+  /* Self-healing. Banked is the default basis, so the payload is fetched with the
+     tab — but the tab can also be re-entered with finSub already set to 'carriers',
+     which skips the sub-tab click handler that does the loading. Without this the
+     card would sit on "Loading…" for ever and the whole basis would look as though
+     it had not applied. */
+  if(!BANK && !window.__bankLoading){
+    window.__bankLoading = true;
+    loadBanked().then(() => { window.__bankLoading = false; finCarriers(); });
+  }
   if(!BANK) return `<div class="card fin-pad" style="margin-bottom:16px">
     <div class="empty">Loading the banked view&hellip;</div></div>`;
   if(BANK.error) return `<div class="card fin-pad" style="margin-bottom:16px">
@@ -4733,6 +4773,10 @@ function carrBankCard(){
      class, so unlike the per-carrier export it follows the picker and the office
      filter. */
   const book = qbBook();
+  const qw = qbWindow();
+  const qwSpan = qw.from
+    ? `${esc(mMY(qw.from))}${qw.from===qw.to ? "" : " – " + esc(mMY(qw.to))}`
+    : "every month both sources hold";
   const qbAll = qbSum(book), oneOff = qbOneOffSum(book);
   const qbComp = qbAll - oneOff;                    // what a statement could ever explain
   const cash = portalCash();
@@ -4743,8 +4787,14 @@ function carrBankCard(){
 
   return `
     <div class="card fin-pad" style="margin-bottom:16px">
-      <div class="fin-h" style="margin-top:0">Against QuickBooks &middot; ${esc(span)}${
+      <div class="fin-h" style="margin-top:0">Against QuickBooks &middot; ${esc(qwSpan)}${
         book ? " &middot; " + esc(book) : ""}</div>
+      ${qw.clamped ? `<p class="fin-cap" style="margin:0 0 12px"><b>This comparison covers
+        ${esc(qwSpan)}, not the whole period selected above.</b> The two sources do not span the
+        same months — the P&amp;L starts in ${esc(mLong((BANK.qb_months||[]).map(r=>String(r.month))
+          .sort()[0] || ""))} and the loaded statements start elsewhere — so it is clamped to the
+        months both of them hold. Comparing outside that would measure the calendar rather than the
+        book.</p>` : ""}
       <div class="grid-stats" style="margin-bottom:0">
         <div class="stat"><div class="k">QuickBooks</div>
           <div class="v">${money0(qbAll)}</div>
