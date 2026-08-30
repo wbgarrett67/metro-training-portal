@@ -497,6 +497,11 @@ tbody tr.clk:hover{background:#f8f9fc}
 .fin-note b{color:#4d3406}
 .fin-note ul{margin:8px 0 0;padding-left:19px}
 .fin-note li{margin-bottom:5px}
+/* Same shape as fin-note but red, for the case where reading the number at face
+   value would be wrong rather than merely incomplete. */
+.fin-warn{background:#fdf1f0;border:1px solid #f0c2bd;border-radius:10px;
+  padding:13px 15px;font-size:13.5px;color:#7a2b21;line-height:1.6}
+.fin-warn b{color:#5c1d15}
 .fin-ev{font-size:12.5px;color:var(--ink-3);line-height:1.6}
 .fin-ev b{color:var(--ink-2)}
 .fin-t td,.fin-t th{padding:9px 11px}
@@ -4587,8 +4592,21 @@ function carrPeriodCard(){
     const pc = then ? (now-then)/Math.abs(then)*100 : null;
     const pp = pol1 ? (pol0-pol1)/Math.abs(pol1)*100 : null;
     const used = cmp.carriers_used || [], excl = cmp.carriers_excluded || [];
+    const share = cmp.share_of_period;
+    // A comparison drawn on a small slice of the period reads like an agency total
+    // unless the screen says otherwise in the same breath as the numbers. Below a
+    // third of the period it is banner-worthy; the caption alone was not enough.
+    const thin = share !== null && share !== undefined && +share < 33;
+    const near = (PER.cmp_near_miss || []).filter(x => (x.missing||[]).length);
     cmpHtml = `
       <div class="fin-h" style="margin:18px 0 8px">Against ${esc(PER.cmp_label||"the prior period")}</div>
+      ${share === null || share === undefined ? `` : `
+      <div class="${thin ? "fin-warn" : "fin-note"}" style="margin:0 0 10px">
+        <b>These two columns cover ${esc(String(share))}% of the period${
+          thin ? ", so they are not the agency" : ""}.</b>
+        ${money0(now)} of the ${money0(t.commission)} that came in over
+        ${esc(span)}${thin ? `. Whatever the change below says, it is a statement about
+        ${esc(used.map(nameOf).join(" and "))} and nothing wider` : ``}.</div>`}
       <div class="fin-grid2">
         <div>
           <table class="fin-t"><thead><tr><th></th>
@@ -4614,7 +4632,16 @@ function carrPeriodCard(){
             <br><b>So these two figures are smaller than the ${money0(t.commission)} above</b>,
             which is every carrier that traded in the period. Do not mix them.</p>
         </div>
-      </div>`;
+      </div>
+      ${!near.length ? `` : `
+      <div class="fin-note" style="margin:12px 0 0">
+        <b>${near.length===1?"One carrier is":`${near.length} carriers are`} a statement or two
+        short of joining this comparison.</b> ${near.map(x => {
+          const ms = (x.missing||[]).map(m=>mLong(m)).join(", ");
+          return `<br>· <b>${esc(nameOf(x.code))}</b> — missing ${esc(ms)}`;
+        }).join("")}
+        <br>Each of those is a hole in the loaded history, not a carrier too young to compare.
+        Fill it and the carrier joins both sides of the table.</div>`}`;
   }else{
     cmpHtml = `<p class="fin-cap" style="margin:14px 0 0">No comparison is drawn for
       <i>${esc(PER.label||"this period")}</i>. Pick a bounded period to compare one against another.</p>`;
