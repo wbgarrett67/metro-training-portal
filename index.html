@@ -4401,7 +4401,8 @@ function portalCash(){
   if(locPick) return (BANK && BANK.books || []).filter(r =>
       inQW(r.month) && r.book === locPick).reduce((a,r)=>a+(+r.commission||0),0);
   return (BANK && BANK.months || []).filter(r => inQW(r.month))
-    .reduce((a,r)=>a+(+r.commission||0),0);
+    .reduce((a,r)=> a + (r.paid === undefined || r.paid === null
+                          ? (+r.commission||0) : +r.paid), 0);
 }
 const qbBook = () => locPick || null;
 
@@ -4422,7 +4423,15 @@ function earnedFor(code){
     (!b.to   || String(r.earned_month) <= b.to)
   ).reduce((a,r)=> a + (+r.commission||0), 0);
 }
-const bankSum = code => bankRows(code).reduce((a,m)=> a + (+m.commission||0), 0);
+/* PAID, not gross. `commission` is what the statements say was earned; `paid` is
+   what actually moved — deposits where a carrier records them, otherwise the
+   statement total including the adjustments applied on it. Comparing gross against
+   QuickBooks was wrong for every carrier that uses the adjustments column: it put
+   AssuranceAmerica $80.60 out against books it matches to the cent, Travelers $770
+   out against books it misses by $4.11, and Progressive $1,476 out against books it
+   misses by $6.24. */
+const bankSum = code => bankRows(code).reduce((a,m)=>
+  a + (m.paid === undefined || m.paid === null ? (+m.commission||0) : +m.paid), 0);
 
 /* Earned, over the same window, computed from the SAME rows as the banked figure
    and merely dated by the month they cover instead of the month they posted.
@@ -4446,7 +4455,8 @@ function earnSum(code){
     (!code || m.carrier === code) &&
     (!b.from || String(m.earned_month) >= b.from) &&
     (!b.to   || String(m.earned_month) <= b.to)
-  ).reduce((a,m)=> a + (+m.commission||0), 0);
+  ).reduce((a,m)=> a + (m.paid === undefined || m.paid === null
+                         ? (+m.commission||0) : +m.paid), 0);
 }
 /* The same quantity as the tab's other panels believe it to be. Where this and
    earnSum disagree, one of the two payloads is looking at a different set of
@@ -4929,6 +4939,13 @@ function carrBankCard(){
           <td class="n"><b>${moneyD(tB-tE)}</b></td><td class="n">—</td>
           <td class="hide-sm"></td></tr>
       </tbody></table></div>
+      <p class="fin-cap"><b>These figures are what was PAID, not what was earned on paper.</b> Where a
+        carrier records deposit amounts, that is the deposit; where it does not, it is the statement
+        total including the adjustments applied on it. Gross commission alone disagrees with the bank
+        for every carrier that uses the adjustments column.
+        ${locPick ? `<b>The office rows further down are the exception</b> — they are built from
+        statement lines, which carry no header-level adjustment, so an office adds back to the
+        agency's gross rather than to the paid figure above.` : ""}</p>
       <p class="fin-cap"><b>An assumed lag is a guess about timing, not about money.</b> The
         statement totals are read from the statement either way; what is assumed is which month the
         cash landed in. Where it says <i>proven</i>, the lag was tested against what actually reached
