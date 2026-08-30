@@ -673,7 +673,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     CUST=null, custView="lapsed", custQ="",
     LOC=null, locPick=null,
     PER=null, perPreset="all", perFrom="", perTo="",
-    BANK=null, carrBasis="earned",
+    BANK=null, carrBasis="banked",
     OVW=null, GUIDE=null,
     TRUST=null, TRUSTT=null, trustScope="open", trustSide="all", trustDone=false,
     trustOpen=new Set(), TRUSTH={},
@@ -1546,6 +1546,7 @@ function mgrFin(){
     if(finSub === "fees"  && !FEE)   await loadFee();
     if(finSub === "carriers" && !CARR) await loadCarriers();
     if(finSub === "carriers" && !PER)  await loadPeriod();
+    if(finSub === "carriers" && !BANK) await loadBanked();   // Banked is the default basis
     if(finSub === "carriers" && !CUST) await loadCustomers();
     if(finSub === "trust" && !TRUST) await loadTrust();
     mgrFin();
@@ -3629,7 +3630,7 @@ function carrOverview(){
         /* In banked mode the money column moves to cash and the rate column goes with
            it — banked commission over earned premium is two different months divided
            by one another, which is not a rate of anything. */
-        const bk = bankOn() ? bankSum(c.code) : null;
+        const bk = bankOn() ? bankedFor(c.code) : null;
         return `<tr class="clk" data-carr="${esc(c.code)}">
           <td><b>${esc(c.name)}</b><div class="tsub">${esc(c.grain||"")}</div></td>
           <td class="n">${c.statements}</td>
@@ -3637,7 +3638,7 @@ function carrOverview(){
           <td class="n">${money0(c.premium)}</td>
           <td class="n"><b>${money0(bankOn() ? bk : c.commission)}</b></td>
           <td class="n">${bankOn()
-            ? moneyD(bk - earnSum(c.code))
+            ? moneyD(bk - earnedFor(c.code))
             : (rate===null?"—":rate.toFixed(1)+"%")}</td>
           <td class="hide-sm"><span class="tsub">${perSpan ? esc(perSpan)
             : (c.first_month?esc(mLong(c.first_month)):"—")
@@ -4149,14 +4150,15 @@ function locDetail(){
 
   host.innerHTML = `
     <button class="fin-back" id="locBack">← All carriers</button>
-    ${bankOn() ? `<div class="fin-note" style="margin-bottom:16px"><b>The office view has no banked
-      basis, and cannot have one.</b> A deposit arrives from the carrier as a single payment for the
-      whole agency; nothing in it says which office earned which part. The split into offices exists
-      only on the statement lines, which are dated by the month they cover. <b>Every figure on this
-      page is therefore earned.</b></div>` : ""}
     ${locPicker()}
     ${carrPeriodBar()}
     ${carrPeriodCard()}
+    ${bankOn() ? `<div class="fin-note" style="margin-bottom:16px"><b>A deposit does not name an
+      office, so this office's share of it is apportioned by the statement's own lines</b> — which
+      is exactly how the agency's journal entry allocates commission into classes in QuickBooks.
+      That makes the comparison below like for like. <b>The carrier panels further down stay on the
+      earned basis</b>, because a policy movement belongs to the month the policy moved.</div>
+    ${carrBankCard()}` : ""}
 
     <div class="grid-stats">
       <div class="stat"><div class="k">Commission</div>
@@ -4335,6 +4337,60 @@ function bankRows(code){
     (!b.from || String(m.month) >= b.from) &&
     (!b.to   || String(m.month) <= b.to));
 }
+const inWin = m => { const b = bankBounds();
+  return (!b.from || String(m) >= b.from) && (!b.to || String(m) <= b.to); };
+
+/* ---- the QuickBooks side, for whatever window and office is on screen ----
+   training_fin_line is the P&L itself: Commission Income by month and by class.
+   That is the number in Braden's books, so it can be set beside the Portal for
+   any period the picker offers and any office the filter picks — which is the
+   whole point. The per-carrier export in comm_quickbooks stays as it was; it
+   covers one fixed period and cannot follow the picker. */
+function qbRows(book){
+  return (BANK && BANK.qb_months || []).filter(r =>
+    inWin(r.month) && (!book || r.book === book));
+}
+const qbSum = book => qbRows(book).reduce((a,r)=> a + (+r.amount||0), 0);
+/* One-off money sitting inside those QuickBooks figures that no commission
+   statement will ever carry. Scoped to the office when one is chosen, because
+   the Progressive bonus sits at corporate and must not be deducted from an
+   office that never received it. */
+function qbOneOff(book){
+  return (BANK && BANK.qb_one_off || []).filter(e =>
+    inWin(e.month) && (!book || e.book === book));
+}
+const qbOneOffSum = book => qbOneOff(book).reduce((a,e)=> a + (+e.amount||0), 0);
+/* The Portal's own cash, split by office the same way the agency's journal entry
+   splits it: by the statement's own lines. */
+function bankBookRows(book, code){
+  return (BANK && BANK.books || []).filter(r =>
+    inWin(r.month) && (!code || r.carrier === code) &&
+    (book === undefined ? true : (book === null ? r.book === null : r.book === book)));
+}
+const bankBookSum = (book, code) =>
+  bankBookRows(book, code).reduce((a,r)=> a + (+r.commission||0), 0);
+/* The Portal figure to compare against QuickBooks: office-scoped when an office
+   is chosen, the whole agency otherwise. */
+const portalCash = () => locPick ? bankBookSum(locPick) : bankSum(null);
+const qbBook = () => locPick || null;
+
+/* Office-aware money for one carrier. With an office chosen both sides come from
+   BANK.books, which carries the covered month and the posted month on the same
+   row — so an office reads on either basis from one set of rows, and the earned
+   and banked columns can never be drawn from different populations. */
+function bankedFor(code){
+  if(!locPick) return bankSum(code);
+  return bankBookSum(locPick, code);
+}
+function earnedFor(code){
+  const b = bankBounds();
+  if(!locPick) return earnSum(code);
+  return (BANK && BANK.books || []).filter(r =>
+    r.book === locPick && (!code || r.carrier === code) &&
+    (!b.from || String(r.earned_month) >= b.from) &&
+    (!b.to   || String(r.earned_month) <= b.to)
+  ).reduce((a,r)=> a + (+r.commission||0), 0);
+}
 const bankSum = code => bankRows(code).reduce((a,m)=> a + (+m.commission||0), 0);
 
 /* Earned, over the same window, computed from the SAME rows as the banked figure
@@ -4394,6 +4450,20 @@ function carrPeriodBar(){
         <button data-basis="earned" class="${bankOn()?"":"on"}">Earned</button>
         <button data-basis="banked" class="${bankOn()?"on":""}">Banked</button>
       </div>
+      ${(() => {
+        /* Two of eleven carriers bill a month ahead of the rest, so the latest month
+           that exists anywhere is a stub. Every preset is anchored on the last
+           substantially complete month instead — and the screen names the months
+           held back, or "Latest month" looks like the book collapsed. */
+        const pm = (PER && PER.partial_months) || [];
+        if(!pm.length) return "";
+        return `<p class="fin-cap" style="margin:10px 0 0"><b>Anchored on
+          ${esc(mLong(PER.anchor))} — the last completed calendar month.</b>
+          ${pm.map(m=>`${esc(mLong(m.month))} is held back (${esc(m.reason||"incomplete")}); it
+            carries ${money0(m.commission)} from ${m.carriers}
+            carrier${m.carriers===1?"":"s"} so far`).join(". ")}. A few carriers bill a month ahead
+          of the rest, so a month that has not ended is never a month of trade.</p>`;
+      })()}
       <p class="fin-cap" style="margin:10px 0 0">${bankOn()
         ? `<b>Banked</b> — each statement counted in the month <b>the money arrived</b>, which is its
            coverage month plus that carrier's own deposit lag. This is the basis that agrees with the
@@ -4630,7 +4700,7 @@ function carrBankCard(){
   const tbl = codes.map(code => {
     const meta = bankCard(code) || {};
     const card = carrCard(code) || {};
-    const e = earnSum(code), k = bankSum(code), pe = earnSumPeriod(code);
+    const e = earnedFor(code), k = bankedFor(code), pe = earnSumPeriod(code);
     return {code, name: meta.name || card.name || code, earned:e, banked:k, diff:k-e,
             lag: meta.lag_months, proven: !!meta.lag_proven, basis: meta.lag_basis||"",
             share: meta.deposit_share,
@@ -4658,9 +4728,94 @@ function carrBankCard(){
      must not be left thinking a blank deposit column means nothing was paid. */
   const noDep = tbl.filter(r => r.share !== null && r.share !== undefined && +r.share < 50);
 
+  /* ---- the comparison Braden actually wants: this window, this office, against
+     the books. QuickBooks Commission Income comes from the P&L by month and by
+     class, so unlike the per-carrier export it follows the picker and the office
+     filter. */
+  const book = qbBook();
+  const qbAll = qbSum(book), oneOff = qbOneOffSum(book);
+  const qbComp = qbAll - oneOff;                    // what a statement could ever explain
+  const cash = portalCash();
+  const gap = qbComp - cash;
+  const cover = qbComp ? cash / qbComp * 100 : null;
+  const oneOffRows = qbOneOff(book);
+  const qbMonths = Array.from(new Set(qbRows(book).map(r=>String(r.month)))).sort();
+
   return `
     <div class="card fin-pad" style="margin-bottom:16px">
-      <div class="fin-h" style="margin-top:0">Banked &middot; ${esc(span)}</div>
+      <div class="fin-h" style="margin-top:0">Against QuickBooks &middot; ${esc(span)}${
+        book ? " &middot; " + esc(book) : ""}</div>
+      <div class="grid-stats" style="margin-bottom:0">
+        <div class="stat"><div class="k">QuickBooks</div>
+          <div class="v">${money0(qbAll)}</div>
+          <div class="tsub">Commission Income in the books${book ? " for this office" : ""},
+            these calendar months</div></div>
+        <div class="stat"><div class="k">Less one-off money</div>
+          <div class="v">${oneOff ? "−"+money0(oneOff).replace("$","$") : "—"}</div>
+          <div class="tsub">${oneOffRows.length
+            ? esc(oneOffRows.map(e=>e.label.split(" —")[0]).join("; "))
+            : "nothing in this window that a statement could never carry"}</div></div>
+        <div class="stat"><div class="k">Portal, banked</div>
+          <div class="v">${money0(cash)}</div>
+          <div class="tsub">loaded statements, dated by when the money arrived</div></div>
+        <div class="stat"><div class="k">Still unexplained</div>
+          <div class="v">${money0(gap)}</div>
+          <div class="tsub">${cover===null ? "—"
+            : cover.toFixed(1) + "% of the comparable books is loaded"}</div></div>
+      </div>
+      <p class="fin-cap" style="margin:14px 0 0"><b>Read it as a coverage figure, not an
+        error.</b> ${money0(qbComp)} of commission income could in principle be matched by a
+        statement; ${money0(cash)} of it is loaded. The ${money0(gap)} difference is
+        overwhelmingly <b>carriers whose statements we do not have</b> — see the named reasons
+        and the missing-source list below — not money that has gone astray. Both sides here
+        count the same calendar months, so timing is not part of it.</p>
+      ${oneOffRows.length ? `<p class="fin-cap"><b>Deducted before comparing:</b>
+        ${oneOffRows.map(e=>`${esc(e.label)} (${esc(mMY(e.month))}, ${money0(e.amount)})`)
+          .join("; ")}. ${esc(String((oneOffRows[0]||{}).detail||"").slice(0,220))}</p>` : ""}
+    </div>
+
+    ${qbMonths.length > 1 ? `
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <div class="fin-h" style="margin-top:0">Month by month against the books</div>
+      <div style="overflow-x:auto">
+      <table class="fin-t"><thead><tr>
+        <th>Month</th><th class="n">QuickBooks</th><th class="n">One-off</th>
+        <th class="n">Comparable</th><th class="n">Portal, banked</th>
+        <th class="n">Gap</th><th class="n">Loaded</th>
+      </tr></thead><tbody>${qbMonths.slice().reverse().map(mo=>{
+        const q = qbRows(book).filter(r=>String(r.month)===mo)
+                    .reduce((a,r)=>a+(+r.amount||0),0);
+        const o = qbOneOff(book).filter(e=>String(e.month)===mo)
+                    .reduce((a,e)=>a+(+e.amount||0),0);
+        const c = book
+          ? bankBookRows(book).filter(r=>String(r.month)===mo).reduce((a,r)=>a+(+r.commission||0),0)
+          : bankRows(null).filter(r=>String(r.month)===mo).reduce((a,r)=>a+(+r.commission||0),0);
+        const comp = q - o;
+        return `<tr><td>${esc(mLong(mo))}</td>
+          <td class="n">${money0(q)}</td>
+          <td class="n">${o ? money0(o) : "—"}</td>
+          <td class="n">${money0(comp)}</td>
+          <td class="n"><b>${money0(c)}</b></td>
+          <td class="n">${money0(comp-c)}</td>
+          <td class="n">${comp ? (c/comp*100).toFixed(0)+"%" : "—"}</td></tr>`;
+      }).join("")}
+        <tr style="border-top:2px solid var(--line-2)"><td><b>Total</b></td>
+          <td class="n"><b>${money0(qbAll)}</b></td>
+          <td class="n"><b>${oneOff ? money0(oneOff) : "—"}</b></td>
+          <td class="n"><b>${money0(qbComp)}</b></td>
+          <td class="n"><b>${money0(cash)}</b></td>
+          <td class="n"><b>${money0(gap)}</b></td>
+          <td class="n"><b>${cover===null?"—":cover.toFixed(0)+"%"}</b></td></tr>
+      </tbody></table></div>
+      <p class="fin-cap">A month where <i>Loaded</i> drops is a month where a carrier we do not
+        hold was paid, not a month the agency did worse. The <i>Comparable</i> column is
+        QuickBooks with the one-off money taken out, because no commission statement will ever
+        contain it.</p>
+    </div>` : ""}
+
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <div class="fin-h" style="margin-top:0">Earned against banked${
+        book ? " &middot; " + esc(book) : ""} &middot; ${esc(span)}</div>
       <div class="grid-stats" style="margin-bottom:0">
         <div class="stat"><div class="k">Banked in this window</div>
           <div class="v">${money0(tB)}</div>
