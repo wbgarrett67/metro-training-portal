@@ -673,6 +673,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     CUST=null, custView="lapsed", custQ="",
     LOC=null, locPick=null,
     PER=null, perPreset="all", perFrom="", perTo="",
+    BANK=null, carrBasis="earned",
     OVW=null, GUIDE=null,
     TRUST=null, TRUSTT=null, trustScope="open", trustSide="all", trustDone=false,
     trustOpen=new Set(), TRUSTH={},
@@ -3601,7 +3602,8 @@ function carrOverview(){
         <div class="tsub">distinct, over everything loaded \u2014 not the period below</div></div>
       <div class="stat"><div class="k">Commission read</div>
         <div class="v">${money0((CARR.carriers||[]).reduce((a,c)=>a+(+c.commission||0),0))}</div>
-        <div class="tsub">everything loaded, each statement tied to its printed total</div></div>
+        <div class="tsub">everything loaded, each statement tied to its printed total${
+          bankOn() ? " — the same money on either basis, only dated differently" : ""}</div></div>
       <div class="stat"><div class="k">New business</div>
         <div class="v">${tot("new").toLocaleString("en-US")}</div>
         <div class="tsub">over the ${usable.length} month${usable.length===1?"":"s"} all carriers
@@ -3610,6 +3612,7 @@ function carrOverview(){
 
     ${carrPeriodBar()}
     ${carrPeriodCard()}
+    ${bankOn() ? carrBankCard() : ""}
     ${locPicker()}
 
     <div class="card fin-pad">
@@ -3617,17 +3620,25 @@ function carrOverview(){
       <div style="overflow-x:auto">
       <table class="fin-t"><thead><tr>
         <th>Carrier</th><th class="n">Months</th><th class="n">Distinct policies</th>
-        <th class="n">Premium</th><th class="n">Commission</th><th class="n">Rate</th>
+        <th class="n">Premium</th>
+        <th class="n">${bankOn() ? "Banked" : "Commission"}</th>
+        <th class="n">${bankOn() ? "vs earned" : "Rate"}</th>
         <th class="hide-sm">${perSpan ? "In period" : "Period"}</th>
       </tr></thead><tbody>${cs.map(c=>{
         const rate = (+c.premium) ? (+c.commission)/(+c.premium)*100 : null;
+        /* In banked mode the money column moves to cash and the rate column goes with
+           it — banked commission over earned premium is two different months divided
+           by one another, which is not a rate of anything. */
+        const bk = bankOn() ? bankSum(c.code) : null;
         return `<tr class="clk" data-carr="${esc(c.code)}">
           <td><b>${esc(c.name)}</b><div class="tsub">${esc(c.grain||"")}</div></td>
           <td class="n">${c.statements}</td>
           <td class="n">${(+c.policies||0).toLocaleString("en-US")}</td>
           <td class="n">${money0(c.premium)}</td>
-          <td class="n"><b>${money0(c.commission)}</b></td>
-          <td class="n">${rate===null?"—":rate.toFixed(1)+"%"}</td>
+          <td class="n"><b>${money0(bankOn() ? bk : c.commission)}</b></td>
+          <td class="n">${bankOn()
+            ? moneyD(bk - earnSum(c.code))
+            : (rate===null?"—":rate.toFixed(1)+"%")}</td>
           <td class="hide-sm"><span class="tsub">${perSpan ? esc(perSpan)
             : (c.first_month?esc(mLong(c.first_month)):"—")
               + " – " + (c.last_month?esc(mLong(c.last_month)):"—")}</span></td>
@@ -3639,14 +3650,24 @@ function carrOverview(){
         under it.</p>
       <p class="fin-cap">${perSpan
         ? `Every figure in this table is for <b>${esc(PER.label||"the selected period")}</b>. `
-        : ""}Rate is commission divided by premium across the period shown. It is
-        a blend, not a contract rate — Traders alone pays 12%, 12.5%, 13% and 15% depending on the
-        policy, and a shift in that mix moves the blend without any rate ever changing.</p>
+        : ""}${bankOn()
+        ? `<b>Banked</b> is the cash that arrived in those calendar months; <b>vs earned</b> is how
+           far it sits from the business those same months covered. Premium and policies stay on the
+           earned basis, so <b>do not divide the banked column by the premium column</b> — that would
+           be two different months over one another, and the rate column is hidden here for exactly
+           that reason.`
+        : `Rate is commission divided by premium across the period shown. It is
+           a blend, not a contract rate — Traders alone pays 12%, 12.5%, 13% and 15% depending on the
+           policy, and a shift in that mix moves the blend without any rate ever changing.`}</p>
     </div>
 
     ${usable.length ? `
     <div class="card fin-pad" style="margin-top:16px">
       <div class="fin-h" style="margin-top:0">What the book did, across the carriers that share this span</div>
+      ${bankOn() ? `<div class="fin-note" style="margin:0 0 14px"><b>This panel stays on the earned
+        basis, and always will.</b> A policy movement belongs to the month the policy moved; it has
+        no cash month of its own. The commission column here is therefore earned commission, and it
+        will not agree with the banked figures above.</div>` : ""}
       ${finLines(agg.map(a=>a.month), CARR_STATE.map(([k,,col]) =>
         ({name:CARR_STATE.find(s=>s[0]===k)[1], color:col, v:agg.map(a=>+a[k]||0)})),
         {tight:true, fmt:carrN, alt:"Monthly policy movements by type"})}
@@ -3782,6 +3803,10 @@ function carrDetail(){
 
   $("#finBody").innerHTML = `
     <button class="fin-back" id="carrBack">← All carriers</button>
+    <div class="fin-cust" style="margin-bottom:10px">
+      <button data-basis="earned" class="${bankOn()?"":"on"}">Earned</button>
+      <button data-basis="banked" class="${bankOn()?"on":""}">Banked</button>
+    </div>
     <p class="fin-cap" style="margin:0 0 12px"><b>This page ignores the period picker.</b> It shows
       everything loaded for ${esc(c.name.split(" (")[0])}, because a carrier's warm-up window and
       its own vocabulary only make sense against its whole series. Use the office view or the
@@ -3851,6 +3876,8 @@ function carrDetail(){
         above, which is the whole loaded period.</p>` : ""}
     </div>
 
+    ${bankOn() ? carrDetailBank(carrPick, c) : ""}
+
     <div class="fin-grid2" style="margin-top:16px">
       <div class="card fin-pad">
         <div class="fin-h" style="margin-top:0">Where the book sits</div>
@@ -3891,6 +3918,14 @@ function carrDetail(){
 
   $("#carrBack").addEventListener("click", () => { carrPick = null; CUST = null; finCarriers();
     window.scrollTo({top:0, behavior:"smooth"}); });
+  /* The basis toggle exists on this page too, or a reader who switched to Banked
+     and then opened a carrier would have no way back except leaving the page. */
+  document.querySelectorAll("[data-basis]").forEach(btn =>
+    btn.addEventListener("click", async () => {
+      carrBasis = btn.dataset.basis;
+      if(bankOn() && !BANK) await loadBanked();
+      finCarriers();
+    }));
 }
 
 /* ---- CARRIER CUSTOMERS ----------------------------------------------------
@@ -4114,6 +4149,11 @@ function locDetail(){
 
   host.innerHTML = `
     <button class="fin-back" id="locBack">← All carriers</button>
+    ${bankOn() ? `<div class="fin-note" style="margin-bottom:16px"><b>The office view has no banked
+      basis, and cannot have one.</b> A deposit arrives from the carrier as a single payment for the
+      whole agency; nothing in it says which office earned which part. The split into offices exists
+      only on the statement lines, which are dated by the month they cover. <b>Every figure on this
+      page is therefore earned.</b></div>` : ""}
     ${locPicker()}
     ${carrPeriodBar()}
     ${carrPeriodCard()}
@@ -4249,6 +4289,91 @@ async function loadPeriod(){
   }catch(e){ PER = {error:e.message}; }
 }
 
+/* ---- EARNED vs BANKED ------------------------------------------------------
+   Two honest answers to "how much did this carrier make us", and they are not
+   the same number.
+
+   EARNED puts a statement in the month it COVERS. It is the right basis for
+   asking what the book did, and it is what every other panel on this tab uses,
+   because a policy movement belongs to the month the policy moved.
+
+   BANKED puts the same statement in the month the money ARRIVED — the coverage
+   month plus that carrier's own deposit lag. It is the right basis for one
+   question only: does this agree with the bank and with QuickBooks.
+
+   Traders is the clean demonstration. Jan–Jul 2026 earned is $77,098.92;
+   the same seven months of CASH are $79,687.42, because a Traders statement
+   labelled January is December's business. The $2,588.50 between them is one
+   month of drift, not an error — and it is not zero only because the book is
+   shrinking, so the December swapped in is bigger than the July swapped out.
+
+   THE TOGGLE MOVES MONEY AND NOTHING ELSE. Policy counts, new business,
+   renewals and cancellations stay on the earned basis in both modes, because a
+   policy has no cash month. The screen says so rather than leaving a reader to
+   assume the whole page switched. */
+async function loadBanked(){
+  try{ BANK = await rpc("training_carrier_banked", {p_code: CODE}); }
+  catch(e){ BANK = {error:e.message, months:[], carriers:[], quickbooks:[],
+                    reconciling:[], missing:[]}; }
+}
+const bankOn  = () => carrBasis === "banked";
+const bankHas = () => !!(BANK && !BANK.error && (BANK.months||[]).length);
+
+/* The window the period picker has chosen, as plain calendar months. In banked
+   mode those same months are read as CASH months — which is exactly what
+   QuickBooks means by "January" — so the bounds are used unchanged rather than
+   shifted by the lag. Shifting them would answer a question nobody asked. */
+function bankBounds(){
+  const cur = (PER && PER.current) || {};
+  return {from: cur.from ? String(cur.from).slice(0,10) : null,
+          to:   cur.to   ? String(cur.to).slice(0,10)   : null};
+}
+function bankRows(code){
+  const b = bankBounds();
+  return (BANK && BANK.months || []).filter(m =>
+    (!code || m.carrier === code) &&
+    (!b.from || String(m.month) >= b.from) &&
+    (!b.to   || String(m.month) <= b.to));
+}
+const bankSum = code => bankRows(code).reduce((a,m)=> a + (+m.commission||0), 0);
+
+/* Earned, over the same window, computed from the SAME rows as the banked figure
+   and merely dated by the month they cover instead of the month they posted.
+
+   This deliberately does not read the period payload, even though that payload
+   also carries an earned commission figure. The two are built by different
+   functions over different carrier sets, and setting one beside the other
+   invites a subtraction of two things that were never the same population — on
+   the test fixture that produced a "+121% of earned" that was pure artefact.
+   Here the two sides are literally the same statements, so the difference
+   between them can only ever be timing, which is the whole claim the panel
+   makes. Safe because a carrier has ONE deposit lag: within a carrier, a posting
+   month maps to exactly one coverage month (checked in the database: zero
+   groups carry more than one).
+
+   The period payload's figure is still fetched, and still cross-checked against
+   this one — see earnSumPeriod and the guard in carrBankCard. */
+function earnSum(code){
+  const b = bankBounds();
+  return (BANK && BANK.months || []).filter(m =>
+    (!code || m.carrier === code) &&
+    (!b.from || String(m.earned_month) >= b.from) &&
+    (!b.to   || String(m.earned_month) <= b.to)
+  ).reduce((a,m)=> a + (+m.commission||0), 0);
+}
+/* The same quantity as the tab's other panels believe it to be. Where this and
+   earnSum disagree, one of the two payloads is looking at a different set of
+   carriers, and the panel says so rather than quietly printing a percentage. */
+function earnSumPeriod(code){
+  const cur = (PER && PER.current) || {};
+  if(code){
+    const hit = (cur.carriers||[]).find(c => c.carrier_code === code);
+    return hit ? (+hit.commission||0) : 0;
+  }
+  return +((cur.totals||{}).commission) || 0;
+}
+function bankCard(code){ return (BANK && BANK.carriers || []).find(c => c.code === code); }
+
 /* Month inputs are <input type="month">, which yields "2026-07". The RPC wants a date,
    so the day is added on the way out and stripped on the way in. Bounded by the data,
    not by the calendar — offering a month nobody has loaded invites an empty screen. */
@@ -4264,6 +4389,20 @@ function carrPeriodBar(){
       <div class="fin-h" style="margin-top:0">Period</div>
       <div class="fin-cust" style="margin-bottom:0">${PER_PRESETS.map(([k,l])=>
         `<button data-per="${k}" class="${perPreset===k?"on":""}">${esc(l)}</button>`).join("")}</div>
+      <div class="fin-h" style="margin:18px 0 0">Basis</div>
+      <div class="fin-cust" style="margin-bottom:0">
+        <button data-basis="earned" class="${bankOn()?"":"on"}">Earned</button>
+        <button data-basis="banked" class="${bankOn()?"on":""}">Banked</button>
+      </div>
+      <p class="fin-cap" style="margin:10px 0 0">${bankOn()
+        ? `<b>Banked</b> — each statement counted in the month <b>the money arrived</b>, which is its
+           coverage month plus that carrier's own deposit lag. This is the basis that agrees with the
+           bank and with QuickBooks, and it is the only thing the toggle changes:
+           <b>policy counts, new business, renewals and cancellations below stay on the earned
+           basis</b>, because a policy has no cash month.`
+        : `<b>Earned</b> — each statement counted in the month <b>it covers</b>. The right basis for
+           what the book did, and what every panel below uses. Switch to <b>Banked</b> to see the same
+           months as cash, which is how QuickBooks counts them.`}</p>
       ${perPreset==="custom" ? `
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
         <label class="tsub">From <input id="perFrom" type="month" value="${esc(perFrom)}"
@@ -4292,6 +4431,14 @@ function carrPeriodWire(){
         if(perFrom < b.min) perFrom = b.min;
       }
       if(perPreset !== "custom"){ PER = null; await loadPeriod(); }
+      finCarriers();
+    }));
+  /* The banked payload is fetched the first time anyone asks for it, not on the
+     tab's first paint — most visits never leave the earned basis. */
+  document.querySelectorAll("[data-basis]").forEach(btn =>
+    btn.addEventListener("click", async () => {
+      carrBasis = btn.dataset.basis;
+      if(bankOn() && !BANK) await loadBanked();
       finCarriers();
     }));
   const go = $("#perGo");
@@ -4388,6 +4535,283 @@ function carrPeriodCard(){
         way on both sides.</div>` : ""}
       ${cmpHtml}
     </div>`;
+}
+
+/* One carrier's own cash calendar. The detail page ignores the period picker, so
+   this covers the whole loaded series rather than a window — which is what makes
+   the shift legible: every row shows the month a statement covered next to the
+   month its money landed. */
+function carrDetailBank(code, card){
+  if(!BANK || BANK.error || !bankHas()) return "";
+  const rows = (BANK.months||[]).filter(m => m.carrier === code)
+                 .sort((a,b)=> String(a.month) < String(b.month) ? -1 : 1);
+  if(!rows.length) return "";
+  const meta = bankCard(code) || {};
+  const qb = (BANK.quickbooks||[]).find(q => q.carrier === code);
+  const tot = rows.reduce((a,r)=> a + (+r.commission||0), 0);
+  const dep = rows.reduce((a,r)=> a + (+r.deposited||0), 0);
+  const lag = meta.lag_months;
+
+  return `
+    <div class="card fin-pad" style="margin-top:16px">
+      <div class="fin-h" style="margin-top:0">${esc(String(card.name).split(" (")[0])} — when the
+        money actually arrived</div>
+      <div class="grid-stats" style="margin-bottom:0">
+        <div class="stat"><div class="k">Deposit lag</div>
+          <div class="v">${lag===null||lag===undefined ? "—" : lag + (lag===1?" month":" months")}</div>
+          <div class="tsub">${meta.lag_proven ? "proven against the bank" : "assumed, never tested"}</div></div>
+        <div class="stat"><div class="k">Banked, all loaded</div>
+          <div class="v">${money0(tot)}</div>
+          <div class="tsub">${rows.length} banked month${rows.length===1?"":"s"}</div></div>
+        <div class="stat"><div class="k">Deposit recorded</div>
+          <div class="v">${meta.deposit_share===null||meta.deposit_share===undefined
+            ? "—" : (+meta.deposit_share).toFixed(0)+"%"}</div>
+          <div class="tsub">${dep ? money0(dep)+" of the total has a deposit figure behind it"
+            : "the deposit column was never filled for this carrier"}</div></div>
+        ${qb ? `<div class="stat"><div class="k">Against QuickBooks</div>
+          <div class="v" style="font-size:24px">${Math.abs(+qb.residual||0) < 0.005
+            ? "exact" : moneyD(+qb.residual||0)}</div>
+          <div class="tsub">${esc(qb.period||"")}, ${esc(qb.verdict||"")}</div></div>` : ""}
+      </div>
+      ${meta.lag_basis ? `<p class="fin-cap" style="margin-top:14px"><b>How the lag is known.</b>
+        ${esc(meta.lag_basis)}</p>` : ""}
+      <div style="overflow-x:auto;margin-top:14px">
+      <table class="fin-t"><thead><tr>
+        <th>Banked month</th><th>Covers</th><th class="n">Statements</th>
+        <th class="n">Commission</th><th class="n">Deposit recorded</th>
+      </tr></thead><tbody>${rows.slice().reverse().map(r=>`
+        <tr><td><b>${esc(mLong(r.month))}</b></td>
+          <td><span class="tsub">${esc(mLong(r.earned_month))}</span></td>
+          <td class="n">${r.statements}</td>
+          <td class="n"><b>${money0(r.commission)}</b></td>
+          <td class="n">${+r.deposited ? money0(r.deposited) : '<span class="tsub">—</span>'}</td>
+        </tr>`).join("")}
+        <tr style="border-top:2px solid var(--line-2)"><td><b>Total</b></td><td></td>
+          <td class="n"><b>${rows.reduce((a,r)=>a+(+r.statements||0),0)}</b></td>
+          <td class="n"><b>${money0(tot)}</b></td>
+          <td class="n"><b>${dep ? money0(dep) : "—"}</b></td></tr>
+      </tbody></table></div>
+      <p class="fin-cap"><b>Read the first two columns together.</b> The <i>covers</i> column is the
+        month the business belongs to and is what every other panel on this page uses; the
+        <i>banked month</i> is where the same money shows up in the bank and in QuickBooks. Where
+        those differ, any comparison between this carrier and the books has to pick one and say
+        which.</p>
+      ${!meta.lag_proven ? `<p class="fin-cap"><b>This carrier's lag has not been tested.</b> The
+        statement totals are read from the statements, but which month the cash landed in is an
+        assumption, so every figure in the left-hand column could be a month out.</p>` : ""}
+    </div>`;
+}
+
+/* The banked panel. Shown only when the Banked basis is picked, and it is the
+   only place on this tab where a figure may be set beside a QuickBooks figure. */
+function carrBankCard(){
+  if(!BANK) return `<div class="card fin-pad" style="margin-bottom:16px">
+    <div class="empty">Loading the banked view&hellip;</div></div>`;
+  if(BANK.error) return `<div class="card fin-pad" style="margin-bottom:16px">
+    <div class="empty">${esc(BANK.error)}</div></div>`;
+  if(!bankHas()) return `<div class="card fin-pad" style="margin-bottom:16px">
+    <div class="empty">No statement carries a posting month, so no banked view can be
+    drawn.</div></div>`;
+
+  const b = bankBounds();
+  const span = b.from
+    ? `${esc(mMY(b.from))}${b.from===b.to ? "" : " – " + esc(mMY(b.to))}`
+    : "every loaded month";
+  const rows = bankRows(null);
+  const months = Array.from(new Set(rows.map(r=>String(r.month)))).sort();
+  const byMonth = months.map(mo => ({month:mo,
+    v: rows.filter(r=>String(r.month)===mo).reduce((a,r)=>a+(+r.commission||0),0)}));
+
+  /* Only carriers that traded in the window, on either basis. A carrier showing
+     0 and 0 is noise, not information. */
+  const codes = Array.from(new Set([
+    ...rows.map(r=>r.carrier),
+    ...(((PER&&PER.current&&PER.current.carriers)||[]).map(c=>c.carrier_code))]));
+  const tbl = codes.map(code => {
+    const meta = bankCard(code) || {};
+    const card = carrCard(code) || {};
+    const e = earnSum(code), k = bankSum(code), pe = earnSumPeriod(code);
+    return {code, name: meta.name || card.name || code, earned:e, banked:k, diff:k-e,
+            lag: meta.lag_months, proven: !!meta.lag_proven, basis: meta.lag_basis||"",
+            share: meta.deposit_share,
+            /* This panel adds up statement TOTALS; the rest of the tab adds up
+               statement LINES. They agree for every carrier whose lines foot to its
+               header — and where they do not, the difference is a loading gap and
+               must not be read as a timing difference. Travelers is the live case. */
+            offLine: pe && Math.abs(e - pe) / Math.abs(pe) > 0.005 ? e - pe : 0,
+            periodEarned: pe};
+  }).filter(r => r.earned || r.banked)
+    .sort((a,b2)=> Math.abs(b2.banked)-Math.abs(a.banked));
+
+  const tE = tbl.reduce((a,r)=>a+r.earned,0), tB = tbl.reduce((a,r)=>a+r.banked,0);
+  /* Cross-check against what the rest of the tab thinks earned commission is for
+     this window. They are computed by different functions over different payloads
+     and should agree; where they do not, one of them is looking at a different set
+     of carriers and no percentage drawn from either is worth printing. */
+  const tP = earnSumPeriod(null);
+  const drift = (tP && Math.abs(tE - tP) / Math.abs(tP) > 0.005) ? (tE - tP) : 0;
+  const qb = (BANK.quickbooks||[]);
+  const named = (BANK.reconciling||[]);
+  const missing = (BANK.missing||[]);
+  /* Deposits were recorded for some carriers and never entered for others. The
+     banked figure is built from the statement total either way — but a reader
+     must not be left thinking a blank deposit column means nothing was paid. */
+  const noDep = tbl.filter(r => r.share !== null && r.share !== undefined && +r.share < 50);
+
+  return `
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <div class="fin-h" style="margin-top:0">Banked &middot; ${esc(span)}</div>
+      <div class="grid-stats" style="margin-bottom:0">
+        <div class="stat"><div class="k">Banked in this window</div>
+          <div class="v">${money0(tB)}</div>
+          <div class="tsub">money that arrived in these calendar months</div></div>
+        <div class="stat"><div class="k">Earned in this window</div>
+          <div class="v">${money0(tE)}</div>
+          <div class="tsub">business these calendar months covered</div></div>
+        <div class="stat"><div class="k">Difference</div>
+          <div class="v">${moneyD(tB-tE)}</div>
+          <div class="tsub">${drift ? "percentage withheld — see the note below"
+            : (tE ? pctTxt((tB-tE)/Math.abs(tE)*100) + " of earned" : "—")}</div></div>
+        <div class="stat"><div class="k">Lag proven</div>
+          <div class="v">${tbl.filter(r=>r.proven).length} of ${tbl.length}</div>
+          <div class="tsub">carriers whose deposit timing was tested, not assumed</div></div>
+      </div>
+      <p class="fin-cap" style="margin:14px 0 0"><b>Neither figure is more correct than the
+        other.</b> They answer different questions, and the gap between them is timing rather than
+        money. It is only large where a carrier's book is moving fast — a shrinking book swaps a
+        bigger old month in for a smaller new one, and a growing book does the reverse.</p>
+      ${drift ? `<div class="fin-note" style="margin:14px 0 0"><b>These two figures are not drawn
+        from the same set of carriers, so the difference above is not purely timing.</b> The earned
+        total here is ${money0(tE)}; the rest of this tab makes it ${money0(tP)}, a gap of
+        ${moneyD(drift)}. That means one of the two payloads is covering carriers the other is not —
+        <b>treat the difference column as unreliable until it is resolved</b>, and do not quote the
+        percentage.</div>` : ""}
+    </div>
+
+    ${months.length > 1 ? `
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <div class="fin-h" style="margin-top:0">Cash by month, every loaded carrier</div>
+      ${finLines(byMonth.map(m=>m.month),
+        [{name:"Banked commission", color:"#3B3D80", v:byMonth.map(m=>m.v)}],
+        {tight:true, alt:"Commission banked by month"})}
+      <p class="fin-cap">Every statement that posted in each month, whichever month it covered.
+        <b>This line is not comparable to the monthly panel further down</b>, which counts policy
+        movements on the earned basis and over a narrower set of carriers.</p>
+    </div>` : ""}
+
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <div class="fin-h" style="margin-top:0">Earned against banked, by carrier</div>
+      <div style="overflow-x:auto">
+      <table class="fin-t"><thead><tr>
+        <th>Carrier</th><th class="n">Earned</th><th class="n">Banked</th>
+        <th class="n">Difference</th><th class="n">Lag</th><th class="hide-sm">How the lag is known</th>
+      </tr></thead><tbody>${tbl.map(r=>`
+        <tr><td><b>${esc(r.name.split(" (")[0])}</b>${r.offLine ? `
+            <div class="tsub">statement totals exceed the lines loaded for it by
+              ${money0(Math.abs(r.offLine))} — see below</div>` : ""}</td>
+          <td class="n">${money0(r.earned)}</td>
+          <td class="n"><b>${money0(r.banked)}</b></td>
+          <td class="n">${r.earned||r.banked ? moneyD(r.diff) : "—"}</td>
+          <td class="n">${r.lag===null||r.lag===undefined ? "—"
+            : r.lag + " mo"}</td>
+          <td class="hide-sm">${r.proven
+            ? '<span class="pill done">proven</span>'
+            : '<span class="pill fail">assumed</span>'}
+            <span class="tsub">${esc(String(r.basis).slice(0,150))}</span></td>
+        </tr>`).join("")}
+        <tr style="border-top:2px solid var(--line-2)"><td><b>Total</b></td>
+          <td class="n"><b>${money0(tE)}</b></td><td class="n"><b>${money0(tB)}</b></td>
+          <td class="n"><b>${moneyD(tB-tE)}</b></td><td class="n">—</td>
+          <td class="hide-sm"></td></tr>
+      </tbody></table></div>
+      <p class="fin-cap"><b>An assumed lag is a guess about timing, not about money.</b> The
+        statement totals are read from the statement either way; what is assumed is which month the
+        cash landed in. Where it says <i>proven</i>, the lag was tested against what actually reached
+        the bank.</p>
+      ${tbl.some(r=>r.offLine) ? `<p class="fin-cap"><b>${esc(tbl.filter(r=>r.offLine)
+          .map(r=>r.name.split(" (")[0]).join(", "))} ${tbl.filter(r=>r.offLine).length===1
+          ? "carries more on its statement totals than on the lines loaded beneath them"
+          : "carry more on their statement totals than on the lines loaded beneath them"}.</b>
+        This panel adds up what each statement says it paid; every other panel on this tab adds up
+        the individual policy lines. For every other carrier those foot exactly. Here they do not,
+        which means part of that statement was never loaded as detail —
+        <b>so the difference column for
+        ${tbl.filter(r=>r.offLine).length===1 ? "that carrier is" : "those carriers is"} not purely
+        timing</b>, and the gap is a loading job rather than a lag.</p>` : ""}
+      ${noDep.length ? `<p class="fin-cap"><b>${esc(noDep.map(r=>r.name.split(" (")[0]).join(", "))}
+        ${noDep.length===1?"shows":"show"} little or no recorded deposit amount, and
+        ${noDep.length===1?"that is a blank field, not an unpaid carrier.</b>":"those are blank fields, not unpaid carriers.</b>"}
+        The banked figures above are built from each statement's own total. Filling the deposit
+        column in would let the two be checked against each other rather than taken on trust.</p>` : ""}
+    </div>
+
+    ${qb.length ? `
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <div class="fin-h" style="margin-top:0">Against QuickBooks</div>
+      <div style="overflow-x:auto">
+      <table class="fin-t"><thead><tr>
+        <th>Carrier</th><th class="n">QuickBooks</th><th class="n">Portal, banked</th>
+        <th class="n">Named reasons</th><th class="n">Residual</th><th>Verdict</th>
+      </tr></thead><tbody>${qb.map(q=>{
+        const res = +q.residual||0;
+        const cls = /reconciled/.test(q.verdict) ? "done"
+                  : /UNEXPLAINED/.test(q.verdict) ? "fail" : "score";
+        return `<tr><td><b>${esc(String(q.name||q.carrier).split(" (")[0])}</b>${
+          q.split_across ? `<div class="tsub">booked across ${esc(q.split_across)}</div>` : ""}</td>
+          <td class="n">${money0(q.books)}</td>
+          <td class="n">${money0(q.portal)}</td>
+          <td class="n">${+q.named ? money0(q.named) : "—"}${
+            +q.estimated ? `<div class="tsub">${money0(q.estimated)} estimated</div>` : ""}</td>
+          <td class="n"><b>${Math.abs(res) < 0.005 ? "—" : moneyD(res)}</b></td>
+          <td><span class="pill ${cls}">${esc(q.verdict)}</span>${
+            q.reasons ? `<div class="tsub">${esc(q.reasons)}</div>` : ""}</td></tr>`;
+      }).join("")}</tbody></table></div>
+      <p class="fin-cap"><b>This block does not follow the period picker.</b> It is fixed to
+        ${esc(qb[0].period || "the exported period")}, because that is the period the QuickBooks
+        export covers, and comparing a window we chose against a window we did not would prove
+        nothing.</p>
+      <p class="fin-cap"><b>A residual is what is left after the named reasons</b>, not a mistake
+        anyone has found. A positive residual is money in the books that no loaded statement
+        explains — usually a carrier or a month we do not have. A negative one is the reverse and is
+        the more interesting of the two, because it means the Portal is carrying commission
+        QuickBooks did not record as received.</p>
+    </div>` : ""}
+
+    ${named.length ? `
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <div class="fin-h" style="margin-top:0">Named reasons the two will never match exactly</div>
+      <div style="overflow-x:auto">
+      <table class="fin-t"><thead><tr>
+        <th>Item</th><th>Carrier</th><th class="n">Amount</th><th>Standing</th>
+      </tr></thead><tbody>${named.map(r=>`
+        <tr><td><b>${esc(r.label)}</b>
+            <div class="tsub">${esc(String(r.explanation||"").slice(0,320))}</div></td>
+          <td>${esc(r.carrier || "several")}</td>
+          <td class="n">${money0(r.amount)}</td>
+          <td><span class="pill ${r.status==="explained"?"done":"score"}">${esc(r.status)}</span></td>
+        </tr>`).join("")}</tbody></table></div>
+      <p class="fin-cap">An item marked <b>estimate</b> is defined as the residual it closes, so it
+        will always make its carrier tie and cannot reveal any other problem with that carrier until
+        the real statements arrive. An item marked <b>explained</b> is a measured figure with a known
+        cause.</p>
+    </div>` : ""}
+
+    ${missing.length ? `
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <div class="fin-h" style="margin-top:0">Statements we know exist and do not have</div>
+      <div style="overflow-x:auto">
+      <table class="fin-t"><thead><tr>
+        <th>Source</th><th>Carrier</th><th class="n">How many</th><th class="hide-sm">What unblocks it</th>
+      </tr></thead><tbody>${missing.map(r=>`
+        <tr><td><b>${esc(r.label)}</b>${r.from ? `<div class="tsub">${esc(mMY(r.from))}${
+            r.to && r.to!==r.from ? " – "+esc(mMY(r.to)) : ""}</div>` : ""}</td>
+          <td>${esc(r.carrier || "—")}</td>
+          <td class="n">${r.count ? r.count : "—"}</td>
+          <td class="hide-sm"><span class="tsub">${esc(String(r.unblocks||"").slice(0,240))}</span></td>
+        </tr>`).join("")}</tbody></table></div>
+      <p class="fin-cap">Each of these is a known hole rather than a suspected one. Nothing here has
+        been estimated into the figures above.</p>
+    </div>` : ""}`;
 }
 
 function finCoverage(){
