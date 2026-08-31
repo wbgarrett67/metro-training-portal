@@ -4581,6 +4581,10 @@ function carrPeriodCard(){
     const m = (PER.meta||[]).find(x => x.code === c);
     return m ? m.name.split(" (")[0] : c;
   };
+  /* "A and B and C" is what naive joining produces and it reads as a mistake, which
+     makes the reader distrust the sentence around it. Oxford-less on purpose. */
+  const listOf = xs => xs.length < 3 ? xs.join(" and ")
+    : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1];
 
   let cmpHtml;
   if(PER.cmp_blocked){
@@ -4598,6 +4602,7 @@ function carrPeriodCard(){
     // third of the period it is banner-worthy; the caption alone was not enough.
     const thin = share !== null && share !== undefined && +share < 33;
     const near = (PER.cmp_near_miss || []).filter(x => (x.missing||[]).length);
+    const why = cmp.excluded_why || [];
     cmpHtml = `
       <div class="fin-h" style="margin:18px 0 8px">Against ${esc(PER.cmp_label||"the prior period")}</div>
       ${share === null || share === undefined ? `` : `
@@ -4606,7 +4611,7 @@ function carrPeriodCard(){
           thin ? ", so they are not the agency" : ""}.</b>
         ${money0(now)} of the ${money0(t.commission)} that came in over
         ${esc(span)}${thin ? `. Whatever the change below says, it is a statement about
-        ${esc(used.map(nameOf).join(" and "))} and nothing wider` : ``}.</div>`}
+        ${esc(listOf(used.map(nameOf)))} and nothing wider` : ``}.</div>`}
       <div class="fin-grid2">
         <div>
           <table class="fin-t"><thead><tr><th></th>
@@ -4622,15 +4627,31 @@ function carrPeriodCard(){
         </div>
         <div>
           <p class="fin-cap" style="margin:0">
-            <b>Compared on ${esc(used.map(nameOf).join(", ")) || "nothing"}</b> — the
+            <b>Compared on ${esc(listOf(used.map(nameOf))) || "nothing"}</b> — the
             ${used.length===1?"only carrier":"only carriers"} with a complete set of months in
-            both periods.${excl.length ? ` <b>${esc(excl.map(nameOf).join(" and "))}</b>
-            ${excl.length===1?"is":"are"} left out of both sides, because
-            ${excl.length===1?"its":"their"} loaded history does not cover the earlier period —
-            including ${excl.length===1?"it":"them"} would compare a full period against a
-            nearly empty one and invent a rise.` : ""}
+            both periods.${!excl.length ? "" : (() => {
+              /* Two different reasons, two different jobs. A "gappy" carrier has the
+                 history with holes in it, and somebody can go and fetch the missing
+                 statement. A "too_young" one has a declared history that starts inside
+                 the earlier window — no amount of fetching changes that until the
+                 history itself reaches back. Saying "loaded history does not cover the
+                 earlier period" about both was true of neither in particular. */
+              const young = why.filter(x=>x.reason==="too_young").map(x=>x.code);
+              const gappy = excl.filter(c=>!young.includes(c));
+              const bits = [];
+              if(young.length) bits.push(`<b>${esc(listOf(young.map(nameOf)))}</b>
+                ${young.length===1?"is":"are"} too young for it —
+                ${young.length===1?"its":"their"} history begins inside the earlier period, so
+                including ${young.length===1?"it":"them"} would set a full period against a
+                nearly empty one and invent a rise`);
+              if(gappy.length) bits.push(`<b>${esc(listOf(gappy.map(nameOf)))}</b>
+                ${gappy.length===1?"is":"are"} out on missing months`);
+              return ` ${bits.join("; ")}.`;
+            })()}
             <br><b>So these two figures are smaller than the ${money0(t.commission)} above</b>,
-            which is every carrier that traded in the period. Do not mix them.</p>
+            which is every carrier that traded in the period. Do not mix them.
+            <br><span style="opacity:.8">Months here are the months a statement <i>covers</i>, not
+            the months money arrived — that holds whichever basis the toggle is set to.</span></p>
         </div>
       </div>
       ${!near.length ? `` : `
@@ -4638,10 +4659,21 @@ function carrPeriodCard(){
         <b>${near.length===1?"One carrier is":`${near.length} carriers are`} a statement or two
         short of joining this comparison.</b> ${near.map(x => {
           const ms = (x.missing||[]).map(m=>mLong(m)).join(", ");
-          return `<br>· <b>${esc(nameOf(x.code))}</b> — missing ${esc(ms)}`;
+          /* The month count alone once described Progressive as one statement short
+             while 25,000 a month of its book was missing from the other side. So the
+             money goes on the line beside the month, and a thin earlier side is said
+             out loud rather than left for the reader to work out. */
+          const sz = (x.then_commission === undefined || x.now_commission === undefined) ? ``
+            : ` <span style="opacity:.75">(${money0(+x.then_commission)} loaded in the earlier
+                period against ${money0(+x.now_commission)} in this one)</span>`;
+          return `<br>· <b>${esc(nameOf(x.code))}</b> — missing ${esc(ms)}${sz}${
+            x.thin ? `<br>&nbsp;&nbsp;<b style="color:var(--warn)">Fetch it and read the result
+            carefully</b> — what is loaded for the earlier period is running well below this
+            period's level, so the months it does have may not be the whole book either.` : ``}`;
         }).join("")}
-        <br>Each of those is a hole in the loaded history, not a carrier too young to compare.
-        Fill it and the carrier joins both sides of the table.</div>`}`;
+        <br>Each of those is a hole in the loaded history, not a carrier too young to compare —
+        carriers whose history simply starts too late are excluded above and are not listed here.
+        Fill the hole and the carrier joins both sides of the table.</div>`}`;
   }else{
     cmpHtml = `<p class="fin-cap" style="margin:14px 0 0">No comparison is drawn for
       <i>${esc(PER.label||"this period")}</i>. Pick a bounded period to compare one against another.</p>`;
