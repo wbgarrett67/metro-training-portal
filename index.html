@@ -856,6 +856,7 @@ function forgetCode(){
 $("#signOut").addEventListener("click", ()=>{
   if(PREVIEW){ exitPreview(); return; }
   CODE=ME=STATE=MGR=null; selTrainee=null; lastAdded=null; MODE=null;
+  RET=null; retSel=null; retItem=null; retRes=null; retSub="queue";
   OVW=null; $("#ovwBtn").classList.add("hidden");
   CM=CMA=null; selCallAgent=null; cmSub="patterns"; cmScope="current"; cmDays=90; cmReturn=null; cmLens="all";
   openMods.clear(); openTracks=null; location.hash=""; forgetCode();
@@ -5779,6 +5780,7 @@ async function loadManager(){
   // than no feedback button at all.
   await loadFeedback();
   await loadTipsManage();
+  await loadRet();
   renderManager();
 }
 /* ================= Portal Overview =================
@@ -5801,6 +5803,7 @@ const OVW_MAP = [
   {tab:"feedback", need:"mgr",   t:"Feedback",        d:()=>`What agents have told us, and where you answer them.`},
   {tab:"activity", need:"mgr",   t:"Activity",        d:()=>`Who completed what, lately, across the agency.`},
   {tab:"partners", need:"mgr",   t:"Referral partners", d:s=>`${s.partners} car lots, apartment complexes and dealers. Built and loaded, switched off.`},
+  {tab:"ret",      need:"ret",   t:"Retention",       d:()=>`At-risk and lapsed policies, who is working them, and what was recovered. Built and loaded; waiting on a Retention Specialist.`},
   {tab:"add",      need:"mgr",   t:"Add an agent",    d:()=>`Creates them, assigns tracks, links their calls, and emails their code.`},
   {tab:"market",   need:"any",   t:"Find a market",   d:s=>`Which of our ${s.carriers} markets writes this risk. The search box at the top of every screen.`},
   {tab:"training", need:"any",   t:"My training",     d:()=>`Your own modules and quizzes. Managers have these too, and they count the same way.`},
@@ -5995,6 +5998,7 @@ function ovwCan(need){
   if(need === "calls") return !!OVW.has_calls;
   if(need === "fin") return !!OVW.has_fin;
   if(need === "trust") return !!OVW.has_trust;
+  if(need === "ret")   return retHasAccess();
   return false;
 }
 
@@ -6130,6 +6134,9 @@ function renderManager(){
       <button class="tab ${mgrTab==="tips"?"on":""}" data-tab="tips">Tips${
         TIPSM && TIPSM.draft_count ? ` (${TIPSM.draft_count})` : ""}</button>
       ${finHasFin() ? `<button class="tab ${mgrTab==="fin"?"on":""}" data-tab="fin">Revenue</button>` : ""}
+      ${retHasAccess() ? `<button class="tab ${mgrTab==="ret"?"on":""}" data-tab="ret">Retention${
+        RET.dash && RET.dash.totals && RET.dash.totals.past_deadline
+          ? ` (${RET.dash.totals.past_deadline})` : ""}</button>` : ""}
       <button class="tab ${mgrTab==="add"?"on":""}" data-tab="add">Add an agent</button>
     </div>
     <div id="mgrBody"></div>`;
@@ -6144,14 +6151,367 @@ function renderManager(){
     if(mgrTab==="partners") await loadPartners();
     if(mgrTab==="tips") await loadTipsManage();
     if(mgrTab==="fin" && !REV) await loadFin();
+    if(mgrTab==="ret") await retReload();
     renderManager();
   }));
   // A tab a person cannot see must not be reachable by leftover state either.
   if(mgrTab === "calls" && !cmHasCall()) mgrTab = "roster";
   if(mgrTab === "fin" && !finHasFin()) mgrTab = "roster";
+  if(mgrTab === "ret" && !retHasAccess()) mgrTab = "roster";
   ({roster:mgrRoster, ce:mgrCE, content:mgrContent, tracks:mgrTracks,
     activity:mgrActivity, add:mgrAdd, calls:mgrCall, feedback:mgrFeedback,
-    partners:mgrPartners, tips:mgrTips, fin:mgrFin})[mgrTab]();
+    partners:mgrPartners, tips:mgrTips, fin:mgrFin, ret:mgrRet})[mgrTab]();
+}
+
+/* ================= Retention =================
+   Added 5 September 2026. The server side (11 ret_ tables, 16 SECURITY DEFINER functions)
+   was built before this page existed; nothing here invents behaviour, it only draws what
+   those functions already return and calls them back.
+
+   THREE THINGS THAT WILL BITE ANYONE EDITING THIS.
+
+   1. ret_queue's parameters have SQL defaults, and passing null does NOT fall back to them —
+      null fails every branch of its WHERE and returns an empty array that looks like an empty
+      queue rather than a bug. Always send real values.
+   2. Dollars are gated server-side, not here. ret_queue returns amount_to_cure as null for a
+      licensed-required item unless the caller has 'manage'. Render whatever arrives; never
+      compute a total the server declined to send.
+   3. The compliance boundary is per RECORD, not per person. An item with licensed_required
+      offers no payment path at all, only escalation — because the notice for it says in its
+      own words that payment will not reinstate the policy. */
+
+let RET=null, retSub="queue", retSel=null, retItem=null, retRes=null,
+    retView="all", retStatus="open", retSearch="", retBusy=false;
+
+function retHasAccess(){ return !!(RET && RET.scope && RET.scope.tab_visible); }
+function retManages(){ return !!(RET && RET.scope && RET.scope.access === "manage"); }
+const retMoney = v => (v===null||v===undefined) ? "—"
+  : "$" + Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+
+/* Scope is fetched for everyone at manager load so the tab can be hidden before it is drawn.
+   The queue and dashboard are only fetched for someone who actually has access. */
+async function loadRet(){
+  try{
+    const scope = await rpc("ret_scope",{p_code:CODE});
+    RET = {scope, queue:[], dash:null};
+    if(!scope || !scope.tab_visible) return;
+    // Reference lists, fetched once. Both are RLS-locked tables reachable only through their
+    // own definer functions, which is why they are loaded rather than typed into this file.
+    try{ RET.producers    = await rpc("ret_producers",{p_code:CODE}); }   catch(e){ RET.producers=[]; }
+    try{ RET.dispositions = await rpc("ret_dispositions",{p_code:CODE}); }catch(e){ RET.dispositions=[]; }
+    await retReload();
+  }catch(e){ RET = {scope:null, queue:[], dash:null, error:String(e.message||e)}; }
+}
+
+async function retReload(){
+  if(!retHasAccess()) return;
+  RET.queue = await rpc("ret_queue",
+    {p_code:CODE, p_view:retView, p_status:retStatus, p_search:retSearch||null});
+  if(retManages()) RET.dash = await rpc("ret_dashboard",{p_code:CODE, p_from:null, p_to:null});
+}
+
+/* Every write goes through here: it blocks double-submits, refreshes the queue and the
+   dashboard together so a stat tile can never disagree with the row beneath it, and keeps
+   the open record open so the specialist does not lose their place after logging a call. */
+async function retDo(fn, params, keepOpen){
+  if(retBusy) return;
+  retBusy = true;
+  try{
+    await rpc(fn, Object.assign({p_code:CODE}, params));
+    await retReload();
+    if(keepOpen && retSel) await retLoadItem(retSel); else { retSel=null; retItem=null; retRes=null; }
+    renderManager();
+  }catch(e){
+    alert(e.message || "That did not go through.");
+  }finally{ retBusy = false; }
+}
+
+async function retLoadItem(id){
+  retSel = id;
+  retItem = await rpc("ret_item",{p_code:CODE, p_item:id});
+  try{ retRes = await rpc("ret_research",{p_code:CODE, p_item:id}); }
+  catch(e){ retRes = null; }
+}
+
+function mgrRet(){
+  const body = $("#mgrBody");
+  if(!retHasAccess()){
+    body.innerHTML = `<div class="card"><div class="empty">
+      This tab needs retention access, which is granted per person rather than by role.</div></div>`;
+    return;
+  }
+  const t = (RET.dash && RET.dash.totals) || {};
+  const q = RET.queue || [];
+
+  const stats = retManages() ? `
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Open queue</div><div class="v">${t.queue_open ?? q.length}</div></div>
+      <div class="stat"><div class="k">Past deadline</div>
+        <div class="v" style="${t.past_deadline?'color:var(--warn)':''}">${t.past_deadline ?? 0}</div></div>
+      <div class="stat"><div class="k">Never called</div>
+        <div class="v" style="${t.never_called?'color:var(--warn)':''}">${t.never_called ?? 0}</div></div>
+      <div class="stat"><div class="k">Reachable</div><div class="v">${t.reachable ?? 0}<small> of ${
+        (t.reachable ?? 0) + (t.no_number ?? 0)}</small></div></div>
+      <div class="stat"><div class="k">Premium at risk</div><div class="v">${retMoney(t.premium_at_risk)}</div></div>
+      <div class="stat"><div class="k">Saves</div><div class="v">${t.saves ?? 0}${
+        t.save_rate!==null && t.save_rate!==undefined ? `<small> · ${t.save_rate}%</small>` : ""}</div></div>
+    </div>` : "";
+
+  body.innerHTML = `
+    ${retNotice()}
+    ${stats}
+    <div class="tabs" style="margin-top:14px">
+      <button class="tab ${retSub==="queue"?"on":""}" data-retsub="queue">Queue${q.length?` (${q.length})`:""}</button>
+      ${retManages()?`<button class="tab ${retSub==="report"?"on":""}" data-retsub="report">Reporting</button>`:""}
+    </div>
+    <div id="retBody"></div>`;
+
+  body.querySelectorAll("[data-retsub]").forEach(b=>b.addEventListener("click",()=>{
+    retSub=b.dataset.retsub; retSel=null; retItem=null; retRes=null; mgrRet();
+  }));
+  (retSub==="report" && retManages() ? retReport : retQueue)();
+}
+
+/* The banner exists because the role does not. Without it the empty reporting tables read as
+   a broken screen rather than a screen waiting for its first hire. */
+function retNotice(){
+  const hired = (RET.dash && RET.dash.by_person || []).length > 0;
+  if(hired) return "";
+  return `<div class="card" style="border-left:3px solid var(--gold)">
+    <div style="font-weight:700;margin-bottom:4px">No Retention Specialist is enrolled yet</div>
+    <div class="tsub">The worker view is built and waiting. Enrol the person on
+    <b>Add an agent</b>, then set their <span class="code">retention_access</span> to
+    <span class="code">worker</span> — they will see their own queue and nothing else: no dollars,
+    no agency totals, no other manager tab. Everything below is running on ten real notices already
+    loaded, so it behaves exactly as it will on the day they start.</div></div>`;
+}
+
+function retQueue(){
+  const b = $("#retBody"), q = RET.queue || [];
+  b.innerHTML = `
+    <div class="card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <select id="retV" style="width:auto;padding:6px 9px;font-size:13px">
+        <option value="all"${retView==="all"?" selected":""}>All work</option>
+        <option value="unassigned"${retView==="unassigned"?" selected":""}>Unclaimed</option>
+        <option value="mine"${retView==="mine"?" selected":""}>Mine</option>
+      </select>
+      <select id="retS" style="width:auto;padding:6px 9px;font-size:13px">
+        <option value="open"${retStatus==="open"?" selected":""}>Open</option>
+        <option value="closed"${retStatus==="closed"?" selected":""}>Closed</option>
+        <option value="all"${retStatus==="all"?" selected":""}>All statuses</option>
+      </select>
+      <input id="retQ" type="search" placeholder="Name or policy number" value="${esc(retSearch)}" style="flex:1;min-width:200px;padding:6px 9px;font-size:13px">
+    </div>
+    ${!q.length ? `<div class="card"><div class="empty">Nothing in the queue for that filter.</div></div>` : `
+    <div class="card" style="overflow-x:auto">
+      <table><thead><tr>
+        <th>Customer</th><th>Why</th><th>Deadline</th><th>To cure</th>
+        <th class="hide-sm">Contact</th><th class="hide-sm">Office</th><th>Status</th>
+      </tr></thead><tbody>${q.map(r=>{
+        const d = r.days_left;
+        const urg = d===null||d===undefined ? ""
+                  : d<0 ? `<span class="pill fail">past ${Math.abs(d)}d</span>`
+                  : d<=14 ? `<span class="pill prog">${d}d left</span>`
+                  : `<span class="tsub">${d}d</span>`;
+        return `<tr class="clk ${retSel===r.id?"on":""}" data-ret="${esc(r.id)}">
+          <td><div class="tname">${esc(r.insured_name||"—")}</div>
+              <div class="tsub">${esc(r.carrier_code||"")} · ${esc(r.policy_number||"")}</div></td>
+          <td><div>${esc(RET_REASON[r.entry_reason]||r.entry_reason||"—")}</div>
+              ${r.licensed_required
+                ? `<div class="tsub" style="color:var(--warn);font-weight:600">Licensed rewrite only</div>`
+                : `<div class="tsub">Payment cures it</div>`}</td>
+          <td>${r.deadline_date?`<div>${sdate(r.deadline_date)}</div>`:"<div class='tsub'>—</div>"}<div>${urg}</div></td>
+          <td>${retMoney(r.amount_to_cure)}</td>
+          <td class="hide-sm">${r.reachable
+                ? `<div>${esc(r.phone||"")}</div><div class="tsub">${esc(r.phone_confidence||"")} confidence</div>`
+                : `<span class="tsub" style="color:var(--warn)">No number</span>`}
+              ${r.they_called?`<div class="tsub">They called in</div>`:""}
+              ${r.we_called?`<div class="tsub">We called${r.last_contact_agent?` · ${esc(r.last_contact_agent)}`:""}</div>`:""}</td>
+          <td class="hide-sm">${esc(r.location_key||"—")}</td>
+          <td><span class="pill ${r.status==="closed"?"done":r.assigned_to?"prog":"todo"}">${esc(r.status||"new")}</span>
+              <div class="tsub">${r.attempts||0} attempt${(r.attempts||0)===1?"":"s"}</div></td>
+        </tr>`;}).join("")}</tbody></table>
+    </div>`}
+    <div id="retDetail"></div>`;
+
+  b.querySelector("#retV").addEventListener("change", async e=>{
+    retView=e.target.value; await retReload(); mgrRet(); });
+  b.querySelector("#retS").addEventListener("change", async e=>{
+    retStatus=e.target.value; await retReload(); mgrRet(); });
+  let tmr; b.querySelector("#retQ").addEventListener("input", e=>{
+    clearTimeout(tmr); const v=e.target.value;
+    tmr=setTimeout(async()=>{ retSearch=v; await retReload(); mgrRet();
+      const el=$("#retQ"); if(el){ el.focus(); el.setSelectionRange(v.length,v.length); } }, 350); });
+  b.querySelectorAll("tr[data-ret]").forEach(r=>r.addEventListener("click", async ()=>{
+    if(retSel===r.dataset.ret){ retSel=null; retItem=null; retRes=null; mgrRet(); return; }
+    await retLoadItem(r.dataset.ret); mgrRet();
+  }));
+  if(retSel && retItem) retDetail();
+}
+
+const RET_REASON = {
+  cancellation_notice:"Pending cancellation",
+  winback_invitation:"Win-back invitation",
+  final_bill:"Final bill — already cancelled"
+};
+const RET_VERDICT = {
+  already_retained_probable:["fail","Already active with another of our carriers — do not call as a departure"],
+  clear_to_contact:["done","Checked against commission history — clear to contact"],
+  unverified_no_history:["prog","No commission history for this name, so this is silence rather than clearance — check Agency Matrix before calling"]
+};
+
+function retDetail(){
+  const it = retItem, host = $("#retDetail");
+  if(!it){ host.innerHTML=""; return; }
+  const v = retRes && RET_VERDICT[retRes.verdict];
+  const touches = it.touches || [];
+  host.innerHTML = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
+        <div>
+          <div class="tname" style="font-size:17px">${esc(it.insured_name||"—")}</div>
+          <div class="tsub">${esc(it.carrier_code||"")} · ${esc(it.policy_number||"")} · ${esc(it.location_key||"")}</div>
+        </div>
+        <button class="btn line sm" id="retClose">Close panel</button>
+      </div>
+
+      ${v?`<div class="pill ${v[0]}" style="margin:10px 0;display:inline-block">${esc(v[1])}</div>`:""}
+
+      ${it.licensed_required ? `<div class="card" style="border-left:3px solid var(--warn);margin:10px 0">
+        <b>No payment path on this record.</b>
+        <div class="tsub">The carrier's own notice says payment will not reinstate this policy — it can
+        only be rewritten, which requires a licensed producer. An unlicensed specialist may research it
+        and hand it off, and nothing else.</div></div>` : ""}
+
+      <div class="grid-stats" style="margin:10px 0">
+        <div class="stat"><div class="k">Notice</div><div class="v" style="font-size:15px">${sdate(it.notice_date)}</div></div>
+        <div class="stat"><div class="k">Cancels</div><div class="v" style="font-size:15px">${sdate(it.cancel_date)}</div></div>
+        <div class="stat"><div class="k">Deadline</div><div class="v" style="font-size:15px">${sdate(it.deadline_date)}${
+          it.days_left!==null&&it.days_left!==undefined?`<small> · ${it.days_left}d</small>`:""}</div></div>
+        <div class="stat"><div class="k">To cure</div><div class="v" style="font-size:15px">${retMoney(it.amount_to_cure)}</div></div>
+      </div>
+
+      <div style="margin:10px 0">
+        <b>Contact</b>
+        <div class="tsub">${it.phone
+          ? `${esc(it.phone)}${it.contact&&it.contact.phone_confidence?` · ${esc(it.contact.phone_confidence)} confidence`:""}`
+          : "No number on the carrier notice, and none recovered from call recordings. Look this customer up in Agency Matrix."}</div>
+        ${(it.phone_alternates||[]).length?`<div class="tsub">Also seen: ${
+          (it.phone_alternates||[]).map(a=>esc(a.phone||a)).join(" · ")}</div>`:""}
+      </div>
+
+      <div style="margin:12px 0">
+        <b>Attempts</b>
+        ${touches.length ? `<div style="margin-top:6px">${touches.map(t=>`
+          <div class="ovw-feed"><div style="font-size:13.5px">${esc(t.channel||"")} · ${esc(t.outcome||"")}${
+            t.notes?` — ${esc(t.notes)}`:""}</div>
+          <div class="tsub">${esc(t.by_name||"")} ${when(t.at||t.created_at)}</div></div>`).join("")}</div>`
+          : `<div class="tsub">Nothing logged yet.</div>`}
+      </div>
+
+      ${it.status!=="closed" ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        ${!it.assigned_to?`<button class="btn sm" id="retClaim">Claim</button>`:""}
+        <button class="btn line sm" id="retTouch">Log an attempt</button>
+        ${!it.licensed_required?`<button class="btn line sm" id="retSave">Record a payment</button>`:""}
+        <button class="btn line sm" id="retEsc">Escalate to a licensed producer</button>
+        <button class="btn line sm" id="retShut">Close with a reason</button>
+      </div>` : `<div class="tsub" style="margin-top:12px">Closed${
+        it.disposition?` — ${esc(it.disposition)}`:""}${
+        it.amount_collected?` · ${retMoney(it.amount_collected)} collected`:""}.</div>`}
+    </div>`;
+
+  const on=(id,f)=>{ const el=host.querySelector(id); if(el) el.addEventListener("click",f); };
+  on("#retClose", ()=>{ retSel=null; retItem=null; retRes=null; mgrRet(); });
+  on("#retClaim", ()=> retDo("ret_claim",{p_item:it.id},true));
+  on("#retTouch", ()=>{
+    const outcome = prompt("Outcome — no_answer, voicemail, wrong_number, reached, callback_set:");
+    if(!outcome) return;
+    const notes = prompt("Notes (optional):") || null;
+    retDo("ret_touch_log",{p_item:it.id,p_channel:"phone",p_outcome:outcome,p_notes:notes},true);
+  });
+  on("#retSave", ()=>{
+    const amt = prompt("Amount collected:");
+    if(!amt) return;
+    const rein = confirm("Did the policy reinstate? OK for yes, Cancel for paid in grace.");
+    retDo("ret_close",{p_item:it.id, p_disposition: rein?"paid_reinstated":"paid_in_grace",
+                       p_amount:Number(amt), p_reinstated:rein});
+  });
+  on("#retEsc", ()=>{
+    const list = (RET.producers||[]).filter(p=>p.id);
+    const who = prompt("Escalate to which licensed producer?\n\n" +
+      list.map((p,i)=>`${i+1}. ${p.name}${p.location?` (${p.location})`:""}`).join("\n"));
+    const pick = list[Number(who)-1];
+    if(!pick) return;
+    const why = prompt("Why is this being handed off?");
+    if(!why) return;
+    retDo("ret_escalate",{p_item:it.id,p_reason:why,p_to:pick.id,p_handoff:"warm_transfer"});
+  });
+  on("#retShut", ()=>{
+    const codes = (RET.dispositions||[]).filter(d=>!d.is_save);
+    const who = prompt("Close as:\n\n" + codes.map((d,i)=>`${i+1}. ${d.label}`).join("\n"));
+    const pick = codes[Number(who)-1];
+    if(!pick) return;
+    const note = pick.code==="declined_other" ? prompt("A note is required for this reason:") : null;
+    if(pick.code==="declined_other" && !note) return;
+    retDo("ret_close",{p_item:it.id,p_disposition:pick.code,p_note:note});
+  });
+}
+
+function retReport(){
+  const b = $("#retBody"), d = RET.dash || {};
+  const tbl = (title, rows, cols, empty) => `
+    <div class="card" style="overflow-x:auto">
+      <div style="font-weight:700;margin-bottom:8px">${esc(title)}</div>
+      ${(rows||[]).length ? `<table><thead><tr>${cols.map(c=>`<th>${esc(c[0])}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td>${c[1](r)}</td>`).join("")}</tr>`).join("")}</tbody></table>`
+        : `<div class="empty">${esc(empty)}</div>`}
+    </div>`;
+
+  b.innerHTML =
+    tbl("Per person", d.by_person, [
+      ["Person", r=>esc(r.name||"—")], ["Worked", r=>r.worked??0], ["Attempts", r=>r.attempts??0],
+      ["Contacted", r=>r.contacted??0], ["Saves", r=>r.saves??0],
+      ["Collected", r=>retMoney(r.collected)],
+      ["Contact rate", r=>r.contact_rate!=null?`${r.contact_rate}%`:"—"],
+      ["Save rate", r=>r.save_rate!=null?`${r.save_rate}%`:"—"]
+    ], "Nobody has worked a record yet. This fills in the day the specialist starts.") +
+
+    tbl("Why customers left", d.by_disposition, [
+      ["Reason", r=>esc(r.label||r.disposition||"—")], ["Count", r=>r.n??0],
+      ["Counts toward save rate", r=>r.in_denominator===false?"No":"Yes"]
+    ], "No record has been closed yet, so there is nothing to attribute.") +
+
+    tbl("Aging and missed deadlines", d.aging, [
+      ["Customer", r=>esc(r.insured_name||"—")], ["Policy", r=>esc(r.policy_number||"")],
+      ["Office", r=>esc(r.location||"—")], ["Deadline", r=>sdate(r.deadline_date)],
+      ["Days", r=>r.days_left??"—"], ["Attempts", r=>r.attempts??0],
+      ["State", r=>{
+        const s=r.state||"";
+        const cls = s==="deadline_passed"?"fail" : s==="never_attempted"?"prog"
+                  : s==="unclaimed"?"todo" : "prog";
+        return `<span class="pill ${cls}">${esc(s.replace(/_/g," "))}</span>`;}]
+    ], "Nothing aging.") +
+
+    tbl("By office", d.by_location, [
+      ["Office", r=>esc(r.location||"—")], ["Queue", r=>r.queue??0],
+      ["No number", r=>r.no_number??0], ["At risk", r=>retMoney(r.at_risk)],
+      ["Saves", r=>r.saves??0], ["Recovered", r=>retMoney(r.recovered)]
+    ], "No queue by office yet.") +
+
+    tbl("By carrier", d.by_carrier, [
+      ["Carrier", r=>esc(r.carrier_code||"—")], ["Queue", r=>r.n??r.queue??0],
+      ["At risk", r=>retMoney(r.at_risk)]
+    ], "No queue by carrier yet.") +
+
+    tbl("By reason", d.by_reason, [
+      ["Reason", r=>esc(RET_REASON[r.entry_reason]||r.entry_reason||"—")],
+      ["Count", r=>r.n??0], ["At risk", r=>retMoney(r.at_risk)]
+    ], "No queue by reason yet.") +
+
+    tbl("Escalations to licensed producers", d.escalations, [
+      ["Customer", r=>esc(r.insured_name||"—")], ["To", r=>esc(r.to_name||"—")],
+      ["Reason", r=>esc(r.reason||"")], ["When", r=>when(r.at)]
+    ], "No handoffs yet. Each one here is the compliance record that an unlicensed employee stopped where they should.");
 }
 
 function mgrRoster(){
