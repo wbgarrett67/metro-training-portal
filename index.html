@@ -6237,7 +6237,11 @@ const RET_ESC_REASON = [
 const RET_REASON = {
   cancellation_notice:"Pending cancellation",
   winback_invitation:"Win-back invitation",
-  final_bill:"Final bill — already cancelled"
+  final_bill:"Final bill — already cancelled",
+  // National General, added 5 September 2026. Its reports carry a reason USIC never
+  // sends: a non-renewal the insured asked for. Payment does not cure it, so it is
+  // labelled differently and routed to a licensed producer rather than to a payment.
+  nonrenewal:"Non-renewal — not curable by payment"
 };
 const RET_VERDICT = {
   already_retained_probable:["fail","Already active with another of our carriers — do not call as a departure"],
