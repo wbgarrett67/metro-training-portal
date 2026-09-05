@@ -856,7 +856,8 @@ function forgetCode(){
 $("#signOut").addEventListener("click", ()=>{
   if(PREVIEW){ exitPreview(); return; }
   CODE=ME=STATE=MGR=null; selTrainee=null; lastAdded=null; MODE=null;
-  RET=null; retSel=null; retItem=null; retRes=null; retSub="queue";
+  RET=null; retSel=null; retItem=null; retRes=null; retSub="today";
+  retXd=null; retScore=null; retClosedLoaded=false; retFocus=false; retMsg=null; retSearch="";
   OVW=null; $("#ovwBtn").classList.add("hidden");
   CM=CMA=null; selCallAgent=null; cmSub="patterns"; cmScope="current"; cmDays=90; cmReturn=null; cmLens="all";
   openMods.clear(); openTracks=null; location.hash=""; forgetCode();
@@ -6164,11 +6165,15 @@ function renderManager(){
 }
 
 /* ================= Retention =================
-   Added 5 September 2026. The server side (11 ret_ tables, 16 SECURITY DEFINER functions)
-   was built before this page existed; nothing here invents behaviour, it only draws what
-   those functions already return and calls them back.
+   Built 5 September 2026, rebuilt as a worklist the same day after first review.
 
-   THREE THINGS THAT WILL BITE ANYONE EDITING THIS.
+   THE SHAPE. The first version was a filtered list. A list answers "what is in the queue";
+   a Retention Specialist making forty calls a day needs an answer to "what do I do next",
+   and those are different screens. So: sub-tabs that ARE the workflow states the database
+   already stores (new -> working -> escalated -> closed), a Today panel that hands over one
+   record at a time, and auto-advance so finishing one call starts the next.
+
+   FIVE THINGS THAT WILL BITE ANYONE EDITING THIS.
 
    1. ret_queue's parameters have SQL defaults, and passing null does NOT fall back to them —
       null fails every branch of its WHERE and returns an empty array that looks like an empty
@@ -6178,98 +6183,211 @@ function renderManager(){
       compute a total the server declined to send.
    3. The compliance boundary is per RECORD, not per person. An item with licensed_required
       offers no payment path at all, only escalation — because the notice for it says in its
-      own words that payment will not reinstate the policy. */
+      own words that payment will not reinstate the policy.
+   4. Three server functions validate their arguments against a fixed vocabulary and throw on
+      anything else: ret_escalate's p_reason, ret_touch_log's p_channel, ret_close's
+      p_disposition. Every one of those is a control on this screen bound to the server's own
+      list, never a free-text box. The first version asked for them through prompt() and
+      escalation could not succeed at all.
+   5. ret_queue returns 'phone' as a STRING; ret_item returns 'phone' as an OBJECT
+      {number, confidence, ...}. Same key, different shape, two different functions. */
 
-let RET=null, retSub="queue", retSel=null, retItem=null, retRes=null,
-    retView="all", retStatus="open", retSearch="", retBusy=false;
+let RET=null, retSub="today", retSel=null, retItem=null, retRes=null,
+    retView="all", retSearch="", retBusy=false, retXd=null, retScore=null,
+    retClosedLoaded=false, retFocus=false, retMsg=null;
 
 function retHasAccess(){ return !!(RET && RET.scope && RET.scope.tab_visible); }
 function retManages(){ return !!(RET && RET.scope && RET.scope.access === "manage"); }
 const retMoney = v => (v===null||v===undefined) ? "—"
   : "$" + Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const retPct = v => (v===null||v===undefined) ? "—" : `${Math.round(v*1000)/10}%`;
+
+/* The five states this screen is built around. 'escalated' is a real status the server sets;
+   it is separated out because a handed-off record is somebody else's work and leaving it in
+   the working list makes the specialist's own number look worse than it is. */
+const RET_STATE = [
+  ["today",     "Today"],
+  ["new",       "New"],
+  ["working",   "Working"],
+  ["escalated", "Escalated"],
+  ["closed",    "Closed"]
+];
+
+/* Bound to ret_touch_log. 'right_party' is the string ret_dashboard and ret_scoreboard both
+   count to compute the contact rate — the number the whole business case turns on. The first
+   version offered "reached" through a prompt, which stores fine and counts as nothing. */
+const RET_OUTCOME = [
+  ["right_party",  "Spoke to them",  "done"],
+  ["voicemail",    "Voicemail",      "prog"],
+  ["no_answer",    "No answer",      "todo"],
+  ["callback_set", "Callback set",   "prog"],
+  ["wrong_number", "Wrong number",   "fail"]
+];
+
+/* Bound to ret_escalate, which rejects anything outside this list. 'other_product' is the
+   cross-sell handoff: the customer wants something we do not have on this record. */
+const RET_ESC_REASON = [
+  ["rewrite_required",  "Needs a rewrite — licensed producer only"],
+  ["coverage_question", "Coverage question I cannot answer"],
+  ["rate_question",     "Rate question I cannot answer"],
+  ["quote_requested",   "They asked for a quote"],
+  ["other_product",     "They want a different product"]
+];
+
+const RET_REASON = {
+  cancellation_notice:"Pending cancellation",
+  winback_invitation:"Win-back invitation",
+  final_bill:"Final bill — already cancelled"
+};
+const RET_VERDICT = {
+  already_retained_probable:["fail","Already active with another of our carriers — do not call as a departure"],
+  clear_to_contact:["done","Checked against commission history — clear to contact"],
+  unverified_no_history:["prog","No commission history for this name, so this is silence rather than clearance — check Agency Matrix before calling"]
+};
 
 /* Scope is fetched for everyone at manager load so the tab can be hidden before it is drawn.
    The queue and dashboard are only fetched for someone who actually has access. */
 async function loadRet(){
   try{
     const scope = await rpc("ret_scope",{p_code:CODE});
-    RET = {scope, queue:[], dash:null};
+    RET = {scope, open:[], closed:[], dash:null};
     if(!scope || !scope.tab_visible) return;
-    // Reference lists, fetched once. Both are RLS-locked tables reachable only through their
-    // own definer functions, which is why they are loaded rather than typed into this file.
+    // Reference lists, fetched once. All three are RLS-locked tables reachable only through
+    // their own definer functions, which is why they are loaded rather than typed into this file.
     try{ RET.producers    = await rpc("ret_producers",{p_code:CODE}); }   catch(e){ RET.producers=[]; }
     try{ RET.dispositions = await rpc("ret_dispositions",{p_code:CODE}); }catch(e){ RET.dispositions=[]; }
+    try{ RET.products     = await rpc("ret_products",{p_code:CODE}); }    catch(e){ RET.products=[]; }
     await retReload();
-  }catch(e){ RET = {scope:null, queue:[], dash:null, error:String(e.message||e)}; }
+  }catch(e){ RET = {scope:null, open:[], closed:[], dash:null, error:String(e.message||e)}; }
 }
 
+/* Open work is always loaded, because every counter on the screen is derived from it.
+   Closed work is loaded only when somebody asks for it: it grows without limit and it is
+   the one list nobody needs in order to make the next call. */
 async function retReload(){
   if(!retHasAccess()) return;
-  RET.queue = await rpc("ret_queue",
-    {p_code:CODE, p_view:retView, p_status:retStatus, p_search:retSearch||null});
-  if(retManages()) RET.dash = await rpc("ret_dashboard",{p_code:CODE, p_from:null, p_to:null});
+  RET.open = await rpc("ret_queue",
+    {p_code:CODE, p_view:retView, p_status:"open", p_search:retSearch||null});
+  if(retSub==="closed" || retClosedLoaded){
+    RET.closed = await rpc("ret_queue",
+      {p_code:CODE, p_view:retView, p_status:"closed", p_search:retSearch||null});
+    retClosedLoaded = true;
+  }
+  if(retSub==="xdate" || retXd) retXd = await rpc("ret_xdate_pipeline",{p_code:CODE, p_days:60});
+  if(retManages()){
+    RET.dash = await rpc("ret_dashboard",{p_code:CODE, p_from:null, p_to:null});
+    if(retSub==="report" || retScore) retScore = await rpc("ret_scoreboard",{p_code:CODE});
+  }
 }
+
+const retBucket = s => (RET.open||[]).filter(r => (r.status||"new") === s);
 
 /* Every write goes through here: it blocks double-submits, refreshes the queue and the
    dashboard together so a stat tile can never disagree with the row beneath it, and keeps
    the open record open so the specialist does not lose their place after logging a call. */
 async function retDo(fn, params, keepOpen){
-  if(retBusy) return;
-  retBusy = true;
+  if(retBusy) return null;
+  retBusy = true; retMsg = null;
   try{
     await rpc(fn, Object.assign({p_code:CODE}, params));
     await retReload();
-    if(keepOpen && retSel) await retLoadItem(retSel); else { retSel=null; retItem=null; retRes=null; }
-    renderManager();
+    if(keepOpen && retSel) await retLoadItem(retSel);
+    else { retSel=null; retItem=null; retRes=null; }
   }catch(e){
-    alert(e.message || "That did not go through.");
-  }finally{ retBusy = false; }
+    // Surfaced on the screen, not swallowed. Three of these functions reject an argument
+    // outright, and a silent failure there reads as "the button does nothing".
+    retMsg = String(e.message||e);
+  }finally{ retBusy=false; mgrRet(); }
+}
+
+/* Close, then hand over the next record without going back to the list. This is the whole
+   difference between a queue and a worklist: the specialist never chooses what to do next. */
+async function retCloseAdvance(params){
+  if(retBusy) return;
+  const list = retFocusList();
+  const at   = list.findIndex(r => r.id === retSel);
+  const next = at >= 0 ? list[at+1] : null;
+  retBusy = true; retMsg = null;
+  try{
+    await rpc("ret_close", Object.assign({p_code:CODE}, params));
+    await retReload();
+    if(retFocus && next){ await retLoadItem(next.id); }
+    else { retSel=null; retItem=null; retRes=null; retFocus=false; }
+  }catch(e){ retMsg = String(e.message||e); }
+  finally{ retBusy=false; mgrRet(); }
+}
+
+/* Call order, and it is opinionated on purpose.
+   1. Can we reach them at all — a record with no phone number cannot be worked by calling.
+   2. Is it still saveable — the carrier has already said no on the others, and a record at
+      the top of a call list implies it is worth a call.
+   3. Then deadline.
+   Note what is NOT in here: dollars. Sorting a call list by amount would have the specialist
+   spend the morning on the biggest balances, which are the hardest to collect, and let a
+   cheap two-day deadline lapse. The clock is the constraint, not the amount. */
+function retFocusList(){
+  return (RET.open||[]).slice().sort((a,b)=>{
+    const ar = a.reachable?0:1, br = b.reachable?0:1;
+    if(ar!==br) return ar-br;
+    const as = a.still_saveable?0:1, bs = b.still_saveable?0:1;
+    if(as!==bs) return as-bs;
+    const ad = a.days_left===null||a.days_left===undefined ? 9999 : a.days_left;
+    const bd = b.days_left===null||b.days_left===undefined ? 9999 : b.days_left;
+    return ad-bd;
+  });
 }
 
 async function retLoadItem(id){
   retSel = id;
   retItem = await rpc("ret_item",{p_code:CODE, p_item:id});
-  try{ retRes = await rpc("ret_research",{p_code:CODE, p_item:id}); }
-  catch(e){ retRes = null; }
+  try{ retRes = await rpc("ret_research",{p_code:CODE, p_item:id}); }catch(e){ retRes=null; }
 }
 
 function mgrRet(){
   const body = $("#mgrBody");
   if(!retHasAccess()){
     body.innerHTML = `<div class="card"><div class="empty">
-      This tab needs retention access, which is granted per person rather than by role.</div></div>`;
+      This tab is not switched on for your access code.</div></div>`;
     return;
   }
-  const t = (RET.dash && RET.dash.totals) || {};
-  const q = RET.queue || [];
+  if(RET.error){
+    body.innerHTML = `<div class="card"><div class="empty">
+      Retention data could not be loaded: ${esc(RET.error)}</div></div>`;
+    return;
+  }
+  if(retSub==="report" && !retManages()) retSub = "today";
 
-  const stats = retManages() ? `
-    <div class="grid-stats">
-      <div class="stat"><div class="k">Open queue</div><div class="v">${t.queue_open ?? q.length}</div></div>
-      <div class="stat"><div class="k">Past deadline</div>
-        <div class="v" style="${t.past_deadline?'color:var(--warn)':''}">${t.past_deadline ?? 0}</div></div>
-      <div class="stat"><div class="k">Never called</div>
-        <div class="v" style="${t.never_called?'color:var(--warn)':''}">${t.never_called ?? 0}</div></div>
-      <div class="stat"><div class="k">Reachable</div><div class="v">${t.reachable ?? 0}<small> of ${
-        (t.reachable ?? 0) + (t.no_number ?? 0)}</small></div></div>
-      <div class="stat"><div class="k">Premium at risk</div><div class="v">${retMoney(t.premium_at_risk)}</div></div>
-      <div class="stat"><div class="k">Saves</div><div class="v">${t.saves ?? 0}${
-        t.save_rate!==null && t.save_rate!==undefined ? `<small> · ${t.save_rate}%</small>` : ""}</div></div>
-    </div>` : "";
+  const counts = {
+    today:     (RET.open||[]).length,
+    new:       retBucket("new").length,
+    working:   retBucket("working").length,
+    escalated: retBucket("escalated").length,
+    closed:    null
+  };
 
   body.innerHTML = `
     ${retNotice()}
-    ${stats}
-    <div class="tabs" style="margin-top:14px">
-      <button class="tab ${retSub==="queue"?"on":""}" data-retsub="queue">Queue${q.length?` (${q.length})`:""}</button>
+    ${retMsg ? `<div class="card" style="border-left:3px solid var(--warn)">
+      <b>That did not go through.</b><div class="tsub">${esc(retMsg)}</div></div>` : ""}
+    <div class="tabs">
+      ${RET_STATE.map(([k,label])=>`<button class="tab ${retSub===k?"on":""}" data-retsub="${k}">${
+        label}${counts[k] ? ` (${counts[k]})` : ""}</button>`).join("")}
+      <button class="tab ${retSub==="xdate"?"on":""}" data-retsub="xdate">Cross-sell${
+        retXd && retXd.totals && retXd.totals.due_in_window ? ` (${retXd.totals.due_in_window})` : ""}</button>
       ${retManages()?`<button class="tab ${retSub==="report"?"on":""}" data-retsub="report">Reporting</button>`:""}
     </div>
     <div id="retBody"></div>`;
 
-  body.querySelectorAll("[data-retsub]").forEach(b=>b.addEventListener("click",()=>{
-    retSub=b.dataset.retsub; retSel=null; retItem=null; retRes=null; mgrRet();
+  body.querySelectorAll("[data-retsub]").forEach(b=>b.addEventListener("click", async ()=>{
+    retSub=b.dataset.retsub; retSel=null; retItem=null; retRes=null; retFocus=false; retMsg=null;
+    if(retSub==="closed" && !retClosedLoaded) await retReload();
+    if(retSub==="xdate" && !retXd) await retReload();
+    if(retSub==="report" && !retScore) await retReload();
+    mgrRet();
   }));
-  (retSub==="report" && retManages() ? retReport : retQueue)();
+
+  ({today:retToday, new:retList, working:retList, escalated:retList,
+    closed:retList, xdate:retXdates, report:retReport})[retSub]();
 }
 
 /* The banner exists because the role does not. Without it the empty reporting tables read as
@@ -6282,12 +6400,88 @@ function retNotice(){
     <div class="tsub">The worker view is built and waiting. Enrol the person on
     <b>Add an agent</b>, then set their <span class="code">retention_access</span> to
     <span class="code">worker</span> — they will see their own queue and nothing else: no dollars,
-    no agency totals, no other manager tab. Everything below is running on ten real notices already
+    no agency totals, no other manager tab. Everything below is running on real notices already
     loaded, so it behaves exactly as it will on the day they start.</div></div>`;
 }
 
-function retQueue(){
-  const b = $("#retBody"), q = RET.queue || [];
+/* ---------- Today: the start-here screen ---------- */
+
+function retToday(){
+  const b = $("#retBody"), list = retFocusList();
+  const overdue   = list.filter(r => r.days_left!==null && r.days_left<0).length;
+  const soon      = list.filter(r => r.days_left!==null && r.days_left>=0 && r.days_left<=7).length;
+  const nophone   = list.filter(r => !r.reachable).length;
+  const untouched = list.filter(r => !(r.attempts>0)).length;
+  const callable  = list.filter(r => r.reachable && (r.status||"new")!=="escalated");
+  const top       = callable[0];
+
+  b.innerHTML = `
+    <div class="card">
+      <div style="font-size:20px;font-weight:700">${
+        callable.length ? `${callable.length} call${callable.length===1?"":"s"} to make` : "Nothing to call"}</div>
+      <div class="tsub">${
+        callable.length
+          ? `Worked hardest-deadline first. ${untouched} ${untouched===1?"has":"have"} never been attempted.`
+          : `Every reachable record has been worked or closed. ${
+              nophone ? `${nophone} still ${nophone===1?"has":"have"} no phone number — those need Agency Matrix, not a call.` : ""}`}</div>
+      ${top ? `<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn sm" id="retStart">Start calling</button>
+        <span class="tsub" style="align-self:center">Next up: ${esc(top.insured_name||"—")}${
+          top.days_left!==null&&top.days_left!==undefined
+            ? ` · ${top.days_left<0?`${Math.abs(top.days_left)} days past deadline`:`${top.days_left} days left`}`:""}</span>
+      </div>` : ""}
+    </div>
+
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Past deadline</div><div class="v">${overdue}</div></div>
+      <div class="stat"><div class="k">Due within 7 days</div><div class="v">${soon}</div></div>
+      <div class="stat"><div class="k">Never attempted</div><div class="v">${untouched}</div></div>
+      <div class="stat"><div class="k">No phone number</div><div class="v">${nophone}</div></div>
+      ${retManages() && RET.dash && RET.dash.totals ? `
+      <div class="stat"><div class="k">Premium at risk</div><div class="v">${
+        retMoney(RET.dash.totals.premium_at_risk)}</div></div>
+      <div class="stat"><div class="k">Recovered</div><div class="v">${
+        retMoney(RET.dash.totals.recovered)}</div></div>` : ""}
+    </div>
+
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:6px">How this works</div>
+      <div class="tsub">
+        <b>New</b> is everything nobody has touched — start there.
+        Logging an attempt moves a record to <b>Working</b> on its own; you never move it by hand.
+        A record you hand to a licensed producer goes to <b>Escalated</b> and stops counting against you.
+        <b>Closed</b> needs a reason, and a payment needs an amount.
+        Before you close anything, ask what else they insure and when it renews — that goes on
+        <b>Cross-sell</b>, and it is worth asking even when we lose the policy.</div>
+    </div>
+    <div id="retDetail"></div>`;
+
+  const st = b.querySelector("#retStart");
+  if(st) st.addEventListener("click", async ()=>{
+    retFocus = true; await retLoadItem(top.id);
+    if(!retItem.assigned_to) await retDo("ret_claim",{p_item:top.id},true); else mgrRet();
+  });
+  if(retSel && retItem) retDetail();
+}
+
+/* ---------- The state lists ---------- */
+
+function retList(){
+  const b = $("#retBody");
+  const rows = retSub==="closed" ? (RET.closed||[]) : retBucket(retSub);
+  const blurb = {
+    new:       "Nobody has touched these. This is where a shift starts.",
+    working:   "Attempted at least once and not yet resolved.",
+    escalated: "Handed to a licensed producer. Waiting on them, not on you.",
+    closed:    "Finished, with a reason recorded against each one."
+  }[retSub];
+  const empty = {
+    new:       "Nothing new. Everything that has arrived has been picked up.",
+    working:   "Nothing in progress.",
+    escalated: "No handoffs. Each one that appears here is the compliance record that an unlicensed employee stopped where they should.",
+    closed:    "Nothing closed yet."
+  }[retSub];
+
   b.innerHTML = `
     <div class="card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
       <select id="retV" style="width:auto;padding:6px 9px;font-size:13px">
@@ -6295,19 +6489,16 @@ function retQueue(){
         <option value="unassigned"${retView==="unassigned"?" selected":""}>Unclaimed</option>
         <option value="mine"${retView==="mine"?" selected":""}>Mine</option>
       </select>
-      <select id="retS" style="width:auto;padding:6px 9px;font-size:13px">
-        <option value="open"${retStatus==="open"?" selected":""}>Open</option>
-        <option value="closed"${retStatus==="closed"?" selected":""}>Closed</option>
-        <option value="all"${retStatus==="all"?" selected":""}>All statuses</option>
-      </select>
-      <input id="retQ" type="search" placeholder="Name or policy number" value="${esc(retSearch)}" style="flex:1;min-width:200px;padding:6px 9px;font-size:13px">
+      <input id="retQ" type="search" placeholder="Name or policy number" value="${esc(retSearch)}"
+             style="flex:1;min-width:200px;padding:6px 9px;font-size:13px">
+      <span class="tsub">${esc(blurb)}</span>
     </div>
-    ${!q.length ? `<div class="card"><div class="empty">Nothing in the queue for that filter.</div></div>` : `
+    ${!rows.length ? `<div class="card"><div class="empty">${esc(empty)}</div></div>` : `
     <div class="card" style="overflow-x:auto">
       <table><thead><tr>
         <th>Customer</th><th>Why</th><th>Deadline</th><th>To cure</th>
-        <th class="hide-sm">Contact</th><th class="hide-sm">Office</th><th>Status</th>
-      </tr></thead><tbody>${q.map(r=>{
+        <th class="hide-sm">Contact</th><th class="hide-sm">Office</th><th>Attempts</th>
+      </tr></thead><tbody>${rows.map(r=>{
         const d = r.days_left;
         const urg = d===null||d===undefined ? ""
                   : d<0 ? `<span class="pill fail">past ${Math.abs(d)}d</span>`
@@ -6328,51 +6519,53 @@ function retQueue(){
               ${r.they_called?`<div class="tsub">They called in</div>`:""}
               ${r.we_called?`<div class="tsub">We called${r.last_contact_agent?` · ${esc(r.last_contact_agent)}`:""}</div>`:""}</td>
           <td class="hide-sm">${esc(r.location_key||"—")}</td>
-          <td><span class="pill ${r.status==="closed"?"done":r.assigned_to?"prog":"todo"}">${esc(r.status||"new")}</span>
-              <div class="tsub">${r.attempts||0} attempt${(r.attempts||0)===1?"":"s"}</div></td>
-        </tr>`;}).join("")}</tbody></table>
+          <td>${r.attempts||0}</td>
+        </tr>
+        ${retSel===r.id ? `<tr class="ret-open"><td colspan="7"
+          style="padding:0;background:rgba(0,0,0,.03);border-left:3px solid var(--gold)">
+          <div id="retDetail"></div></td></tr>` : ""}`;}).join("")}</tbody></table>
     </div>`}
-    <div id="retDetail"></div>`;
+    ${retSel && !rows.some(r=>r.id===retSel) ? `<div id="retDetail"></div>` : ""}`;
 
   b.querySelector("#retV").addEventListener("change", async e=>{
     retView=e.target.value; await retReload(); mgrRet(); });
-  b.querySelector("#retS").addEventListener("change", async e=>{
-    retStatus=e.target.value; await retReload(); mgrRet(); });
   let tmr; b.querySelector("#retQ").addEventListener("input", e=>{
     clearTimeout(tmr); const v=e.target.value;
     tmr=setTimeout(async()=>{ retSearch=v; await retReload(); mgrRet();
       const el=$("#retQ"); if(el){ el.focus(); el.setSelectionRange(v.length,v.length); } }, 350); });
   b.querySelectorAll("tr[data-ret]").forEach(r=>r.addEventListener("click", async ()=>{
     if(retSel===r.dataset.ret){ retSel=null; retItem=null; retRes=null; mgrRet(); return; }
-    await retLoadItem(r.dataset.ret); mgrRet();
+    retFocus=false; await retLoadItem(r.dataset.ret); mgrRet();
   }));
   if(retSel && retItem) retDetail();
 }
 
-const RET_REASON = {
-  cancellation_notice:"Pending cancellation",
-  winback_invitation:"Win-back invitation",
-  final_bill:"Final bill — already cancelled"
-};
-const RET_VERDICT = {
-  already_retained_probable:["fail","Already active with another of our carriers — do not call as a departure"],
-  clear_to_contact:["done","Checked against commission history — clear to contact"],
-  unverified_no_history:["prog","No commission history for this name, so this is silence rather than clearance — check Agency Matrix before calling"]
-};
+/* ---------- The call panel ----------
+   Rendered into #retDetail, which the list places in a full-width row DIRECTLY BENEATH the
+   record that was clicked. It used to sit after the whole table, which on a queue of any real
+   length meant clicking a customer and then scrolling past everyone else to find them. */
 
 function retDetail(){
   const it = retItem, host = $("#retDetail");
-  if(!it){ host.innerHTML=""; return; }
+  if(!it || !host){ if(host) host.innerHTML=""; return; }
   const v = retRes && RET_VERDICT[retRes.verdict];
   const touches = it.touches || [];
+  // ret_item returns phone as an object; ret_queue returns it as a string. Handle both.
+  const ph  = it.phone && (typeof it.phone === "object" ? it.phone.number : it.phone);
+  const phc = it.phone && typeof it.phone === "object" ? it.phone.confidence : null;
+  const alts = (it.phone_alternates||[]).map(a => typeof a === "object" ? a.number : a).filter(Boolean);
+  const closed = it.status === "closed";
+  const list = retFocusList(), at = list.findIndex(r=>r.id===retSel);
+
   host.innerHTML = `
     <div class="card">
       <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
         <div>
           <div class="tname" style="font-size:17px">${esc(it.insured_name||"—")}</div>
           <div class="tsub">${esc(it.carrier_code||"")} · ${esc(it.policy_number||"")} · ${esc(it.location_key||"")}</div>
+          ${retFocus && at>=0 ? `<div class="tsub">Call ${at+1} of ${list.length}</div>` : ""}
         </div>
-        <button class="btn line sm" id="retClose">Close panel</button>
+        <button class="btn line sm" id="retCloseP">${retFocus?"Stop calling":"Close panel"}</button>
       </div>
 
       ${v?`<div class="pill ${v[0]}" style="margin:10px 0;display:inline-block">${esc(v[1])}</div>`:""}
@@ -6392,73 +6585,211 @@ function retDetail(){
       </div>
 
       <div style="margin:10px 0">
-        <b>Contact</b>
-        <div class="tsub">${it.phone
-          ? `${esc(it.phone)}${it.contact&&it.contact.phone_confidence?` · ${esc(it.contact.phone_confidence)} confidence`:""}`
+        <b>Call</b>
+        <div class="tsub">${ph
+          ? `${esc(ph)}${phc?` · ${esc(phc)} confidence, recovered from our own call recordings`:""}`
           : "No number on the carrier notice, and none recovered from call recordings. Look this customer up in Agency Matrix."}</div>
-        ${(it.phone_alternates||[]).length?`<div class="tsub">Also seen: ${
-          (it.phone_alternates||[]).map(a=>esc(a.phone||a)).join(" · ")}</div>`:""}
+        ${alts.length?`<div class="tsub">Also seen: ${alts.map(a=>esc(a)).join(" · ")}</div>`:""}
       </div>
+
+      ${!closed ? `
+      <div style="margin:12px 0">
+        <b>How did it go?</b>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+          ${RET_OUTCOME.map(([code,label])=>`
+            <button class="btn line sm" data-out="${code}">${esc(label)}</button>`).join("")}
+        </div>
+        <input id="retNote" placeholder="Anything worth remembering (optional)"
+               style="width:100%;margin-top:8px;padding:6px 9px;font-size:13px">
+      </div>` : ""}
 
       <div style="margin:12px 0">
         <b>Attempts</b>
         ${touches.length ? `<div style="margin-top:6px">${touches.map(t=>`
-          <div class="ovw-feed"><div style="font-size:13.5px">${esc(t.channel||"")} · ${esc(t.outcome||"")}${
+          <div class="ovw-feed"><div style="font-size:13.5px">${esc(t.channel||"")} · ${
+            esc((RET_OUTCOME.find(o=>o[0]===t.outcome)||[,t.outcome])[1]||t.outcome||"")}${
             t.notes?` — ${esc(t.notes)}`:""}</div>
-          <div class="tsub">${esc(t.by_name||"")} ${when(t.at||t.created_at)}</div></div>`).join("")}</div>`
+          <div class="tsub">${when(t.at)}</div></div>`).join("")}</div>`
           : `<div class="tsub">Nothing logged yet.</div>`}
       </div>
 
-      ${it.status!=="closed" ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        ${!it.assigned_to?`<button class="btn sm" id="retClaim">Claim</button>`:""}
-        <button class="btn line sm" id="retTouch">Log an attempt</button>
-        ${!it.licensed_required?`<button class="btn line sm" id="retSave">Record a payment</button>`:""}
-        <button class="btn line sm" id="retEsc">Escalate to a licensed producer</button>
-        <button class="btn line sm" id="retShut">Close with a reason</button>
+      ${retXdatePanel(it, closed)}
+
+      ${!closed ? `
+      <div style="border-top:1px solid var(--line,#e5e5e5);margin-top:14px;padding-top:12px">
+        <b>Finish this record</b>
+        <div class="tsub" style="margin-bottom:8px">A record only leaves the queue with a reason on it.</div>
+
+        ${!it.licensed_required ? `
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <input id="retAmt" type="number" step="0.01" min="0" placeholder="Amount collected"
+                 style="width:150px;padding:6px 9px;font-size:13px">
+          <select id="retRein" style="width:auto;padding:6px 9px;font-size:13px">
+            <option value="paid_reinstated">Policy reinstated</option>
+            <option value="paid_in_grace">Paid before cancellation</option>
+          </select>
+          <button class="btn sm" id="retPay">Record the payment</button>
+        </div>` : ""}
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <select id="retEscWhy" style="width:auto;padding:6px 9px;font-size:13px">
+            ${RET_ESC_REASON.map(([c,l])=>`<option value="${c}">${esc(l)}</option>`).join("")}
+          </select>
+          <select id="retEscWho" style="width:auto;padding:6px 9px;font-size:13px">
+            <option value="">Which producer…</option>
+            ${(RET.producers||[]).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}${
+              p.location?` · ${esc(p.location)}`:""}</option>`).join("")}
+          </select>
+          <button class="btn line sm" id="retEsc">Hand off</button>
+        </div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <select id="retShutWhy" style="width:auto;padding:6px 9px;font-size:13px">
+            <option value="">Close without a save…</option>
+            ${(RET.dispositions||[]).filter(d=>!d.is_save).map(d=>`
+              <option value="${esc(d.code)}">${esc(d.label)}</option>`).join("")}
+          </select>
+          <button class="btn line sm" id="retShut">Close</button>
+        </div>
       </div>` : `<div class="tsub" style="margin-top:12px">Closed${
-        it.disposition?` — ${esc(it.disposition)}`:""}${
+        it.disposition?` — ${esc((RET.dispositions||[]).find(d=>d.code===it.disposition)?.label||it.disposition)}`:""}${
         it.amount_collected?` · ${retMoney(it.amount_collected)} collected`:""}.</div>`}
     </div>`;
 
-  const on=(id,f)=>{ const el=host.querySelector(id); if(el) el.addEventListener("click",f); };
-  on("#retClose", ()=>{ retSel=null; retItem=null; retRes=null; mgrRet(); });
-  on("#retClaim", ()=> retDo("ret_claim",{p_item:it.id},true));
-  on("#retTouch", ()=>{
-    const outcome = prompt("Outcome — no_answer, voicemail, wrong_number, reached, callback_set:");
-    if(!outcome) return;
-    const notes = prompt("Notes (optional):") || null;
-    retDo("ret_touch_log",{p_item:it.id,p_channel:"phone",p_outcome:outcome,p_notes:notes},true);
+  // The panel is a child of the table row on the list views. Without this, every click
+  // inside it also counts as a click on the record above and collapses the panel.
+  const cell = host.closest("td");
+  if(cell && !cell.dataset.stop){ cell.dataset.stop="1";
+    cell.addEventListener("click", e=>e.stopPropagation()); }
+
+  const q = s => host.querySelector(s);
+  const note = () => { const el=q("#retNote"); return el && el.value.trim() ? el.value.trim() : null; };
+  const on = (id,f)=>{ const el=q(id); if(el) el.addEventListener("click",f); };
+
+  on("#retCloseP", ()=>{ retSel=null; retItem=null; retRes=null; retFocus=false; mgrRet(); });
+
+  host.querySelectorAll("[data-out]").forEach(btn=>btn.addEventListener("click", ()=>
+    retDo("ret_touch_log",{p_item:it.id, p_channel:"phone",
+                           p_outcome:btn.dataset.out, p_notes:note()}, true)));
+
+  on("#retPay", ()=>{
+    const amt = Number((q("#retAmt")||{}).value);
+    if(!amt || amt<=0){ retMsg="A payment needs an amount."; mgrRet(); return; }
+    const kind = q("#retRein").value;
+    retCloseAdvance({p_item:it.id, p_disposition:kind, p_amount:amt,
+                     p_reinstated:kind==="paid_reinstated", p_note:note()});
   });
-  on("#retSave", ()=>{
-    const amt = prompt("Amount collected:");
-    if(!amt) return;
-    const rein = confirm("Did the policy reinstate? OK for yes, Cancel for paid in grace.");
-    retDo("ret_close",{p_item:it.id, p_disposition: rein?"paid_reinstated":"paid_in_grace",
-                       p_amount:Number(amt), p_reinstated:rein});
-  });
+
   on("#retEsc", ()=>{
-    const list = (RET.producers||[]).filter(p=>p.id);
-    const who = prompt("Escalate to which licensed producer?\n\n" +
-      list.map((p,i)=>`${i+1}. ${p.name}${p.location?` (${p.location})`:""}`).join("\n"));
-    const pick = list[Number(who)-1];
-    if(!pick) return;
-    const why = prompt("Why is this being handed off?");
-    if(!why) return;
-    retDo("ret_escalate",{p_item:it.id,p_reason:why,p_to:pick.id,p_handoff:"warm_transfer"});
+    const who = q("#retEscWho").value;
+    if(!who){ retMsg="Choose which licensed producer is taking it."; mgrRet(); return; }
+    retDo("ret_escalate",{p_item:it.id, p_reason:q("#retEscWhy").value,
+                          p_to:who, p_handoff:"warm_transfer"});
   });
+
   on("#retShut", ()=>{
-    const codes = (RET.dispositions||[]).filter(d=>!d.is_save);
-    const who = prompt("Close as:\n\n" + codes.map((d,i)=>`${i+1}. ${d.label}`).join("\n"));
-    const pick = codes[Number(who)-1];
-    if(!pick) return;
-    const note = pick.code==="declined_other" ? prompt("A note is required for this reason:") : null;
-    if(pick.code==="declined_other" && !note) return;
-    retDo("ret_close",{p_item:it.id,p_disposition:pick.code,p_note:note});
+    const code = q("#retShutWhy").value;
+    if(!code){ retMsg="Choose a reason. A record does not leave the queue without one."; mgrRet(); return; }
+    const n = note();
+    if(code==="declined_other" && !n){
+      retMsg="That reason needs a note — write what they told you in the box above."; mgrRet(); return; }
+    retCloseAdvance({p_item:it.id, p_disposition:code, p_note:n});
   });
+
+  retXdateWire(host, it);
 }
 
+/* ---------- Cross-sell capture ----------
+   Deliberately on the call panel and not behind a button, and deliberately still there when
+   the record is closed as a loss. The feasibility model excluded cross-sell from the business
+   case entirely; this is the field that lets the next version of that model include it. */
+
+function retXdatePanel(it, closed){
+  const xs = it.xdates || [];
+  return `
+    <div class="card" style="border-left:3px solid var(--gold);margin:12px 0">
+      <b>What else do they have?</b>
+      <div class="tsub" style="margin-bottom:8px">Ask on every call, including the ones we lose.
+      A customer who left over auto price still has a home policy renewing, and this is the
+      cheapest moment we will ever get that date.</div>
+      ${xs.length ? `<div style="margin-bottom:8px">${xs.map(x=>`
+        <div class="ovw-feed" style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+          <div><div style="font-size:13.5px">${esc(x.product_label||x.product||"—")} · renews ${sdate(x.renews_on)}</div>
+            <div class="tsub">${x.days_until!==null&&x.days_until!==undefined?`${x.days_until} days`:""}${
+              x.recorded_by?` · ${esc(x.recorded_by)}`:""}${x.followed_up_at?" · followed up":""}</div></div>
+          <button class="btn line sm" data-xdel="${x.id}">Remove</button>
+        </div>`).join("")}</div>` : ""}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <select id="retXp" style="width:auto;padding:6px 9px;font-size:13px">
+          <option value="">Product…</option>
+          ${(RET.products||[]).map(p=>`<option value="${esc(p.code)}">${esc(p.label)}</option>`).join("")}
+        </select>
+        <input id="retXd" type="date" style="width:auto;padding:6px 9px;font-size:13px">
+        <button class="btn line sm" id="retXadd">Add renewal date</button>
+      </div>
+    </div>`;
+}
+
+function retXdateWire(host, it){
+  const add = host.querySelector("#retXadd");
+  if(add) add.addEventListener("click", ()=>{
+    const p = host.querySelector("#retXp").value, d = host.querySelector("#retXd").value;
+    if(!p || !d){ retMsg="Pick a product and a renewal date."; mgrRet(); return; }
+    retDo("ret_xdate_log",{p_item:it.id, p_product:p, p_renews_on:d}, true);
+  });
+  host.querySelectorAll("[data-xdel]").forEach(b=>b.addEventListener("click", ()=>
+    retDo("ret_xdate_remove",{p_id:Number(b.dataset.xdel)}, true)));
+}
+
+/* ---------- The cross-sell pipeline ---------- */
+
+function retXdates(){
+  const b = $("#retBody"), d = retXd || {totals:{},rows:[]};
+  const t = d.totals || {};
+  b.innerHTML = `
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Captured</div><div class="v">${t.captured??0}</div></div>
+      <div class="stat"><div class="k">Renewing in 60 days</div><div class="v">${t.due_in_window??0}</div></div>
+      <div class="stat"><div class="k">Past their date</div><div class="v">${t.overdue??0}</div></div>
+      <div class="stat"><div class="k">From customers we lost</div><div class="v">${t.from_losses??0}</div></div>
+    </div>
+    ${!(d.rows||[]).length ? `<div class="card"><div class="empty">
+      Nothing captured yet. Renewal dates are added from the call panel — the
+      <b>What else do they have?</b> box on any record.</div></div>` : `
+    <div class="card" style="overflow-x:auto">
+      <div style="font-weight:700;margin-bottom:8px">Renewing within 60 days</div>
+      <table><thead><tr>
+        <th>Customer</th><th>Product</th><th>Renews</th><th>Days</th>
+        <th class="hide-sm">Phone</th><th class="hide-sm">Came from</th><th></th>
+      </tr></thead><tbody>${d.rows.map(r=>`
+        <tr>
+          <td><div class="tname">${esc(r.insured_name||"—")}</div>
+              <div class="tsub">${esc(r.location_key||"")}</div></td>
+          <td>${esc(r.product_label||r.product||"—")}</td>
+          <td>${sdate(r.renews_on)}</td>
+          <td>${r.days_until<0
+                ? `<span class="pill fail">past ${Math.abs(r.days_until)}d</span>`
+                : r.days_until<=14 ? `<span class="pill prog">${r.days_until}d</span>`
+                : `<span class="tsub">${r.days_until}d</span>`}</td>
+          <td class="hide-sm">${esc(r.phone||"—")}</td>
+          <td class="hide-sm">${r.outcome_was_save
+                ? `<span class="pill done">a save</span>`
+                : `<span class="pill todo">${esc(r.disposition_label||"still open")}</span>`}</td>
+          <td><button class="btn line sm" data-xfu="${r.id}">Followed up</button></td>
+        </tr>`).join("")}</tbody></table>
+    </div>`}`;
+
+  b.querySelectorAll("[data-xfu]").forEach(btn=>btn.addEventListener("click", async ()=>{
+    await rpc("ret_xdate_followup",{p_code:CODE, p_id:Number(btn.dataset.xfu)});
+    retXd = await rpc("ret_xdate_pipeline",{p_code:CODE, p_days:60});
+    mgrRet();
+  }));
+}
+
+/* ---------- Reporting ---------- */
+
 function retReport(){
-  const b = $("#retBody"), d = RET.dash || {};
+  const b = $("#retBody"), d = RET.dash || {}, s = retScore;
   const tbl = (title, rows, cols, empty) => `
     <div class="card" style="overflow-x:auto">
       <div style="font-weight:700;margin-bottom:8px">${esc(title)}</div>
@@ -6467,9 +6798,10 @@ function retReport(){
         : `<div class="empty">${esc(empty)}</div>`}
     </div>`;
 
-  b.innerHTML =
+  b.innerHTML = retScoreboard(s) +
+
     tbl("Per person", d.by_person, [
-      ["Person", r=>esc(r.name||"—")], ["Worked", r=>r.worked??0], ["Attempts", r=>r.attempts??0],
+      ["Person", r=>esc(r.person||r.name||"—")], ["Worked", r=>r.worked??0], ["Attempts", r=>r.attempts??0],
       ["Contacted", r=>r.contacted??0], ["Saves", r=>r.saves??0],
       ["Collected", r=>retMoney(r.collected)],
       ["Contact rate", r=>r.contact_rate!=null?`${r.contact_rate}%`:"—"],
@@ -6477,7 +6809,8 @@ function retReport(){
     ], "Nobody has worked a record yet. This fills in the day the specialist starts.") +
 
     tbl("Why customers left", d.by_disposition, [
-      ["Reason", r=>esc(r.label||r.disposition||"—")], ["Count", r=>r.n??0],
+      ["Reason", r=>esc(r.label||r.code||"—")], ["Count", r=>r.n??0],
+      ["Collected", r=>retMoney(r.amount)],
       ["Counts toward save rate", r=>r.in_denominator===false?"No":"Yes"]
     ], "No record has been closed yet, so there is nothing to attribute.") +
 
@@ -6486,10 +6819,10 @@ function retReport(){
       ["Office", r=>esc(r.location||"—")], ["Deadline", r=>sdate(r.deadline_date)],
       ["Days", r=>r.days_left??"—"], ["Attempts", r=>r.attempts??0],
       ["State", r=>{
-        const s=r.state||"";
-        const cls = s==="deadline_passed"?"fail" : s==="never_attempted"?"prog"
-                  : s==="unclaimed"?"todo" : "prog";
-        return `<span class="pill ${cls}">${esc(s.replace(/_/g," "))}</span>`;}]
+        const st=r.state||"";
+        const cls = st==="deadline_passed"?"fail" : st==="never_attempted"?"prog"
+                  : st==="unclaimed"?"todo" : "prog";
+        return `<span class="pill ${cls}">${esc(st.replace(/_/g," "))}</span>`;}]
     ], "Nothing aging.") +
 
     tbl("By office", d.by_location, [
@@ -6499,8 +6832,8 @@ function retReport(){
     ], "No queue by office yet.") +
 
     tbl("By carrier", d.by_carrier, [
-      ["Carrier", r=>esc(r.carrier_code||"—")], ["Queue", r=>r.n??r.queue??0],
-      ["At risk", r=>retMoney(r.at_risk)]
+      ["Carrier", r=>esc(r.carrier||"—")], ["Queue", r=>r.queue??0],
+      ["At risk", r=>retMoney(r.at_risk)], ["Saves", r=>r.saves??0]
     ], "No queue by carrier yet.") +
 
     tbl("By reason", d.by_reason, [
@@ -6508,10 +6841,64 @@ function retReport(){
       ["Count", r=>r.n??0], ["At risk", r=>retMoney(r.at_risk)]
     ], "No queue by reason yet.") +
 
-    tbl("Escalations to licensed producers", d.escalations, [
-      ["Customer", r=>esc(r.insured_name||"—")], ["To", r=>esc(r.to_name||"—")],
-      ["Reason", r=>esc(r.reason||"")], ["When", r=>when(r.at)]
+    // ret_dashboard aggregates escalations BY REASON, not by record. The first version of this
+    // table asked for a customer name and a producer name that the function has never returned.
+    tbl("Handoffs to licensed producers", d.escalations, [
+      ["Reason", r=>esc((RET_ESC_REASON.find(x=>x[0]===r.reason)||[,r.reason])[1]||r.reason||"—")],
+      ["Count", r=>r.n??0], ["Warm transfers", r=>r.warm??0],
+      ["Open over 24h", r=>r.open_over_24h
+        ? `<span class="pill fail">${r.open_over_24h}</span>` : "0"]
     ], "No handoffs yet. Each one here is the compliance record that an unlicensed employee stopped where they should.");
+}
+
+/* The scoreboard exists because the queue view cannot answer the only question that matters
+   before the hire: is this working. Every model figure is read from ret_setting, so when the
+   first sixty days replace the estimates nothing here is rebuilt. */
+function retScoreboard(s){
+  if(!s) return "";
+  const o = s.observed||{}, m = s.model||{}, vd = s.verdict||{}, x = s.xdates||{};
+  const gap = (obs, mod) => {
+    if(obs===null||obs===undefined) return `<span class="tsub">not yet</span>`;
+    const diff = obs - mod;
+    const cls = diff >= 0 ? "done" : diff > -0.05 ? "prog" : "fail";
+    return `<span class="pill ${cls}">${retPct(obs)}</span>
+            <span class="tsub"> vs ${retPct(mod)} assumed</span>`;
+  };
+  const bp = vd.breakeven_pct;
+  return `
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:4px">Is the position paying for itself?</div>
+      <div class="tsub" style="margin-bottom:10px">
+        ${s.window ? `${sdate(s.window.from)} to ${sdate(s.window.to)} · ${s.window.months} month${
+          s.window.months===1?"":"s"}` : ""}${
+        vd.enough_data ? "" : ` · <b>too little data to judge</b> — these rates need about twenty
+        conversations before they mean anything, and the model's own estimates are the only
+        numbers here that were not measured.`}</div>
+      <div class="grid-stats">
+        <div class="stat"><div class="k">Contact rate</div>
+          <div class="v" style="font-size:15px">${gap(o.contact_rate, m.contact_rate)}</div></div>
+        <div class="stat"><div class="k">Save rate on contact</div>
+          <div class="v" style="font-size:15px">${gap(o.save_rate, m.save_rate)}</div></div>
+        <div class="stat"><div class="k">Saves</div>
+          <div class="v">${o.saves??0}<small> · ${o.saves_per_month??0}/mo</small></div></div>
+        <div class="stat"><div class="k">Dollars collected</div>
+          <div class="v">${retMoney(o.recovered)}</div></div>
+        <div class="stat"><div class="k">Against breakeven</div>
+          <div class="v" style="font-size:15px">${bp===null||bp===undefined
+            ? "—"
+            : `<span class="pill ${bp>=100?"done":bp>=60?"prog":"fail"}">${bp}%</span>`}
+            <small> of ${m.breakeven_saves}/mo</small></div></div>
+        <div class="stat"><div class="k">Renewal dates captured</div>
+          <div class="v">${x.captured??0}${x.per_close!=null?`<small> · ${x.per_close} per close</small>`:""}</div></div>
+      </div>
+      <div class="tsub" style="margin-top:10px">
+        Breakeven is ${m.breakeven_saves} incremental saves a month at ${retMoney(m.value_per_save)} each,
+        after the ${retPct(m.incrementality)} incrementality discount for customers who would have
+        come back on their own. <b>Cross-sell is not in that arithmetic</b> — the feasibility model
+        listed it as upside it deliberately did not count. The ${x.captured??0} renewal date${
+        (x.captured??0)===1?"":"s"} captured so far ${(x.captured??0)===0?"are":"are"} the beginning of
+        the number that would let it be counted.</div>
+    </div>`;
 }
 
 function mgrRoster(){
