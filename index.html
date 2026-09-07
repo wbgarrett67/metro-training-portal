@@ -6234,6 +6234,17 @@ const RET_ESC_REASON = [
   ["other_product",     "They want a different product"]
 ];
 
+/* What the specialist should be trying to do on this call. Derived from the carrier's own
+   reason text by the loaders — an AssuranceAmerica "InsuredRequest" cancellation and a
+   "NonPayment" one look identical without this, and they are completely different calls. */
+const RET_PATH = {
+  take_payment_before_cancellation:"Take payment before it cancels",
+  take_payment_to_reinstate:"Take payment to reinstate",
+  take_payment_to_renew_with_lapse:"Take payment to renew, with a lapse",
+  confirm_amount_with_carrier:"Confirm the amount with the carrier first",
+  insured_asked_to_cancel:"They asked to cancel — find out why before anything else",
+  rewrite_required:"Rewrite only — hand to a licensed producer"
+};
 const RET_REASON = {
   cancellation_notice:"Pending cancellation",
   winback_invitation:"Win-back invitation",
@@ -6573,6 +6584,18 @@ function retDetail(){
       </div>
 
       ${v?`<div class="pill ${v[0]}" style="margin:10px 0;display:inline-block">${esc(v[1])}</div>`:""}
+
+      ${it.already_retained ? `<div class="card" style="border-left:3px solid var(--gold);margin:10px 0">
+        <b>The carrier says this policy came back.</b>
+        <div class="tsub">A later report showed it reinstated or the cancellation withdrawn. If you
+        have not called yet, there may be nothing to call about — check before you dial. If you HAVE
+        worked it and your call is why they paid, close it as a save; it was left open for you.</div>
+      </div>` : ""}
+
+      ${it.carrier_reason ? `<div style="margin:8px 0">
+        <b>${esc(RET_PATH[it.action_path] || "What the carrier said")}</b>
+        <div class="tsub">Carrier's own words: <span class="code">${esc(it.carrier_reason)}</span></div>
+      </div>` : ""}
 
       ${it.licensed_required ? `<div class="card" style="border-left:3px solid var(--warn);margin:10px 0">
         <b>No payment path on this record.</b>
