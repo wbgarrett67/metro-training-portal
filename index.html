@@ -877,19 +877,28 @@ $("#signOut").addEventListener("click", ()=>{
 // toggle between them, rather than being locked into one. Everyone else only ever has
 // their own training, so no toggle is shown.
 const isStaff = r => r === "manager" || r === "owner";
+// Added 9 September 2026 for the Retention partial launch. A licensed agent can hold
+// retention work without being staff, and the Retention tab lives inside the manager
+// pane — so routing on role alone left them unable to reach their own worklist.
+// training_login now returns retention_access precisely so this decision can be made
+// at boot, before the manager pane loads. It grants ONE tab, not the pane.
+const retWorkerOnly = () => !!(ME && !isStaff(ME.role) && ME.retention_access);
+// Where the toggle sends somebody who is currently looking at their own training.
+const homeMode = () => isStaff(ME.role) ? "manager" : retWorkerOnly() ? "retention" : "training";
 
 async function boot(){
   $("#view-login").classList.add("hidden");
   $("#view-app").classList.remove("hidden");
   $("#whoName").textContent = ME.full_name;
   const staff = isStaff(ME.role);
-  $("#modeToggle").classList.toggle("hidden", !staff);
+  const retWorker = retWorkerOnly();
+  // A retention worker gets the toggle too, or their training becomes unreachable.
+  $("#modeToggle").classList.toggle("hidden", !(staff || retWorker));
   // Managers only for now. The map and the "waiting on you" band already branch by role,
   // so opening this to agents is a one-line change once Braden decides.
   if(staff) loadOverview(); else $("#ovwBtn").classList.add("hidden");
-  // Staff land on the dashboard because that is the job they logged in to do;
-  // their own training is one click away.
-  await setMode(staff ? "manager" : "training");
+  // Everybody lands on the job they signed in to do; the other half is one click away.
+  await setMode(staff ? "manager" : retWorker ? "retention" : "training");
 }
 
 // The single place that decides which half of the portal is on screen. Switching into
@@ -903,10 +912,21 @@ async function setMode(mode){
     $("#paneManager").classList.remove("hidden");
     $("#modeToggle").textContent = "My training";
     await loadManager();
+  }else if(mode === "retention"){
+    // Reuses the manager pane because that is where the tab is built, but deliberately
+    // does NOT call loadManager() — training_manager_overview is manager-gated and would
+    // throw, and a retention worker has no business seeing the roster anyway.
+    $("#paneTrainee").classList.add("hidden");
+    $("#paneManager").classList.remove("hidden");
+    $("#modeToggle").textContent = "My training";
+    mgrTab = "ret";
+    await loadRet();
+    renderRetWorker();
   }else{
     $("#paneManager").classList.add("hidden");
     $("#paneTrainee").classList.remove("hidden");
-    $("#modeToggle").textContent = isStaff(ME.role) ? "Manager dashboard" : "";
+    $("#modeToggle").textContent = isStaff(ME.role) ? "Manager dashboard"
+      : retWorkerOnly() ? "Retention worklist" : "";
     STATE = null; openTracks = null; openMods.clear();
     await loadTrainee();
   }
@@ -916,7 +936,7 @@ async function setMode(mode){
 $("#modeToggle").addEventListener("click", async ()=>{
   const btn = $("#modeToggle");
   btn.disabled = true;
-  try{ await setMode(MODE === "manager" ? "training" : "manager"); }
+  try{ await setMode(MODE === "training" ? homeMode() : "training"); }
   finally{ btn.disabled = false; }
 });
 
@@ -6373,6 +6393,33 @@ async function retLoadItem(id){
   try{ retRes = await rpc("ret_research",{p_code:CODE, p_item:id}); }catch(e){ retRes=null; }
 }
 
+/* The retention worker's whole screen. One tab, no roster, no agency stats, and no
+   preview buttons — everything a manager sees in this pane is either irrelevant to the
+   job or something a worker should not be looking at. Drawn instead of renderManager(),
+   not on top of it, so nothing manager-only is ever built and then hidden in CSS. */
+function renderRetWorker(){
+  const live = (RET && RET.open || []).filter(r =>
+    r.deadline_date && new Date(r.deadline_date) >= new Date(new Date().toDateString()));
+  $("#paneManager").innerHTML = `
+    <div class="hero">
+      <div class="hero-row">
+        <div>
+          <h1>Retention worklist</h1>
+          <p>Policies the carrier has put on notice. Work the list from the top.</p>
+          <p style="margin-top:10px;font-size:13px;color:#b2b5d4">
+            ${(RET && RET.open || []).length} open · <b style="color:#f3e2bd">${live.length}
+            still saveable on a live deadline</b> · sorted soonest first
+          </p>
+        </div>
+      </div>
+    </div>
+    <div class="tabs">
+      <button class="tab on" data-tab="ret">Retention</button>
+    </div>
+    <div id="mgrBody"></div>`;
+  mgrRet();
+}
+
 function mgrRet(){
   const body = $("#mgrBody");
   if(!retHasAccess()){
@@ -6386,6 +6433,10 @@ function mgrRet(){
     return;
   }
   if(retSub==="report" && !retManages()) retSub = "today";
+  // ret_xdate_pipeline is manage-only, so a worker landing here on leftover state would
+  // throw rather than render. Capturing an x-date on a single record is still available
+  // to them inside the detail panel; it is only the pipeline VIEW that is management.
+  if(retSub==="xdate" && !retManages()) retSub = "today";
 
   const counts = {
     today:     (RET.open||[]).length,
@@ -6402,8 +6453,8 @@ function mgrRet(){
     <div class="tabs">
       ${RET_STATE.map(([k,label])=>`<button class="tab ${retSub===k?"on":""}" data-retsub="${k}">${
         label}${counts[k] ? ` (${counts[k]})` : ""}</button>`).join("")}
-      <button class="tab ${retSub==="xdate"?"on":""}" data-retsub="xdate">Cross-sell${
-        retXd && retXd.totals && retXd.totals.due_in_window ? ` (${retXd.totals.due_in_window})` : ""}</button>
+      ${retManages()?`<button class="tab ${retSub==="xdate"?"on":""}" data-retsub="xdate">Cross-sell${
+        retXd && retXd.totals && retXd.totals.due_in_window ? ` (${retXd.totals.due_in_window})` : ""}</button>`:""}
       ${retManages()?`<button class="tab ${retSub==="report"?"on":""}" data-retsub="report">Reporting</button>`:""}
     </div>
     <div id="retBody"></div>`;
