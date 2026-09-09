@@ -3188,11 +3188,18 @@ function finTrust(){
         (${(rep.not_due_yet||{}).count||0} receipts) — inside the carrier's draft lag, timing only;
         anything that ages past it comes back as a real item on its own.
         <b>Pre-report</b> ${esc(tmoney((rep.pre_report||{}).amount))} — receipt pre-dates the window.
-        <b>Clearing / National General</b> ${esc(tmoney((rep.clearing_natgen||{}).amount))} — matched
-        against the clearing account during the wrong-account episode. The one item from that group
-        that is <i>not</i> explained is in the list below.
+        ${rep.clearing_natgen?`<b>Clearing / National General</b> ${
+          esc(tmoney(rep.clearing_natgen.amount))} — matched against the clearing account during the
+        wrong-account episode. The one item from that group that is <i>not</i> explained is in the
+        list below.`:""}
+        ${rep.agency_expense?`<b>Agency expense</b> ${esc(tmoney(rep.agency_expense.amount))}
+        (${rep.agency_expense.count||0}) — a card-processing charge on the trust account, not premium.`:""}
         ${rep.variance_note?`<br><br>${esc(rep.variance_note)}`:""}
       </div>
+      ${rep.cross_account?`<div class="fin-note" style="margin-top:10px">
+        <b>Across the two accounts.</b> ${esc(rep.cross_account)}</div>`:""}
+      ${rep.rule_gaps?`<div class="fin-note" style="margin-top:10px">
+        <b>Carriers with no lag rule.</b> ${esc(rep.rule_gaps)}</div>`:""}
     </div>
 
     <div class="fin-sub" style="margin-bottom:12px">
