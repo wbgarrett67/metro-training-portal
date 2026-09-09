@@ -6893,8 +6893,14 @@ function retReport(){
 
   b.innerHTML = retScoreboard(s) +
 
+    // "Triaged" is screening work: the record was looked up in Agency Matrix and correctly
+    // needed no call. It is shown beside Worked rather than folded into it, because the
+    // contact rate divides by CALLABLE — an item nobody should have rung must not drag the
+    // rate down, and hiding the screening would make the effort look like nothing.
     tbl("Per person", d.by_person, [
-      ["Person", r=>esc(r.person||r.name||"—")], ["Worked", r=>r.worked??0], ["Attempts", r=>r.attempts??0],
+      ["Person", r=>esc(r.person||r.name||"—")], ["Worked", r=>r.worked??0],
+      ["Triaged, no call", r=>r.triaged??0], ["Callable", r=>r.callable??0],
+      ["Attempts", r=>r.attempts??0],
       ["Contacted", r=>r.contacted??0], ["Saves", r=>r.saves??0],
       ["Collected", r=>retMoney(r.collected)],
       ["Contact rate", r=>r.contact_rate!=null?`${r.contact_rate}%`:"—"],
@@ -6904,6 +6910,10 @@ function retReport(){
     tbl("Why customers left", d.by_disposition, [
       ["Reason", r=>esc(r.label||r.code||"—")], ["Count", r=>r.n??0],
       ["Collected", r=>retMoney(r.amount)],
+      // Two different exclusions, and conflating them is how a rate gets misread. A
+      // no-call reason means the record was screened out before any attempt; the save-rate
+      // column is about whether it counts as a lost opportunity.
+      ["No call made", r=>r.no_call===true?"Yes":"—"],
       ["Counts toward save rate", r=>r.in_denominator===false?"No":"Yes"]
     ], "No record has been closed yet, so there is nothing to attribute.") +
 
