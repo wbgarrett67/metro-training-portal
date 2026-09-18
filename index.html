@@ -3378,21 +3378,116 @@ function finTrust(){
 
 /* ---- Daily Log Audit -------------------------------------------------------
    Counter receipts (Agency Matrix) against bank deposits (BancFirst), per office
-   per day. Same gate as Premium Trust: Braden and Belinda only. The list shows
-   only what needs a person; a day that reconciles never appears. An item leaves
-   the list by a recorded decision, never by a rule that hides it. */
-const DLA_PRIO = {
-  1:["Money",                      "Receipted and not banked, or banked to the wrong account."],
-  2:["Money in the wrong place",   "Credited to the trust account with nothing behind it."],
-  3:["Confirm or relabel",         "Probably fine. Needs a person to say so."],
-  4:["A day never reconciled",     "The Agency Matrix reports were never run for this day."],
-  5:["Our own backfill gap",       "Not a shortfall. Nothing for any office."],
-  6:["Waiting on tonight's deposits","An overnight carry is the ordinary case."]
+   per day. Same gate as Premium Trust: Braden and Belinda only.
+
+   One list, not a set of buckets. What kind of problem it is rides along as a
+   label and is spelled out under Details; it is not a heading to hunt through.
+   Amounts are shown to the cent, because $292.84 rounded to $293 is a number
+   that matches nothing at the bank. An item leaves the list by a recorded
+   decision, never by a rule that hides it. */
+
+// The audit is the one place on this page where rounding is a defect: every figure
+// here has to be searchable against a bank record, so it carries its cents.
+const moneyC = n => (n===null||n===undefined||n===""||isNaN(+n)) ? "—"
+  : (+n<0?"−":"") + "$" + Math.abs(+n).toLocaleString("en-US",
+      {minimumFractionDigits:2, maximumFractionDigits:2});
+
+const dlaWhen = ts => { if(!ts) return "—";
+  const d = new Date(String(ts).length<=10 ? ts+"T12:00:00" : ts);
+  return isNaN(d) ? "—" : d.toLocaleTimeString(undefined,
+    {hour:"numeric", minute:"2-digit"}); };
+const dlaDay = iso => { if(!iso) return "—";
+  const d = new Date(String(iso).slice(0,10)+"T12:00:00");
+  return isNaN(d) ? String(iso) : d.toLocaleDateString(undefined,
+    {weekday:"short", day:"numeric", month:"short"}); };
+
+// Severity, for ordering and for the colour of one small pill. Not a section heading.
+const DLA_KIND = {
+  1:["money",  "Money"],
+  2:["money",  "Money"],
+  3:["check",  "Confirm"],
+  4:["report", "Reporting"],
+  6:["wait",   "Waiting"]
 };
+// The recon view's status is a sentence; the table wants a couple of words.
+const dlaStatus = st => st==="other-account deposit - confirm it is agency funds"
+      ? "other account"
+    : st==="not reconciled - no bank records" ? "no bank records yet"
+    : st==="over-deposited (carry-in)" ? "carry-in from an earlier day"
+    : st;
+
 const DLA_DISP = [["resolved","Resolved — the money is accounted for"],
                   ["in_progress","In progress — being deposited or moved"],
                   ["accepted_practice","Accepted practice — this is how we do it"],
                   ["not_an_exception","Not an exception — the audit misread it"]];
+
+// The money orders behind the number. This is the table that answers "why is this on
+// the list": here is what was taken, when, by whom, and what the office wrote in the
+// reference box. No customer name, no policy number.
+function dlaReceipts(rows, amount){
+  if(!rows || !rows.length) return `<div class="tsub" style="margin-bottom:12px">
+    No money orders were receipted at this office on this day. That is the point of
+    the item: the deposit has nothing behind it in End Of Day.</div>`;
+  const dateCode = rows.some(r => r.ref_is_date_code);
+  const tot = rows.reduce((s,r)=>s + (+r.amount||0), 0);
+  return `
+    <div class="tsub" style="margin-bottom:5px"><b>The money orders on this day</b>
+      — ${rows.length} item${rows.length===1?"":"s"}, ${moneyC(tot)}</div>
+    <div style="overflow-x:auto;margin-bottom:${dateCode?"8":"14"}px">
+      <table class="fin-t"><thead><tr>
+        <th>Receipt</th><th>Taken</th><th class="hide-sm">Who</th>
+        <th class="hide-sm">Paid</th><th>Reference</th><th class="n">Amount</th>
+      </tr></thead><tbody>
+      ${rows.map(r=>`<tr>
+        <td><b>${esc(r.receipt_no||"—")}</b></td>
+        <td><span class="tsub">${esc(dlaWhen(r.taken_at))}</span></td>
+        <td class="hide-sm"><span class="tsub">${esc(r.csr||"—")}</span></td>
+        <td class="hide-sm"><span class="tsub">${esc(r.companies||"—")}</span></td>
+        <td><span class="tsub">${esc(r.reference||"—")}${
+          r.ref_is_date_code?' <span class="pill todo">date, not a number</span>':""}</span></td>
+        <td class="n"><b>${moneyC(r.amount)}</b>${
+          (+r.fee)?`<div class="tsub">${moneyC(r.premium)} premium + ${
+            moneyC(r.fee)} fee</div>`:""}</td>
+      </tr>`).join("")}
+      </tbody></table></div>
+    ${dateCode ? `<div class="fin-warn" style="margin-bottom:14px">
+      <b>Do not search by reference.</b> This office types the business date into the
+      reference box instead of the money order number, so more than one money order can
+      carry the same reference and nothing at the bank will match it. Find these by
+      amount and date.</div>` : ""}
+    ${Math.abs(tot - Math.abs(+amount||0)) > 0.005 ? `<div class="tsub"
+      style="margin-bottom:14px">Only ${moneyC(Math.abs(+amount||0))} of this day is
+      open; the rest reconciled.</div>` : ""}`;
+}
+
+// What the office actually deposited either side of the day, so "none of these match"
+// is something Belinda can see rather than something she has to take on trust.
+function dlaDeposits(rows, amount){
+  if(!rows || !rows.length) return `<div class="fin-note" style="margin-bottom:14px">
+    <b>No deposits at all</b> from this office in the week either side of this day.</div>`;
+  const amt = Math.abs(+amount||0);
+  return `
+    <div class="tsub" style="margin-bottom:5px"><b>Every deposit this office made</b>
+      — three days before through a week after</div>
+    <div style="overflow-x:auto;margin-bottom:14px"><table class="fin-t"><thead><tr>
+      <th>Date</th><th>Submitted</th><th class="hide-sm">Who</th><th>Account</th>
+      <th class="n">Items</th><th class="n">Amount</th>
+    </tr></thead><tbody>
+    ${rows.map(d=>{
+      const hit = amt && Math.abs((+d.amount||0) - amt) < 0.005;
+      return `<tr>
+        <td><span class="tsub">${esc(dlaDay(d.deposit_date))}</span></td>
+        <td><span class="tsub">${esc(dlaWhen(d.submitted_at))}</span></td>
+        <td class="hide-sm"><span class="tsub">${esc(d.depositor_name||"—")}</span></td>
+        <td><span class="tsub">${esc(d.account_last4==="4700"
+              ? "Clearing 4700" : (d.account_description||"") + " " + (d.account_last4||""))}</span></td>
+        <td class="n"><span class="tsub">${d.physical_items==null?"—":d.physical_items}</span></td>
+        <td class="n">${hit?`<b>${moneyC(d.amount)}</b> <span class="pill done">same amount</span>`
+                           :moneyC(d.amount)}</td>
+      </tr>`;
+    }).join("")}
+    </tbody></table></div>`;
+}
 
 function finAudit(){
   const el = $("#finBody");
@@ -3401,8 +3496,8 @@ function finAudit(){
 
   const cov = AUDIT.coverage || {}, items = AUDIT.items || [], days = AUDIT.days || [];
   const act = items.filter(i => i.priority <= 3 && !i.disposition);
-  /* A priority-3 item is a label to fix or a line to confirm, not money at risk.
-     Summing it into the headline would overstate what is actually loose. */
+  /* A priority-3 item is a line to confirm, not money at risk. Summing it into the
+     headline would overstate what is actually loose. */
   const actAmt = items.filter(i => i.priority <= 2 && !i.disposition)
                       .reduce((s,i)=>s + Math.abs(+i.amount||0), 0);
 
@@ -3411,8 +3506,14 @@ function finAudit(){
   const stale = cov.receipts_through && cov.deposits_through
     && String(cov.receipts_through) < String(cov.deposits_through);
 
-  const groups = [1,2,3,4,5,6].map(p => [p, items.filter(i => i.priority === p)])
-                              .filter(([,rows]) => rows.length);
+  // Group the history by date so a day reads as a day: six offices, one line each.
+  const byDate = [];
+  days.forEach(d => {
+    let g = byDate.length && byDate[byDate.length-1].date === d.business_date
+          ? byDate[byDate.length-1] : null;
+    if(!g){ g = {date:d.business_date, rows:[]}; byDate.push(g); }
+    g.rows.push(d);
+  });
 
   el.innerHTML = `
     <div class="card fin-pad" style="margin-bottom:16px">
@@ -3424,7 +3525,7 @@ function finAudit(){
         <div><div class="tsub">Needs a person</div>
              <div class="v ${act.length?"fin-neg":""}" style="font-size:23px">${act.length}</div></div>
         <div><div class="tsub">Money at stake</div>
-             <div class="v" style="font-size:23px">${money0(actAmt)}</div></div>
+             <div class="v" style="font-size:23px">${moneyC(actAmt)}</div></div>
         <div><div class="tsub">Receipts loaded through</div>
              <div class="v" style="font-size:23px">${sdate(cov.receipts_through)}</div></div>
         <div><div class="tsub">Deposits loaded through</div>
@@ -3445,38 +3546,42 @@ function finAudit(){
         deposits but no receipts to check them against.</div>` : ""}
     </div>
 
-    ${!items.length ? `<div class="card fin-pad"><div class="empty">
-      Nothing open. Every loaded day reconciles.</div></div>`
-    : groups.map(([p,rows]) => `
-      <div class="card fin-pad" style="margin-bottom:16px">
-        <p class="fin-h">${esc(DLA_PRIO[p][0])}${p<=3?` <span class="tsub" style="font-weight:400">(${rows.length})</span>`:""}</p>
-        <p class="fin-sub2">${esc(DLA_PRIO[p][1])}</p>
-        <div style="overflow-x:auto"><table class="fin-t"><thead><tr>
-          <th class="n">Age</th><th>Date</th><th>What</th><th class="hide-sm">Office</th>
-          <th class="n">Amount</th><th></th>
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">What needs to be chased${items.length?` <span class="tsub" style="font-weight:400">(${items.length})</span>`:""}</p>
+      <p class="fin-sub2">Worst first, then oldest. Open Details for the money orders behind
+        the amount, the deposits that office did make, and what to do about it.</p>
+      ${!items.length ? `<div class="empty" style="margin-top:10px">
+        Nothing open. Every loaded day reconciles.</div>`
+      : `<div style="overflow-x:auto;margin-top:10px"><table class="fin-t"><thead><tr>
+          <th>Date</th><th class="hide-sm">Office</th><th class="n">Amount</th>
+          <th>What is wrong</th><th class="n">Days</th><th></th>
         </tr></thead><tbody>
-        ${rows.map(r=>{
+        ${items.map(r=>{
           const key = [r.business_date, r.office_raw||"", r.category, r.amount].join("|");
           const isOpen = auditOpen.has(key);
+          const kind = DLA_KIND[r.priority] || ["check","Check"];
           return `<tr class="${isOpen?"tr-open":""}">
-            <td class="n">${r.days_open==null?"—":r.days_open}</td>
-            <td><span class="tsub">${esc(String(r.business_date||"").slice(5))}</span></td>
+            <td><b>${esc(dlaDay(r.business_date))}</b></td>
+            <td class="hide-sm"><span class="tsub">${esc(r.office_raw||"all offices")}</span></td>
+            <td class="n"><b class="${kind[0]==="money"?"fin-neg":""}">${
+              r.amount==null?"—":moneyC(Math.abs(+r.amount))}</b></td>
             <td>${esc(r.category)}${r.disposition
               ? ` <span class="pill prog" title="${esc(r.disposition_note||"")}">${
                   esc(r.disposition.replace(/_/g," "))}</span>`:""}</td>
-            <td class="hide-sm"><span class="tsub">${esc(r.office_raw||"—")}</span></td>
-            <td class="n"><b>${r.amount==null?"—":money0(Math.abs(+r.amount))}</b></td>
+            <td class="n"><span class="tsub">${r.days_open==null?"—":r.days_open}</span></td>
             <td><button class="btn line sm" data-aexp="${esc(key)}">${isOpen?"Hide":"Details"}</button></td>
           </tr>
           ${isOpen ? `<tr><td colspan="6" style="background:#f7f8fc">
-            <div style="padding:4px 2px 10px">
-              <div class="fin-note" style="margin-bottom:10px"><b>What it means.</b>
+            <div style="padding:6px 2px 12px">
+              <div class="fin-note" style="margin-bottom:10px"><b>Why this is on the list.</b>
                 ${esc(r.what_it_means||"")}</div>
-              <div class="fin-note" style="margin-bottom:12px"><b>What to do.</b>
+              <div class="fin-note" style="margin-bottom:14px"><b>What to do.</b>
                 ${esc(r.what_to_do||"")}</div>
+              ${r.office_raw ? dlaReceipts(r.receipts, r.amount)
+                             + dlaDeposits(r.deposits, r.amount) : ""}
               ${r.disposition ? `<div class="tsub" style="margin-bottom:10px">
                 Decided by ${esc(r.decided_by||"—")}: ${esc(r.disposition_note||"")}</div>`:""}
-              ${p<=3 ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+              ${r.priority<=3 ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
                 <label style="flex:0 0 260px"><span class="tsub">Disposition</span>
                   <select data-adisp="${esc(key)}">${DLA_DISP.map(([k,l])=>
                     `<option value="${k}" ${r.disposition===k?"selected":""}>${esc(l)}</option>`
@@ -3488,35 +3593,56 @@ function finAudit(){
               </div>` : `<div class="tsub">Nothing to decide here.</div>`}
             </div></td></tr>` : ""}`;
         }).join("")}
-        </tbody></table></div>
-      </div>`).join("")}
+        </tbody></table></div>`}
+    </div>
 
     <div class="card fin-pad">
       <p class="fin-h">Day by day, the last three weeks</p>
-      <p class="fin-sub2">Every office-day with counter activity. A money order is one
-        instrument even when it carries a premium line and a fee line, so the instrument
-        count is what the bank's item count should match.</p>
-      ${!days.length ? `<div class="empty">Nothing loaded in this window.</div>`
+      <p class="fin-sub2">Every office on every loaded day, including the ones that took
+        nothing and deposited nothing — an office that has gone quiet is worth seeing.
+        A money order is one item even when it posts a premium line and a fee line, so the
+        item count is what the bank's physical count should match.</p>
+      ${!byDate.length ? `<div class="empty">Nothing loaded in this window.</div>`
       : `<div style="overflow-x:auto"><table class="fin-t"><thead><tr>
-          <th>Date</th><th>Office</th><th class="n">Receipted</th><th class="n">Items</th>
-          <th class="n">Banked</th><th class="n">Items</th><th class="n">Variance</th><th>Status</th>
+          <th>Office</th><th class="n">Money orders</th><th class="n">Items</th>
+          <th class="n">Deposited</th><th class="n">Items</th>
+          <th class="n">Difference</th><th>Status</th>
         </tr></thead><tbody>
-        ${days.map(d=>`<tr>
-          <td><span class="tsub">${esc(String(d.business_date||"").slice(5))}</span></td>
-          <td>${esc(d.office_raw||"—")}</td>
-          <td class="n">${money0(d.mo_receipted)}</td>
-          <td class="n"><span class="tsub">${d.instruments_receipted||0}</span></td>
-          <td class="n">${money0(d.clearing_deposited)}</td>
-          <td class="n"><span class="tsub">${d.items_deposited||0}</span></td>
-          <td class="n">${+d.variance===0 ? '<span class="tsub">—</span>' : signed(-d.variance)}</td>
-          <td>${d.status==="balanced" ? '<span class="pill done">✓ balanced</span>'
-             : /MISROUTED/.test(d.status) ? '<span class="pill todo">wrong account</span>'
-             : d.status==="SHORT" ? `<span class="pill todo">short</span>${
-                 d.carried_and_banked_on?`<div class="tsub" style="margin-top:3px">banked ${
-                   esc(d.carried_and_banked_on)}</div>`:""}`
-             : `<span class="pill prog">${esc(d.status)}</span>`}${
-             d.had_reversal?' <span class="pill score" title="A receipt was reversed and re-entered on this day. Summary nets these away silently; Detail shows them.">reversal</span>':""}</td>
-        </tr>`).join("")}
+        ${byDate.map(g=>{
+          const quiet = g.rows.filter(d => d.status === "no activity").length;
+          const pre   = g.rows.every(d => d.status === "not reconciled - no bank records");
+          const clean = g.rows.every(d => d.status === "balanced" || d.status === "no activity");
+          return `<tr class="grp"><td colspan="7" style="background:#eef0f7;padding:7px 8px">
+            <b>${esc(dlaDay(g.date))}</b>
+            <span class="tsub" style="margin-left:10px">${
+              pre ? "before the deposit feed starts \u2014 nothing to check against"
+                  : clean ? "all offices reconcile" : "needs a look"}${
+              quiet ? ` · ${quiet} of ${g.rows.length} offices took nothing` : ""}</span>
+          </td></tr>
+          ${g.rows.map(d=>`<tr>
+            <td>${esc(d.office_raw||"—")}</td>
+            <td class="n">${+d.mo_receipted ? moneyC(d.mo_receipted)
+                 : '<span class="tsub">—</span>'}</td>
+            <td class="n"><span class="tsub">${d.instruments_receipted||""}</span></td>
+            <td class="n">${+d.clearing_deposited ? moneyC(d.clearing_deposited)
+                 : '<span class="tsub">—</span>'}</td>
+            <td class="n"><span class="tsub">${d.items_deposited||""}</span></td>
+            <td class="n">${+d.variance===0 ? '<span class="tsub">—</span>'
+                 : `<span class="fin-num ${+d.variance>0?"fin-neg":"fin-pos"}">${
+                     moneyC(-d.variance)}</span>`}</td>
+            <td>${
+              d.status==="balanced" ? '<span class="pill done">✓ balanced</span>'
+            : d.status==="no activity" ? '<span class="tsub">no money orders, no deposit</span>'
+            : /MISROUTED/.test(d.status) ? '<span class="pill todo">wrong account</span>'
+            : d.status==="SHORT" ? `<span class="pill todo">not deposited</span>${
+                d.deposited_later_on?`<div class="tsub" style="margin-top:3px">deposited ${
+                  esc(d.deposited_later_on)}</div>`:""}`
+            : `<span class="pill prog">${esc(dlaStatus(d.status))}</span>`}${
+              d.had_reversal?' <span class="pill score" title="A receipt was reversed and re-entered on this day.">reversal</span>':""}${
+              d.other_account_amount && +d.other_account_amount ? `<div class="tsub" style="margin-top:3px">${
+                moneyC(d.other_account_amount)} to ${esc(d.other_accounts||"another account")}</div>`:""}</td>
+          </tr>`).join("")}`;
+        }).join("")}
         </tbody></table></div>`}
     </div>`;
 
