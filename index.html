@@ -681,6 +681,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     BANK=null, carrBasis="banked",
     OVW=null, GUIDE=null,
     TRUST=null, TRUSTT=null, trustScope="open", trustSide="all", trustDone=false,
+    AUDIT=null, auditOpen=new Set(),
     trustOpen=new Set(), TRUSTH={},
     finSub="revenue", plSub="agency", finLoc=null,
     revScope="all", revWin="m3",
@@ -1336,6 +1337,13 @@ async function loadTrust(){
   }
 }
 
+// Same gate as Premium Trust. The chase list carries no customer names; the day-by-day
+// table is office totals only.
+async function loadAudit(){
+  try{ AUDIT = await rpc("audit_daily_log",{p_code:CODE}); }
+  catch(e){ AUDIT = {error:e.message, items:[], days:[], coverage:{}}; }
+}
+
 const M3 = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const money = n => (n===null||n===undefined||n===""||isNaN(+n)) ? "—"
   : (+n<0?"−":"") + "$" + Math.abs(Math.round(+n)).toLocaleString("en-US");
@@ -1565,7 +1573,9 @@ function mgrFin(){
     ).join("")}${finHasPL()
       ? `<button data-fin="pl" class="${finSub==="pl"?"on":""}">Full P&amp;L</button>` : ""}${
       finHasTrust()
-      ? `<button data-fin="trust" class="${finSub==="trust"?"on":""}">Premium Trust</button>` : ""}</div>
+      ? `<button data-fin="trust" class="${finSub==="trust"?"on":""}">Premium Trust</button>` : ""}${
+      finHasTrust()
+      ? `<button data-fin="audit" class="${finSub==="audit"?"on":""}">Daily Log Audit</button>` : ""}</div>
     <div id="finBody"></div>`;
   body.querySelectorAll("[data-fin]").forEach(b=>b.addEventListener("click", async ()=>{
     finSub = b.dataset.fin; finLoc = null;
@@ -1576,12 +1586,14 @@ function mgrFin(){
     if(finSub === "carriers" && !BANK) await loadBanked();   // Banked is the default basis
     if(finSub === "carriers" && !CUST) await loadCustomers();
     if(finSub === "trust" && !TRUST) await loadTrust();
+    if(finSub === "audit" && !AUDIT) await loadAudit();
     mgrFin();
   }));
   if(finSub === "office") finSub = "revenue";   // retired: the scope selector replaced it
   if(finSub === "trust" && !finHasTrust()) finSub = "revenue";
+  if(finSub === "audit" && !finHasTrust()) finSub = "revenue";
   ({revenue:finRevenue, fees:finFees, carriers:finCarriers, programs:finPrograms,
-    coverage:finCoverage, pl:finPL, trust:finTrust})[finSub]();
+    coverage:finCoverage, pl:finPL, trust:finTrust, audit:finAudit})[finSub]();
 }
 
 function finAgency(){
@@ -3361,6 +3373,175 @@ function finTrust(){
   el.querySelectorAll("[data-tnoteadd]").forEach(b=>b.addEventListener("click", ()=>{
     const n = prompt("Add a note. It is stamped with today's date and kept above the older ones.");
     if(n && n.trim()) taskAct(b.dataset.tnoteadd, {p_note_append:n.trim()}, "Note added.");
+  }));
+}
+
+/* ---- Daily Log Audit -------------------------------------------------------
+   Counter receipts (Agency Matrix) against bank deposits (BancFirst), per office
+   per day. Same gate as Premium Trust: Braden and Belinda only. The list shows
+   only what needs a person; a day that reconciles never appears. An item leaves
+   the list by a recorded decision, never by a rule that hides it. */
+const DLA_PRIO = {
+  1:["Money",                      "Receipted and not banked, or banked to the wrong account."],
+  2:["Money in the wrong place",   "Credited to the trust account with nothing behind it."],
+  3:["Confirm or relabel",         "Probably fine. Needs a person to say so."],
+  4:["A day never reconciled",     "The Agency Matrix reports were never run for this day."],
+  5:["Our own backfill gap",       "Not a shortfall. Nothing for any office."],
+  6:["Waiting on tonight's deposits","An overnight carry is the ordinary case."]
+};
+const DLA_DISP = [["resolved","Resolved — the money is accounted for"],
+                  ["in_progress","In progress — being deposited or moved"],
+                  ["accepted_practice","Accepted practice — this is how we do it"],
+                  ["not_an_exception","Not an exception — the audit misread it"]];
+
+function finAudit(){
+  const el = $("#finBody");
+  if(!AUDIT){ el.innerHTML = `<div class="card fin-pad"><div class="empty">Loading…</div></div>`; return; }
+  if(AUDIT.error){ el.innerHTML = `<div class="card fin-pad"><div class="empty">${esc(AUDIT.error)}</div></div>`; return; }
+
+  const cov = AUDIT.coverage || {}, items = AUDIT.items || [], days = AUDIT.days || [];
+  const act = items.filter(i => i.priority <= 3 && !i.disposition);
+  /* A priority-3 item is a label to fix or a line to confirm, not money at risk.
+     Summing it into the headline would overstate what is actually loose. */
+  const actAmt = items.filter(i => i.priority <= 2 && !i.disposition)
+                      .reduce((s,i)=>s + Math.abs(+i.amount||0), 0);
+
+  /* The receipt side is hand-run while Agency Matrix is broken, so say plainly how
+     far each side reaches. A stale date here explains everything below it. */
+  const stale = cov.receipts_through && cov.deposits_through
+    && String(cov.receipts_through) < String(cov.deposits_through);
+
+  const groups = [1,2,3,4,5,6].map(p => [p, items.filter(i => i.priority === p)])
+                              .filter(([,rows]) => rows.length);
+
+  el.innerHTML = `
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">Where the audit stands</p>
+      <p class="fin-sub2">Money orders receipted across the counter against what reached the
+        BancFirst Clearing account. Credit cards are excluded — they settle through the
+        processor, never across the counter.</p>
+      <div class="ovw-row" style="display:flex;gap:26px;flex-wrap:wrap;margin-top:10px">
+        <div><div class="tsub">Needs a person</div>
+             <div class="v ${act.length?"fin-neg":""}" style="font-size:23px">${act.length}</div></div>
+        <div><div class="tsub">Money at stake</div>
+             <div class="v" style="font-size:23px">${money0(actAmt)}</div></div>
+        <div><div class="tsub">Receipts loaded through</div>
+             <div class="v" style="font-size:23px">${sdate(cov.receipts_through)}</div></div>
+        <div><div class="tsub">Deposits loaded through</div>
+             <div class="v" style="font-size:23px">${sdate(cov.deposits_through)}</div></div>
+        <div><div class="tsub">Business days</div>
+             <div class="v" style="font-size:23px">${cov.days_loaded||0}</div></div>
+      </div>
+      ${cov.cards_tie === false ? `<div class="fin-warn" style="margin-top:12px">
+        <b>Stop here.</b> The card lines in End Of Day do not equal the Credit Card report at
+        every office. One of the two reports is wrong, and no deposit question below can be
+        trusted until that is settled.</div>`
+      : `<div class="fin-note" style="margin-top:12px">The two Agency Matrix reports tie to each
+        other on every loaded day, so everything below is a deposit question and not a
+        reporting one.</div>`}
+      ${stale ? `<div class="fin-note" style="margin-top:10px"><b>The receipt side is behind.</b>
+        Agency Matrix is delivering empty scheduled reports, so End Of Day and Credit Card
+        Transactions are being run by hand. Days after ${esc(sdate(cov.receipts_through))} have
+        deposits but no receipts to check them against.</div>` : ""}
+    </div>
+
+    ${!items.length ? `<div class="card fin-pad"><div class="empty">
+      Nothing open. Every loaded day reconciles.</div></div>`
+    : groups.map(([p,rows]) => `
+      <div class="card fin-pad" style="margin-bottom:16px">
+        <p class="fin-h">${esc(DLA_PRIO[p][0])}${p<=3?` <span class="tsub" style="font-weight:400">(${rows.length})</span>`:""}</p>
+        <p class="fin-sub2">${esc(DLA_PRIO[p][1])}</p>
+        <div style="overflow-x:auto"><table class="fin-t"><thead><tr>
+          <th class="n">Age</th><th>Date</th><th>What</th><th class="hide-sm">Office</th>
+          <th class="n">Amount</th><th></th>
+        </tr></thead><tbody>
+        ${rows.map(r=>{
+          const key = [r.business_date, r.office_raw||"", r.category, r.amount].join("|");
+          const isOpen = auditOpen.has(key);
+          return `<tr class="${isOpen?"tr-open":""}">
+            <td class="n">${r.days_open==null?"—":r.days_open}</td>
+            <td><span class="tsub">${esc(String(r.business_date||"").slice(5))}</span></td>
+            <td>${esc(r.category)}${r.disposition
+              ? ` <span class="pill prog" title="${esc(r.disposition_note||"")}">${
+                  esc(r.disposition.replace(/_/g," "))}</span>`:""}</td>
+            <td class="hide-sm"><span class="tsub">${esc(r.office_raw||"—")}</span></td>
+            <td class="n"><b>${r.amount==null?"—":money0(Math.abs(+r.amount))}</b></td>
+            <td><button class="btn line sm" data-aexp="${esc(key)}">${isOpen?"Hide":"Details"}</button></td>
+          </tr>
+          ${isOpen ? `<tr><td colspan="6" style="background:#f7f8fc">
+            <div style="padding:4px 2px 10px">
+              <div class="fin-note" style="margin-bottom:10px"><b>What it means.</b>
+                ${esc(r.what_it_means||"")}</div>
+              <div class="fin-note" style="margin-bottom:12px"><b>What to do.</b>
+                ${esc(r.what_to_do||"")}</div>
+              ${r.disposition ? `<div class="tsub" style="margin-bottom:10px">
+                Decided by ${esc(r.decided_by||"—")}: ${esc(r.disposition_note||"")}</div>`:""}
+              ${p<=3 ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+                <label style="flex:0 0 260px"><span class="tsub">Disposition</span>
+                  <select data-adisp="${esc(key)}">${DLA_DISP.map(([k,l])=>
+                    `<option value="${k}" ${r.disposition===k?"selected":""}>${esc(l)}</option>`
+                  ).join("")}</select></label>
+                <label style="flex:1 1 320px"><span class="tsub">What did you find?</span>
+                  <input type="text" data-anote="${esc(key)}" value="${esc(r.disposition_note||"")}"
+                         placeholder="Required — this is what survives the next rebuild"></label>
+                <button class="btn sm" data-asave="${esc(key)}">Save</button>
+              </div>` : `<div class="tsub">Nothing to decide here.</div>`}
+            </div></td></tr>` : ""}`;
+        }).join("")}
+        </tbody></table></div>
+      </div>`).join("")}
+
+    <div class="card fin-pad">
+      <p class="fin-h">Day by day, the last three weeks</p>
+      <p class="fin-sub2">Every office-day with counter activity. A money order is one
+        instrument even when it carries a premium line and a fee line, so the instrument
+        count is what the bank's item count should match.</p>
+      ${!days.length ? `<div class="empty">Nothing loaded in this window.</div>`
+      : `<div style="overflow-x:auto"><table class="fin-t"><thead><tr>
+          <th>Date</th><th>Office</th><th class="n">Receipted</th><th class="n">Items</th>
+          <th class="n">Banked</th><th class="n">Items</th><th class="n">Variance</th><th>Status</th>
+        </tr></thead><tbody>
+        ${days.map(d=>`<tr>
+          <td><span class="tsub">${esc(String(d.business_date||"").slice(5))}</span></td>
+          <td>${esc(d.office_raw||"—")}</td>
+          <td class="n">${money0(d.mo_receipted)}</td>
+          <td class="n"><span class="tsub">${d.instruments_receipted||0}</span></td>
+          <td class="n">${money0(d.clearing_deposited)}</td>
+          <td class="n"><span class="tsub">${d.items_deposited||0}</span></td>
+          <td class="n">${+d.variance===0 ? '<span class="tsub">—</span>' : signed(-d.variance)}</td>
+          <td>${d.status==="balanced" ? '<span class="pill done">✓ balanced</span>'
+             : /MISROUTED/.test(d.status) ? '<span class="pill todo">wrong account</span>'
+             : d.status==="SHORT" ? `<span class="pill todo">short</span>${
+                 d.carried_and_banked_on?`<div class="tsub" style="margin-top:3px">banked ${
+                   esc(d.carried_and_banked_on)}</div>`:""}`
+             : `<span class="pill prog">${esc(d.status)}</span>`}${
+             d.had_reversal?' <span class="pill score" title="A receipt was reversed and re-entered on this day. Summary nets these away silently; Detail shows them.">reversal</span>':""}</td>
+        </tr>`).join("")}
+        </tbody></table></div>`}
+    </div>`;
+
+  el.querySelectorAll("[data-aexp]").forEach(b=>b.addEventListener("click", ()=>{
+    const k = b.dataset.aexp;
+    if(auditOpen.has(k)) auditOpen.delete(k); else auditOpen.add(k);
+    finAudit();
+  }));
+  el.querySelectorAll("[data-asave]").forEach(b=>b.addEventListener("click", async ()=>{
+    const k = b.dataset.asave;
+    const sel = el.querySelector(`[data-adisp="${CSS.escape(k)}"]`);
+    const txt = el.querySelector(`[data-anote="${CSS.escape(k)}"]`);
+    const note = (txt.value||"").trim();
+    if(!note){ toast("Say what you found — the note is the part that lasts."); txt.focus(); return; }
+    const [dt, office, category, amount] = k.split("|");
+    b.disabled = true;
+    try{
+      AUDIT = await rpc("audit_daily_dispose",{
+        p_code:CODE, p_date:dt, p_office:office, p_category:category,
+        p_amount: amount==="null"||amount==="" ? null : +amount,
+        p_disposition: sel.value, p_note: note });
+      auditOpen.delete(k);
+      toast("Recorded.");
+      finAudit();
+    }catch(e){ b.disabled = false; toast(e.message); }
   }));
 }
 
@@ -6103,6 +6284,7 @@ async function openOverview(){
     if(tab==="tips") await loadTipsManage();
     if(tab==="fin" && !REV) await loadFin();
     if(sub === "trust"){ finSub = "trust"; if(!TRUST) await loadTrust(); }
+    if(sub === "audit"){ finSub = "audit"; if(!AUDIT) await loadAudit(); }
     renderManager();
     window.scrollTo({top:0, behavior:"smooth"});
   };
