@@ -1337,8 +1337,8 @@ async function loadTrust(){
   }
 }
 
-// Same gate as Premium Trust. The chase list carries no customer names; the day-by-day
-// table is office totals only.
+// Same gate as Premium Trust. Details carries the insured name and policy number, which
+// only Braden and Belinda can reach; the day-by-day table stays office totals only.
 async function loadAudit(){
   try{ AUDIT = await rpc("audit_daily_log",{p_code:CODE}); }
   catch(e){ AUDIT = {error:e.message, items:[], days:[], coverage:{}}; }
@@ -3414,6 +3414,8 @@ const dlaStatus = st => st==="other-account deposit - confirm it is agency funds
       ? "other account"
     : st==="not reconciled - no bank records" ? "no bank records yet"
     : st==="over-deposited (carry-in)" ? "carry-in from an earlier day"
+    : st==="receipted after the money was deposited" ? "receipted late"
+    : st==="deposited before it was receipted" ? "receipted late"
     : st;
 
 const DLA_DISP = [["resolved","Resolved — the money is accounted for"],
@@ -3422,8 +3424,10 @@ const DLA_DISP = [["resolved","Resolved — the money is accounted for"],
                   ["not_an_exception","Not an exception — the audit misread it"]];
 
 // The money orders behind the number. This is the table that answers "why is this on
-// the list": here is what was taken, when, by whom, and what the office wrote in the
-// reference box. No customer name, no policy number.
+// the list": what was taken, when, who took it, whose policy it paid, and what the
+// office wrote in the reference box. The insured's name and policy number are here
+// on purpose -- the tab sits behind the trust gate, the same one that guards Premium
+// Trust, and a name is what turns "one of these three" into a customer to ring.
 function dlaReceipts(rows, amount){
   if(!rows || !rows.length) return `<div class="tsub" style="margin-bottom:12px">
     No money orders were receipted at this office on this day. That is the point of
@@ -3435,17 +3439,20 @@ function dlaReceipts(rows, amount){
       — ${rows.length} item${rows.length===1?"":"s"}, ${moneyC(tot)}</div>
     <div style="overflow-x:auto;margin-bottom:${dateCode?"8":"14"}px">
       <table class="fin-t"><thead><tr>
-        <th>Receipt</th><th>Taken</th><th class="hide-sm">Who</th>
+        <th>Receipt</th><th>Taken</th><th>Insured</th>
         <th class="hide-sm">Paid</th><th>Reference</th><th class="n">Amount</th>
       </tr></thead><tbody>
       ${rows.map(r=>`<tr>
         <td><b>${esc(r.receipt_no||"—")}</b></td>
-        <td><span class="tsub">${esc(dlaWhen(r.taken_at))}</span></td>
-        <td class="hide-sm"><span class="tsub">${esc(r.csr||"—")}</span></td>
+        <td><span class="tsub">${esc(dlaWhen(r.taken_at))}</span>${
+          r.csr?`<div class="tsub">${esc(r.csr)}</div>`:""}</td>
+        <td>${esc(r.customer||"—")}${
+          r.policy?`<div class="tsub">${esc(r.policy)}</div>`:""}</td>
         <td class="hide-sm"><span class="tsub">${esc(r.companies||"—")}</span></td>
         <td><span class="tsub">${esc(r.reference||"—")}${
           r.ref_is_date_code?' <span class="pill todo">date, not a number</span>':""}</span></td>
         <td class="n"><b>${moneyC(r.amount)}</b>${
+          /Check/.test(r.methods||"")?' <span class="pill score" title="A lender or escrow cheque. Metro takes no other cheques, so it counts as a money order.">cheque</span>':""}${
           (+r.fee)?`<div class="tsub">${moneyC(r.premium)} premium + ${
             moneyC(r.fee)} fee</div>`:""}</td>
       </tr>`).join("")}
@@ -3637,7 +3644,11 @@ function finAudit(){
             : d.status==="SHORT" ? `<span class="pill todo">not deposited</span>${
                 d.deposited_later_on?`<div class="tsub" style="margin-top:3px">deposited ${
                   esc(d.deposited_later_on)}</div>`:""}`
-            : `<span class="pill prog">${esc(dlaStatus(d.status))}</span>`}${
+            : `<span class="pill prog">${esc(dlaStatus(d.status))}</span>${
+                d.deposited_earlier_on?`<div class="tsub" style="margin-top:3px">money banked ${
+                  esc(dlaDay(d.deposited_earlier_on))}</div>`
+              : d.receipted_later_on?`<div class="tsub" style="margin-top:3px">receipted ${
+                  esc(dlaDay(d.receipted_later_on))}</div>`:""}`}${
               d.had_reversal?' <span class="pill score" title="A receipt was reversed and re-entered on this day.">reversal</span>':""}${
               d.other_account_amount && +d.other_account_amount ? `<div class="tsub" style="margin-top:3px">${
                 moneyC(d.other_account_amount)} to ${esc(d.other_accounts||"another account")}</div>`:""}</td>
