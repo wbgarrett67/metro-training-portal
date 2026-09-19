@@ -681,7 +681,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     BANK=null, carrBasis="banked",
     OVW=null, GUIDE=null,
     TRUST=null, TRUSTT=null, trustScope="open", trustSide="all", trustDone=false,
-    AUDIT=null, auditOpen=new Set(),
+    AUDIT=null, auditOpen=new Set(), QUOTES=null,
     trustOpen=new Set(), TRUSTH={},
     finSub="revenue", plSub="agency", finLoc=null,
     revScope="all", revWin="m3",
@@ -1344,6 +1344,16 @@ async function loadAudit(){
   catch(e){ AUDIT = {error:e.message, items:[], days:[], coverage:{}}; }
 }
 
+// TurboRater's Detailed Quote Report. Counts and close rates need financial access; the
+// records behind them carry names, addresses and mobile numbers, so the server withholds
+// those unless the caller is 'full'. The page never decides that for itself -- it renders
+// what came back.
+async function loadQuotes(){
+  try{ QUOTES = await rpc("quote_dashboard",{p_code:CODE}); }
+  catch(e){ QUOTES = {error:e.message, by_day:[], by_csr:[], by_lead_source:[],
+                      by_carrier:[], records:[], coverage:{}}; }
+}
+
 const M3 = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const money = n => (n===null||n===undefined||n===""||isNaN(+n)) ? "—"
   : (+n<0?"−":"") + "$" + Math.abs(Math.round(+n)).toLocaleString("en-US");
@@ -1575,7 +1585,9 @@ function mgrFin(){
       finHasTrust()
       ? `<button data-fin="trust" class="${finSub==="trust"?"on":""}">Premium Trust</button>` : ""}${
       finHasTrust()
-      ? `<button data-fin="audit" class="${finSub==="audit"?"on":""}">Daily Log Audit</button>` : ""}</div>
+      ? `<button data-fin="audit" class="${finSub==="audit"?"on":""}">Daily Log Audit</button>` : ""}${
+      finHasFin()
+      ? `<button data-fin="quotes" class="${finSub==="quotes"?"on":""}">Quotes</button>` : ""}</div>
     <div id="finBody"></div>`;
   body.querySelectorAll("[data-fin]").forEach(b=>b.addEventListener("click", async ()=>{
     finSub = b.dataset.fin; finLoc = null;
@@ -1587,13 +1599,16 @@ function mgrFin(){
     if(finSub === "carriers" && !CUST) await loadCustomers();
     if(finSub === "trust" && !TRUST) await loadTrust();
     if(finSub === "audit" && !AUDIT) await loadAudit();
+    if(finSub === "quotes" && !QUOTES) await loadQuotes();
     mgrFin();
   }));
   if(finSub === "office") finSub = "revenue";   // retired: the scope selector replaced it
   if(finSub === "trust" && !finHasTrust()) finSub = "revenue";
   if(finSub === "audit" && !finHasTrust()) finSub = "revenue";
+  if(finSub === "quotes" && !finHasFin()) finSub = "revenue";
   ({revenue:finRevenue, fees:finFees, carriers:finCarriers, programs:finPrograms,
-    coverage:finCoverage, pl:finPL, trust:finTrust, audit:finAudit})[finSub]();
+    coverage:finCoverage, pl:finPL, trust:finTrust, audit:finAudit,
+    quotes:finQuotes})[finSub]();
 }
 
 function finAgency(){
@@ -3680,6 +3695,133 @@ function finAudit(){
       finAudit();
     }catch(e){ b.disabled = false; toast(e.message); }
   }));
+}
+
+/* ---- QUOTES ----------------------------------------------------------------
+   TurboRater's Detailed Quote Report, one record per quote per day. It is the only
+   feed that carries the lead source and the quoted-by / written-by pair, which makes
+   it the only way to see what a quote cost to get and whether it closed.
+
+   A quote counts as WRITTEN when the report names both a carrier and a writer. A record
+   with neither is a quote somebody started and did not finish -- that is the number this
+   panel exists to surface, not the total. */
+const QRATE = p => p===null||p===undefined ? "—" : (+p).toFixed(0) + "%";
+const qBar = p => { const v = Math.max(0, Math.min(100, +p||0));
+  return `<div style="height:6px;border-radius:3px;background:var(--line-2);overflow:hidden;margin-top:4px">
+    <div style="height:100%;width:${v}%;background:${v>=60?"var(--pos,#2e7d54)":v>=30?"#b8860b":"var(--neg,#b3261e)"}"></div>
+  </div>`; };
+
+function qTable(rows, keyLabel, keyField, extra){
+  if(!rows || !rows.length) return `<div class="empty">Nothing loaded yet.</div>`;
+  return `<div style="overflow-x:auto"><table class="fin-t"><thead><tr>
+      <th>${esc(keyLabel)}</th>${extra||""}<th class="n">Quotes</th>
+      <th class="n">Written</th><th class="n">Close rate</th>
+    </tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td>${esc(r[keyField] ?? "—")}</td>${extra
+        ? `<td><span class="tsub">${esc(dlaDay(r.report_date))}</span></td>` : ""}
+      <td class="n">${r.quotes||0}</td>
+      <td class="n"><b>${r.written||0}</b></td>
+      <td class="n" style="min-width:90px">${QRATE(r.close_rate)}${qBar(r.close_rate)}</td>
+    </tr>`).join("")}
+    </tbody></table></div>`;
+}
+
+function finQuotes(){
+  const el = $("#finBody");
+  if(!QUOTES){ el.innerHTML = `<div class="card fin-pad"><div class="empty">Loading…</div></div>`; return; }
+  if(QUOTES.error){ el.innerHTML = `<div class="card fin-pad"><div class="empty">${esc(QUOTES.error)}</div></div>`; return; }
+
+  const cov = QUOTES.coverage || {}, days = QUOTES.by_day || [], csr = QUOTES.by_csr || [],
+        src = QUOTES.by_lead_source || [], car = QUOTES.by_carrier || [],
+        recs = QUOTES.records || [];
+  const quotes = +cov.records || 0, written = +cov.written || 0;
+  const rate = quotes ? Math.round(1000 * written / quotes) / 10 : null;
+  const blank = src.find(x => x.lead_source === "(not recorded)");
+
+  el.innerHTML = `
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">Quotes and what they closed</p>
+      <p class="fin-sub2">From TurboRater's Detailed Quote Report. A quote counts as written
+        when the report names both a carrier and a writer; everything else is a quote that
+        was started and not finished.</p>
+      <div class="ovw-row" style="display:flex;gap:26px;flex-wrap:wrap;margin-top:10px">
+        <div><div class="tsub">Quotes</div>
+             <div class="v" style="font-size:23px">${quotes}</div></div>
+        <div><div class="tsub">Written</div>
+             <div class="v" style="font-size:23px">${written}</div></div>
+        <div><div class="tsub">Close rate</div>
+             <div class="v" style="font-size:23px">${QRATE(rate)}</div></div>
+        <div><div class="tsub">Days loaded</div>
+             <div class="v" style="font-size:23px">${cov.days_loaded||0}</div></div>
+        <div><div class="tsub">Loaded through</div>
+             <div class="v" style="font-size:23px">${sdate(cov.through)}</div></div>
+      </div>
+      ${(+cov.days_loaded||0) < 10 ? `<div class="fin-note" style="margin-top:12px">
+        Only ${cov.days_loaded||0} day${(+cov.days_loaded||0)===1?"":"s"} has loaded so far, so
+        treat every rate below as an anecdote rather than a number. It becomes worth reading at
+        a few weeks.</div>` : ""}
+      ${blank && blank.quotes ? `<div class="fin-warn" style="margin-top:10px">
+        <b>${blank.quotes} of ${quotes} quotes carry no lead source.</b> That field is the only
+        record of what a quote cost to get, and a blank one cannot be credited to anything.</div>` : ""}
+    </div>
+
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">By lead source</p>
+      <p class="fin-sub2">Where the quote came from, and how often it closed.</p>
+      ${qTable(src, "Lead source", "lead_source")}
+    </div>
+
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">By office and day</p>
+      ${qTable(days, "Office", "office", "<th>Day</th>")}
+    </div>
+
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">By who quoted it</p>
+      <p class="fin-sub2">Counted against whoever TurboRater records as the quoter, which is not
+        always whoever ends up writing it.</p>
+      ${qTable(csr, "Quoted by", "csr")}
+    </div>
+
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">Which carrier won</p>
+      ${!car.length ? `<div class="empty">Nothing written yet.</div>`
+      : `<div style="overflow-x:auto"><table class="fin-t"><thead><tr>
+          <th>Carrier</th><th class="n">Written</th></tr></thead><tbody>
+        ${car.map(c=>`<tr><td>${esc(c.carrier||"—")}</td>
+          <td class="n"><b>${c.written||0}</b></td></tr>`).join("")}
+        </tbody></table></div>`}
+    </div>
+
+    ${QUOTES.can_see_detail ? `
+    <div class="card fin-pad">
+      <p class="fin-h">Every quote, last 30 days</p>
+      <p class="fin-sub2">The customer detail behind the counts. Full financial access only.</p>
+      ${!recs.length ? `<div class="empty">No records in the window.</div>`
+      : `<div style="overflow-x:auto"><table class="fin-t"><thead><tr>
+          <th>Day</th><th>Office</th><th>Customer</th><th class="hide-sm">Quoted by</th>
+          <th class="hide-sm">Lead source</th><th>Outcome</th>
+        </tr></thead><tbody>
+        ${recs.map(r=>`<tr>
+          <td><span class="tsub">${esc(dlaDay(r.quoted_on || r.report_date))}</span></td>
+          <td><span class="tsub">${esc(r.office||"—")}</span></td>
+          <td>${esc(r.insured_name || "(no name entered)")}${r.cell_phone
+            ? `<div class="tsub">${esc(r.cell_phone)}</div>` : ""}</td>
+          <td class="hide-sm"><span class="tsub">${esc(r.quoted_by||"—")}</span></td>
+          <td class="hide-sm"><span class="tsub">${esc(r.lead_source||"—")}</span></td>
+          <td>${r.written
+            ? `<span class="pill done">written</span><div class="tsub" style="margin-top:3px">${
+                esc(r.company||"")}</div>`
+            : '<span class="pill todo">not written</span>'}</td>
+        </tr>`).join("")}
+        </tbody></table></div>`}
+    </div>` : `
+    <div class="card fin-pad">
+      <p class="fin-h">Every quote, last 30 days</p>
+      <div class="empty">The records behind these counts carry customer names, addresses and
+        phone numbers, so they need full financial access.</div>
+    </div>`}`;
 }
 
 function trustHistoryHtml(id){
