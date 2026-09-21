@@ -141,6 +141,51 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--navy-3);outline-
   transition:width .5s ease}
 .bar.on-dark{background:rgba(255,255,255,.2)}
 
+/* ---- home screen: five tiles ---- */
+.cats{display:flex;gap:7px;flex-wrap:wrap;margin:18px 0 0}
+.cats button{font:inherit;font-size:13.5px;font-weight:650;cursor:pointer;padding:7px 15px;
+  border-radius:999px;border:1px solid var(--line-2);background:var(--card);color:var(--ink-2)}
+.cats button:hover{border-color:var(--navy-3);color:var(--navy)}
+.cats button.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.cats button .cb{display:inline-block;margin-left:6px;font-size:11px;font-weight:700;
+  padding:1px 6px;border-radius:999px;background:var(--bad);color:#fff}
+.cats button.on .cb{background:var(--gold);color:var(--navy)}
+.subnav{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 2px;padding-bottom:2px}
+.subnav button{font:inherit;font-size:13px;font-weight:600;cursor:pointer;padding:5px 12px;
+  border-radius:8px;border:1px solid transparent;background:transparent;color:var(--ink-3)}
+.subnav button:hover{background:var(--info-bg);color:var(--navy)}
+.subnav button.on{background:var(--info-bg);border-color:var(--line-2);color:var(--navy)}
+.htiles{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+  align-items:start;margin-top:18px}
+.htile{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow);overflow:hidden;text-align:left;width:100%;font:inherit;color:inherit;
+  cursor:pointer;padding:0;display:block}
+.htile:hover{border-color:var(--navy-3)}
+.htile .hstripe{height:4px;background:var(--line-2)}
+.htile.s-bad .hstripe{background:var(--bad)}
+.htile.s-warn .hstripe{background:var(--warn)}
+.htile.s-ok .hstripe{background:var(--ok)}
+.htile .hb{padding:15px 17px 17px}
+.htile h3{margin:0;font-size:15.5px;line-height:1.25;color:var(--navy)}
+.htile .hsub{margin:3px 0 0;font-size:12.5px;color:var(--ink-3)}
+.htile .hn{margin-top:13px;font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1;
+  color:var(--ink);font-variant-numeric:tabular-nums}
+.htile .hn.bad{color:var(--bad)} .htile .hn.warn{color:var(--gold-deep)} .htile .hn.ok{color:var(--ok)}
+.htile .hu{margin-top:4px;font-size:13px;font-weight:600;color:var(--ink-2)}
+.htile .hc{margin:5px 0 0;font-size:12.5px;color:var(--ink-2);line-height:1.4}
+.htile .hr{margin-top:13px;border-top:1px solid var(--line);padding-top:10px;
+  display:flex;flex-direction:column;gap:6px}
+.htile .hr .l{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:12.5px}
+.htile .hr .l span:first-child{color:var(--ink-3)}
+.htile .hr .l b{font-weight:650;color:var(--ink-2);white-space:nowrap;font-variant-numeric:tabular-nums}
+.htile .hr .l b.bad{color:var(--bad)} .htile .hr .l b.warn{color:var(--gold-deep)}
+.htile .hr .l b.ok{color:var(--ok)}
+.htile .hgo{margin-top:12px;font-size:12px;font-weight:650;color:var(--navy-3)}
+.hsys{margin-top:18px;padding:13px 16px;background:var(--info-bg);border-radius:var(--r);font-size:13px;
+  color:var(--ink-2);display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.hsys button{font:inherit;font-size:12.5px;font-weight:650;cursor:pointer;padding:5px 12px;
+  border-radius:8px;border:1px solid var(--line-2);background:var(--card);color:var(--navy)}
+.hsys button:hover{border-color:var(--navy-3)}
 .pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:650;padding:3px 9px;
   border-radius:99px;letter-spacing:.02em;white-space:nowrap}
 .pill.done{background:var(--ok-bg);color:var(--ok)}
@@ -663,7 +708,7 @@ const SUPABASE_KEY = "sb_publishable_NoJmcZHNCtjjkrBlHNJL3w__X_lSAPv";
 let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, lastAdded=null,
     PREVIEW=null, MODE=null,
     selCE=null,
-    openMods=new Set(), openTracks=null, mgrTab="roster", selTrainee=null,
+    openMods=new Set(), openTracks=null, mgrTab="home", selTrainee=null,
     PARTNERS=null, pnFilter="all", pnOffice="", pnCat="", pnSel=null, pnSweep=false, pnHelp=null,
     openCat=new Set(), draft=null,
     CM=null, cmSub="patterns", cmScope="current", cmDays=90, cmReturn=null, cmOppLabel="",
@@ -682,6 +727,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     OVW=null, GUIDE=null,
     TRUST=null, TRUSTT=null, trustScope="open", trustSide="all", trustDone=false,
     AUDIT=null, auditOpen=new Set(), QUOTES=null,
+    HOME=null, mgrCat=null,
     trustOpen=new Set(), TRUSTH={},
     finSub="revenue", plSub="agency", finLoc=null,
     revScope="all", revWin="m3",
@@ -1348,6 +1394,11 @@ async function loadAudit(){
 // records behind them carry names, addresses and mobile numbers, so the server withholds
 // those unless the caller is 'full'. The page never decides that for itself -- it renders
 // what came back.
+async function loadHome(){
+  try{ HOME = await rpc("training_home",{p_code:CODE}); }
+  catch(e){ HOME = {error:e.message, tiles:[], order:[], can:{}}; }
+}
+
 async function loadQuotes(){
   try{ QUOTES = await rpc("quote_dashboard",{p_code:CODE}); }
   catch(e){ QUOTES = {error:e.message, by_day:[], by_csr:[], by_lead_source:[],
@@ -1561,6 +1612,183 @@ function finClassSeries(field, cls){
 }
 
 /* ---- the tab ---- */
+/* ================= Home, and the two-level navigation ======================
+   The Portal grew to twenty destinations in one flat strip with no landing screen,
+   and the two most-used panels -- the Daily Log Audit and TurboRater Quotes -- were
+   both two clicks down inside Revenue. This is the regrouping, agreed 20 September 2026.
+
+   NOTHING INSIDE ANY PANEL CHANGED. A destination is still the same (mgrTab, finSub)
+   pair it always was; all this does is decide which pair a click sets. That is why the
+   category items below name a `tab` and sometimes a `sub` -- several of them live as
+   sub-tabs of the old Revenue panel and are simply reached from a different place now.
+
+   `show` is written as a thunk on purpose: the gate helpers are `const` arrow functions
+   declared further down the file, so evaluating them while this array is built would hit
+   the temporal dead zone. Building a closure does not call them. */
+const unreadCount = () => ((MGR && MGR.notices) || []).filter(n=>!n.is_read).length;
+
+const MGR_NAV = [
+  {key:"training",  label:"Agent Training & Management", show:()=>true, items:[
+    {tab:"roster",   label:"Roster"},
+    {tab:"ce",       label:"Licensing & CE"},
+    {tab:"tracks",   label:"Track catalog"},
+    {tab:"content",  label:"Content editor"},
+    {tab:"calls",    label:"Call monitoring", show:()=>cmHasCall()},
+    {tab:"activity", label:"Activity",  badge:()=>unreadCount()},
+    {tab:"feedback", label:"Feedback",  badge:()=>FB && FB.open_count},
+    {tab:"tips",     label:"Tips",      badge:()=>TIPSM && TIPSM.draft_count},
+    {tab:"add",      label:"Add an agent"}]},
+  {key:"financial", label:"Company Financial Management", show:()=>finHasFin(), items:[
+    {tab:"fin", sub:"audit", label:"Daily Log Audit", show:()=>finHasTrust()},
+    {tab:"fin", sub:"trust", label:"Premium Trust",   show:()=>finHasTrust()},
+    {tab:"fin", sub:"pl",    label:"Full P&L",        show:()=>finHasPL()},
+    {tab:"fin", sub:"fees",  label:"Fee activity"}]},
+  {key:"marketing", label:"Marketing Programs", show:()=>finHasFin(), items:[
+    {tab:"fin", sub:"quotes",   label:"TurboRater Quotes"},
+    {tab:"partners",            label:"Referral partners"},
+    {tab:"fin", sub:"programs", label:"Programs"}]},
+  {key:"revenue",   label:"Revenue", show:()=>finHasFin(), items:[
+    {tab:"fin", sub:"revenue",  label:"Revenue by office"},
+    {tab:"fin", sub:"carriers", label:"Carriers"},
+    /* Data coverage is not a business area and gets no tile, but it has to live at the end
+       of some strip: landing on it from the home screen with nothing lit reads as broken. */
+    {tab:"fin", sub:"coverage", label:"Data coverage"}]},
+  {key:"retention", label:"Retention", show:()=>retHasAccess(), items:[
+    {tab:"ret", label:"Retention work queue", badge:()=>RET && RET.dash && RET.dash.totals
+       && RET.dash.totals.past_deadline}]}
+];
+
+/* Data coverage is not a business category -- its only job is saying when a feed went
+   dark -- so it is reached from the system strip on the home screen instead. */
+const NAV_SYSTEM = {tab:"fin", sub:"coverage", label:"Data coverage"};
+
+const navCats  = () => MGR_NAV.filter(c => c.show());
+const navItems = c => (c ? c.items.filter(i => !i.show || i.show()) : []);
+const navCat   = k => MGR_NAV.find(c => c.key === k);
+
+function navFind(tab, sub){
+  for(const c of navCats()){
+    for(const i of navItems(c)){
+      if(i.tab === tab && (i.sub || null) === (sub || null)) return {cat:c, item:i};
+    }
+  }
+  return null;
+}
+
+/* Everything a destination needs loaded before it can draw. This used to live in two
+   places -- the manager tab strip and the Revenue sub-tab strip -- and is now in one. */
+async function navLoad(it){
+  if(it.tab === "content"  && !CAT) await loadCatalog();
+  if(it.tab === "ce"       && !CE)  await loadCE();
+  if(it.tab === "calls"    && !CM)  await loadCallMonitor();
+  if(it.tab === "feedback")         await loadFeedback();
+  if(it.tab === "partners")         await loadPartners();
+  if(it.tab === "tips")             await loadTipsManage();
+  if(it.tab === "ret")              await retReload();
+  if(it.tab === "fin"){
+    if(!REV) await loadFin();
+    if(it.sub === "pl"    && !FIN)   await loadFinPL();
+    if(it.sub === "fees"  && !FEE)   await loadFee();
+    if(it.sub === "trust" && !TRUST) await loadTrust();
+    if(it.sub === "audit" && !AUDIT) await loadAudit();
+    if(it.sub === "quotes"&& !QUOTES)await loadQuotes();
+    if(it.sub === "carriers"){
+      if(!CARR) await loadCarriers();
+      if(!PER)  await loadPeriod();
+      if(!BANK) await loadBanked();     // Banked is the default basis
+      if(!CUST) await loadCustomers();
+    }
+  }
+}
+
+async function navGo(catKey, item){
+  const c = navCat(catKey);
+  const it = item || navItems(c)[0];
+  if(!it) return;
+  mgrCat = catKey; mgrTab = it.tab; selTrainee = null;
+  if(it.tab === "fin"){ finSub = it.sub; finLoc = null; }
+  await navLoad(it);
+  renderManager();
+}
+
+async function navHome(){
+  mgrCat = null; mgrTab = "home"; selTrainee = null;
+  if(!HOME) await loadHome();
+  renderManager();
+}
+
+function navBarHtml(){
+  const cats = navCats();
+  const cat  = mgrCat ? navCat(mgrCat) : null;
+  const items = navItems(cat);
+  const catBadge = c => {
+    let n = 0;
+    for(const i of navItems(c)) n += (+(i.badge ? i.badge() : 0) || 0);
+    return n;
+  };
+  return `<div class="cats">
+      <button data-home="1" class="${mgrTab==="home"?"on":""}">Home</button>
+      ${cats.map(c=>{ const n = catBadge(c);
+        return `<button data-cat="${esc(c.key)}" class="${mgrCat===c.key?"on":""}">${esc(c.label)}${
+          n ? `<span class="cb">${n}</span>` : ""}</button>`; }).join("")}
+    </div>
+    ${cat && items.length > 1 ? `<div class="subnav">${items.map((i,ix)=>{
+        const on = mgrTab===i.tab && (i.tab!=="fin" || finSub===i.sub);
+        const n = +(i.badge ? i.badge() : 0) || 0;
+        return `<button data-item="${ix}" class="${on?"on":""}">${esc(i.label)}${
+          n ? ` (${n})` : ""}</button>`; }).join("")}</div>` : ""}`;
+}
+
+/* ---- the home screen ---- */
+const HOME_COPY = {
+  retention:{sub:"Policies we can still save"},
+  financial:{sub:"Money handling, trust, and the P&L"},
+  revenue:  {sub:"What the book earned, and from whom"},
+  marketing:{sub:"Where the business comes from"},
+  training: {sub:"The people and how they are doing"}
+};
+
+function mgrHome(){
+  const el = $("#mgrBody");
+  if(!HOME){ el.innerHTML = `<div class="card pad"><div class="empty">Loading…</div></div>`; return; }
+  if(HOME.error){ el.innerHTML = `<div class="card pad"><div class="empty">${esc(HOME.error)}</div></div>`; return; }
+
+  const byKey = {};
+  (HOME.tiles||[]).forEach(t => byKey[t.key] = t);
+  const order = (HOME.order||[]).filter(k => byKey[k] && navCat(k) && navCat(k).show());
+
+  el.innerHTML = `
+    <div class="htiles">
+      ${order.map(k=>{
+        const t = byKey[k], c = navCat(k), big = t.big||{};
+        return `<button class="htile s-${esc(t.sev||"ok")}" data-tile="${esc(k)}">
+          <div class="hstripe"></div>
+          <div class="hb">
+            <h3>${esc(c.label)}</h3>
+            <p class="hsub">${esc((HOME_COPY[k]||{}).sub || "")}</p>
+            <div class="hn ${esc(big.tone||"")}">${esc(big.n ?? "—")}</div>
+            <div class="hu">${esc(big.unit||"")}</div>
+            <p class="hc">${esc(t.cap||"")}</p>
+            ${(t.rows||[]).length ? `<div class="hr">${(t.rows||[]).map(r=>
+              `<div class="l"><span>${esc(r.lbl)}</span><b class="${esc(r.tone||"")}">${esc(r.val)}</b></div>`
+            ).join("")}</div>` : ""}
+            <p class="hgo">Open ${esc(c.label)} →</p>
+          </div>
+        </button>`;
+      }).join("")}
+    </div>
+    ${finHasFin() ? `<div class="hsys">
+      <span><b>Feeds.</b> Data coverage is not a business area — its only job is telling you
+        when a source went dark, so it lives here rather than competing with the tiles above.</span>
+      <button data-sys="1">Open data coverage</button>
+    </div>` : ""}`;
+
+  el.querySelectorAll("[data-tile]").forEach(b=>b.addEventListener("click",
+    ()=>navGo(b.dataset.tile)));
+  const sys = el.querySelector("[data-sys]");
+  if(sys) sys.addEventListener("click", ()=>navGo("revenue", NAV_SYSTEM));
+}
+
 function mgrFin(){
   const body = $("#mgrBody");
   if(!REV){ body.innerHTML = `<div class="card fin-pad"><div class="empty">Loading…</div></div>`; return; }
@@ -1574,34 +1802,10 @@ function mgrFin(){
     return;
   }
   if(finSub === "pl" && !finHasPL()) finSub = "revenue";
-  const subs = [["revenue","Revenue by office"],["fees","Fee activity"],
-                ["carriers","Carriers"],
-                ["programs","Programs"],["coverage","Data coverage"]];
-  body.innerHTML = `
-    <div class="fin-sub">${subs.map(([k,l])=>
-      `<button data-fin="${k}" class="${finSub===k?"on":""}">${l}</button>`
-    ).join("")}${finHasPL()
-      ? `<button data-fin="pl" class="${finSub==="pl"?"on":""}">Full P&amp;L</button>` : ""}${
-      finHasTrust()
-      ? `<button data-fin="trust" class="${finSub==="trust"?"on":""}">Premium Trust</button>` : ""}${
-      finHasTrust()
-      ? `<button data-fin="audit" class="${finSub==="audit"?"on":""}">Daily Log Audit</button>` : ""}${
-      finHasFin()
-      ? `<button data-fin="quotes" class="${finSub==="quotes"?"on":""}">TurboRater Quotes</button>` : ""}</div>
-    <div id="finBody"></div>`;
-  body.querySelectorAll("[data-fin]").forEach(b=>b.addEventListener("click", async ()=>{
-    finSub = b.dataset.fin; finLoc = null;
-    if(finSub === "pl"    && !FIN)   await loadFinPL();
-    if(finSub === "fees"  && !FEE)   await loadFee();
-    if(finSub === "carriers" && !CARR) await loadCarriers();
-    if(finSub === "carriers" && !PER)  await loadPeriod();
-    if(finSub === "carriers" && !BANK) await loadBanked();   // Banked is the default basis
-    if(finSub === "carriers" && !CUST) await loadCustomers();
-    if(finSub === "trust" && !TRUST) await loadTrust();
-    if(finSub === "audit" && !AUDIT) await loadAudit();
-    if(finSub === "quotes" && !QUOTES) await loadQuotes();
-    mgrFin();
-  }));
+  /* The Revenue sub-tab strip is gone. Its five panels were split across three
+     categories in the September 2026 regrouping and are now reached from the category
+     strip above, so a second row of tabs here would say the same thing twice. */
+  body.innerHTML = `<div id="finBody"></div>`;
   if(finSub === "office") finSub = "revenue";   // retired: the scope selector replaced it
   if(finSub === "trust" && !finHasTrust()) finSub = "revenue";
   if(finSub === "audit" && !finHasTrust()) finSub = "revenue";
@@ -6312,6 +6516,9 @@ async function loadManager(){
   await loadFeedback();
   await loadTipsManage();
   await loadRet();
+  // The home tiles are the landing screen, so their counts have to be in hand before the
+  // first render rather than fetched on a click nobody makes.
+  await loadHome();
   renderManager();
 }
 /* ================= Portal Overview =================
@@ -6597,17 +6804,24 @@ async function openOverview(){
     if(tab === "training"){ if(MODE !== "training") await setMode("training"); return; }
     if(!OVW.is_manager) return;
     if(MODE !== "manager") await setMode("manager");
-    mgrTab = tab; selTrainee = null;
-    if(tab==="content" && !CAT) await loadCatalog();
-    if(tab==="ce" && !CE) await loadCE();
-    if(tab==="calls" && !CM) await loadCallMonitor();
-    if(tab==="feedback") await loadFeedback();
-    if(tab==="partners") await loadPartners();
-    if(tab==="tips") await loadTipsManage();
-    if(tab==="fin" && !REV) await loadFin();
-    if(sub === "trust"){ finSub = "trust"; if(!TRUST) await loadTrust(); }
-    if(sub === "audit"){ finSub = "audit"; if(!AUDIT) await loadAudit(); }
-    renderManager();
+    // Route through the category nav so the strip lights up the place we landed. A
+    // destination the map names but the nav does not carry still works: fall back to
+    // setting the pair directly rather than refusing to go anywhere.
+    const hit = navFind(tab, sub || (tab === "fin" ? finSub : null)) || navFind(tab, null);
+    if(hit){ await navGo(hit.cat.key, hit.item); }
+    else{
+      mgrTab = tab; mgrCat = null; selTrainee = null;
+      if(tab==="content" && !CAT) await loadCatalog();
+      if(tab==="ce" && !CE) await loadCE();
+      if(tab==="calls" && !CM) await loadCallMonitor();
+      if(tab==="feedback") await loadFeedback();
+      if(tab==="partners") await loadPartners();
+      if(tab==="tips") await loadTipsManage();
+      if(tab==="fin" && !REV) await loadFin();
+      if(sub === "trust"){ finSub = "trust"; if(!TRUST) await loadTrust(); }
+      if(sub === "audit"){ finSub = "audit"; if(!AUDIT) await loadAudit(); }
+      renderManager();
+    }
     window.scrollTo({top:0, behavior:"smooth"});
   };
   modal.querySelectorAll("[data-ovwgo]").forEach(el=>el.addEventListener("click",
@@ -6653,44 +6867,26 @@ function renderManager(){
       <div class="stat"><div class="k">Certifications current</div><div class="v">${certs}</div></div>
       <div class="stat"><div class="k">Needs attention</div><div class="v" style="${attention?'color:var(--warn)':''}">${attention}</div></div>
     </div>
-    <div class="tabs">
-      <button class="tab ${mgrTab==="roster"?"on":""}" data-tab="roster">Roster</button>
-      <button class="tab ${mgrTab==="ce"?"on":""}" data-tab="ce">Licensing &amp; CE</button>
-      <button class="tab ${mgrTab==="content"?"on":""}" data-tab="content">Content editor</button>
-      <button class="tab ${mgrTab==="tracks"?"on":""}" data-tab="tracks">Track catalog</button>
-      ${cmHasCall() ? `<button class="tab ${mgrTab==="calls"?"on":""}" data-tab="calls">Call monitoring</button>` : ""}
-      <button class="tab ${mgrTab==="activity"?"on":""}" data-tab="activity">Activity${unread?` (${unread})`:""}</button>
-      <button class="tab ${mgrTab==="feedback"?"on":""}" data-tab="feedback">Feedback${
-        FB && FB.open_count ? ` (${FB.open_count})` : ""}</button>
-      <button class="tab ${mgrTab==="partners"?"on":""}" data-tab="partners">Referral partners</button>
-      <button class="tab ${mgrTab==="tips"?"on":""}" data-tab="tips">Tips${
-        TIPSM && TIPSM.draft_count ? ` (${TIPSM.draft_count})` : ""}</button>
-      ${finHasFin() ? `<button class="tab ${mgrTab==="fin"?"on":""}" data-tab="fin">Revenue</button>` : ""}
-      ${retHasAccess() ? `<button class="tab ${mgrTab==="ret"?"on":""}" data-tab="ret">Retention${
-        RET.dash && RET.dash.totals && RET.dash.totals.past_deadline
-          ? ` (${RET.dash.totals.past_deadline})` : ""}</button>` : ""}
-      <button class="tab ${mgrTab==="add"?"on":""}" data-tab="add">Add an agent</button>
-    </div>
+    ${navBarHtml()}
     <div id="mgrBody"></div>`;
   $("#paneManager").querySelectorAll("[data-preview]").forEach(b=>b.addEventListener("click",
     ()=>startPreview(b.dataset.preview)));
-  $("#paneManager").querySelectorAll("[data-tab]").forEach(b=>b.addEventListener("click", async ()=>{
-    mgrTab=b.dataset.tab; selTrainee=null;
-    if(mgrTab==="content" && !CAT) await loadCatalog();
-    if(mgrTab==="ce" && !CE) await loadCE();
-    if(mgrTab==="calls" && !CM) await loadCallMonitor();
-    if(mgrTab==="feedback") await loadFeedback();
-    if(mgrTab==="partners") await loadPartners();
-    if(mgrTab==="tips") await loadTipsManage();
-    if(mgrTab==="fin" && !REV) await loadFin();
-    if(mgrTab==="ret") await retReload();
-    renderManager();
-  }));
-  // A tab a person cannot see must not be reachable by leftover state either.
-  if(mgrTab === "calls" && !cmHasCall()) mgrTab = "roster";
-  if(mgrTab === "fin" && !finHasFin()) mgrTab = "roster";
-  if(mgrTab === "ret" && !retHasAccess()) mgrTab = "roster";
-  ({roster:mgrRoster, ce:mgrCE, content:mgrContent, tracks:mgrTracks,
+  const home = $("#paneManager").querySelector("[data-home]");
+  if(home) home.addEventListener("click", navHome);
+  $("#paneManager").querySelectorAll("[data-cat]").forEach(b=>b.addEventListener("click",
+    ()=>navGo(b.dataset.cat)));
+  $("#paneManager").querySelectorAll("[data-item]").forEach(b=>b.addEventListener("click",
+    ()=>navGo(mgrCat, navItems(navCat(mgrCat))[+b.dataset.item])));
+
+  // A destination a person cannot see must not be reachable by leftover state either.
+  // The category strip already hides them, but state can outlive a change of access.
+  if(mgrTab === "calls" && !cmHasCall()) mgrTab = "home";
+  if(mgrTab === "fin"   && !finHasFin()) mgrTab = "home";
+  if(mgrTab === "ret"   && !retHasAccess()) mgrTab = "home";
+  if(mgrTab === "fin" && (finSub === "trust" || finSub === "audit") && !finHasTrust()) finSub = "revenue";
+  if(mgrTab === "fin" && finSub === "pl" && !finHasPL()) finSub = "revenue";
+  if(mgrTab === "home") mgrCat = null;
+  ({home:mgrHome, roster:mgrRoster, ce:mgrCE, content:mgrContent, tracks:mgrTracks,
     activity:mgrActivity, add:mgrAdd, calls:mgrCall, feedback:mgrFeedback,
     partners:mgrPartners, tips:mgrTips, fin:mgrFin, ret:mgrRet})[mgrTab]();
 }
