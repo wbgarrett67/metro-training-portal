@@ -1628,34 +1628,41 @@ function finClassSeries(field, cls){
 const unreadCount = () => ((MGR && MGR.notices) || []).filter(n=>!n.is_read).length;
 
 const MGR_NAV = [
-  {key:"training",  label:"Agent Training & Management", show:()=>true, items:[
-    {tab:"roster",   label:"Roster"},
-    {tab:"ce",       label:"Licensing & CE"},
-    {tab:"tracks",   label:"Track catalog"},
-    {tab:"content",  label:"Content editor"},
-    {tab:"calls",    label:"Call monitoring", show:()=>cmHasCall()},
-    {tab:"activity", label:"Activity",  badge:()=>unreadCount()},
-    {tab:"feedback", label:"Feedback",  badge:()=>FB && FB.open_count},
-    {tab:"tips",     label:"Tips",      badge:()=>TIPSM && TIPSM.draft_count},
-    {tab:"add",      label:"Add an agent"}]},
-  {key:"financial", label:"Company Financial Management", show:()=>finHasFin(), items:[
-    {tab:"fin", sub:"audit", label:"Daily Log Audit", show:()=>finHasTrust()},
-    {tab:"fin", sub:"trust", label:"Premium Trust",   show:()=>finHasTrust()},
-    {tab:"fin", sub:"pl",    label:"Full P&L",        show:()=>finHasPL()},
-    {tab:"fin", sub:"fees",  label:"Fee activity"}]},
-  {key:"marketing", label:"Marketing Programs", show:()=>finHasFin(), items:[
-    {tab:"fin", sub:"quotes",   label:"TurboRater Quotes"},
-    {tab:"partners",            label:"Referral partners"},
-    {tab:"fin", sub:"programs", label:"Programs"}]},
-  {key:"revenue",   label:"Revenue", show:()=>finHasFin(), items:[
+  /* Agent Coaching. Absorbed Retention and TurboRater Quotes on 22 September 2026: both
+     measure how the people are doing rather than what the book earned, so they sit with
+     the roster and the call monitor. The work queues lead, the people admin follows. */
+  {key:"coaching",  label:"Agent Coaching", show:()=>true, items:[
+    {tab:"ret",              label:"Retention work queue", show:()=>retHasAccess(),
+     badge:()=>RET && RET.dash && RET.dash.totals && RET.dash.totals.past_deadline},
+    {tab:"fin", sub:"quotes",label:"TurboRater Quotes",    show:()=>finHasFin()},
+    {tab:"calls",            label:"Call monitoring",      show:()=>cmHasCall()},
+    {tab:"roster",           label:"Roster"},
+    {tab:"ce",               label:"Licensing & CE"},
+    {tab:"activity",         label:"Activity",  badge:()=>unreadCount()},
+    {tab:"feedback",         label:"Feedback",  badge:()=>FB && FB.open_count},
+    {tab:"tips",             label:"Tips",      badge:()=>TIPSM && TIPSM.draft_count},
+    {tab:"tracks",           label:"Track catalog"},
+    {tab:"content",          label:"Content editor"},
+    {tab:"add",              label:"Add an agent"}]},
+
+  /* Financial Management. Everything that was under Revenue folded in here, so this is
+     now the single place the agency's money is looked at -- what came in, where it
+     physically is, and whether it ties. */
+  {key:"financial", label:"Financial Management", show:()=>finHasFin(), items:[
+    {tab:"fin", sub:"audit",    label:"Daily Log Audit", show:()=>finHasTrust()},
+    {tab:"fin", sub:"trust",    label:"Premium Trust",   show:()=>finHasTrust()},
     {tab:"fin", sub:"revenue",  label:"Revenue by office"},
     {tab:"fin", sub:"carriers", label:"Carriers"},
-    /* Data coverage is not a business area and gets no tile, but it has to live at the end
-       of some strip: landing on it from the home screen with nothing lit reads as broken. */
+    {tab:"fin", sub:"pl",       label:"Full P&L",        show:()=>finHasPL()},
+    {tab:"fin", sub:"fees",     label:"Fee activity"},
+    /* Data coverage earns no tile -- its only job is saying when a feed went dark -- but it
+       has to live at the end of some strip, or landing on it from the home screen lights
+       nothing in the nav and reads as broken. */
     {tab:"fin", sub:"coverage", label:"Data coverage"}]},
-  {key:"retention", label:"Retention", show:()=>retHasAccess(), items:[
-    {tab:"ret", label:"Retention work queue", badge:()=>RET && RET.dash && RET.dash.totals
-       && RET.dash.totals.past_deadline}]}
+
+  {key:"marketing", label:"Marketing Programs", show:()=>finHasFin(), items:[
+    {tab:"partners",            label:"Referral partners"},
+    {tab:"fin", sub:"programs", label:"Programs"}]}
 ];
 
 /* Data coverage is not a business category -- its only job is saying when a feed went
@@ -1741,11 +1748,9 @@ function navBarHtml(){
 
 /* ---- the home screen ---- */
 const HOME_COPY = {
-  retention:{sub:"Policies we can still save"},
-  financial:{sub:"Money handling, trust, and the P&L"},
-  revenue:  {sub:"What the book earned, and from whom"},
-  marketing:{sub:"Where the business comes from"},
-  training: {sub:"The people and how they are doing"}
+  coaching: {sub:"The people, and the work that shows how they are doing"},
+  financial:{sub:"What came in, where it is, and whether it ties"},
+  marketing:{sub:"Where the business comes from"}
 };
 
 function mgrHome(){
@@ -1786,7 +1791,7 @@ function mgrHome(){
   el.querySelectorAll("[data-tile]").forEach(b=>b.addEventListener("click",
     ()=>navGo(b.dataset.tile)));
   const sys = el.querySelector("[data-sys]");
-  if(sys) sys.addEventListener("click", ()=>navGo("revenue", NAV_SYSTEM));
+  if(sys) sys.addEventListener("click", ()=>navGo("financial", NAV_SYSTEM));
 }
 
 function mgrFin(){
@@ -6861,12 +6866,6 @@ function renderManager(){
         ${ring(avg)}
       </div>
     </div>
-    <div class="grid-stats">
-      <div class="stat"><div class="k">Active agents</div><div class="v">${ts.length}</div></div>
-      <div class="stat"><div class="k">Average completion</div><div class="v">${avg}<small>%</small></div></div>
-      <div class="stat"><div class="k">Certifications current</div><div class="v">${certs}</div></div>
-      <div class="stat"><div class="k">Needs attention</div><div class="v" style="${attention?'color:var(--warn)':''}">${attention}</div></div>
-    </div>
     ${navBarHtml()}
     <div id="mgrBody"></div>`;
   $("#paneManager").querySelectorAll("[data-preview]").forEach(b=>b.addEventListener("click",
@@ -6886,6 +6885,9 @@ function renderManager(){
   if(mgrTab === "fin" && (finSub === "trust" || finSub === "audit") && !finHasTrust()) finSub = "revenue";
   if(mgrTab === "fin" && finSub === "pl" && !finHasPL()) finSub = "revenue";
   if(mgrTab === "home") mgrCat = null;
+  // Categories were reorganised on 22 September; a browser holding "revenue" or
+  // "retention" from the old layout would otherwise render a strip with nothing lit.
+  if(mgrCat && !navCat(mgrCat)) mgrCat = (navFind(mgrTab, mgrTab === "fin" ? finSub : null) || {cat:{}}).cat.key || null;
   ({home:mgrHome, roster:mgrRoster, ce:mgrCE, content:mgrContent, tracks:mgrTracks,
     activity:mgrActivity, add:mgrAdd, calls:mgrCall, feedback:mgrFeedback,
     partners:mgrPartners, tips:mgrTips, fin:mgrFin, ret:mgrRet})[mgrTab]();
