@@ -930,8 +930,27 @@ const isStaff = r => r === "manager" || r === "owner";
 // training_login now returns retention_access precisely so this decision can be made
 // at boot, before the manager pane loads. It grants ONE tab, not the pane.
 const retWorkerOnly = () => !!(ME && !isStaff(ME.role) && ME.retention_access);
+// Added 24 September 2026, the same shape as the retention grant above. 'manage' sees
+// every office's partners, 'worker' only their own -- the server decides which. This
+// only decides whether the area is offered at all.
+const mktWorkerOnly = () => !!(ME && !isStaff(ME.role) && ME.marketing_access);
+// The areas a non-staff agent holds. Training is always one of them.
+const agentAreas = () => [
+  {mode:"training", label:"My training",
+   sub:"Your modules, quizzes and certifications."},
+  ...(retWorkerOnly() ? [{mode:"retention", label:"Retention",
+   sub:"Policies the carrier has put on notice. Work the list from the top."}] : []),
+  ...(mktWorkerOnly() ? [{mode:"marketing", label:"Marketing Programs",
+   sub:"Referral partners \u2014 who to see, who has been seen, and what came of it."}] : [])
+];
+// A toggle is a switch between two things and cannot express three. An agent holding two
+// grants therefore gets a home screen of chips, and the toggle becomes the way back to it.
+// Anyone with a single grant keeps the toggle they already know.
+const agentMulti = () => !!(ME && !isStaff(ME.role) && agentAreas().length > 2);
 // Where the toggle sends somebody who is currently looking at their own training.
-const homeMode = () => isStaff(ME.role) ? "manager" : retWorkerOnly() ? "retention" : "training";
+const homeMode = () => isStaff(ME.role) ? "manager"
+                     : agentMulti() ? "home"
+                     : retWorkerOnly() ? "retention" : "training";
 
 async function boot(){
   $("#view-login").classList.add("hidden");
@@ -939,13 +958,14 @@ async function boot(){
   $("#whoName").textContent = ME.full_name;
   const staff = isStaff(ME.role);
   const retWorker = retWorkerOnly();
-  // A retention worker gets the toggle too, or their training becomes unreachable.
-  $("#modeToggle").classList.toggle("hidden", !(staff || retWorker));
+  // A granted agent gets the toggle too, or their training becomes unreachable.
+  $("#modeToggle").classList.toggle("hidden", !(staff || retWorker || mktWorkerOnly()));
   // Managers only for now. The map and the "waiting on you" band already branch by role,
   // so opening this to agents is a one-line change once Braden decides.
   if(staff) loadOverview(); else $("#ovwBtn").classList.add("hidden");
   // Everybody lands on the job they signed in to do; the other half is one click away.
-  await setMode(staff ? "manager" : retWorker ? "retention" : "training");
+  await setMode(staff ? "manager" : agentMulti() ? "home"
+                : retWorker ? "retention" : "training");
 }
 
 // The single place that decides which half of the portal is on screen. Switching into
@@ -954,6 +974,10 @@ async function boot(){
 async function setMode(mode){
   MODE = mode;
   PREVIEW = null;
+  // The chips on the agent home screen ARE the navigation, so the toggle has nowhere to
+  // send anyone there. Every other mode restores it for whoever is entitled to one.
+  $("#modeToggle").classList.toggle("hidden",
+    mode === "home" || !(isStaff(ME.role) || retWorkerOnly() || mktWorkerOnly()));
   if(mode === "manager"){
     $("#paneTrainee").classList.add("hidden");
     $("#paneManager").classList.remove("hidden");
@@ -965,14 +989,29 @@ async function setMode(mode){
     // throw, and a retention worker has no business seeing the roster anyway.
     $("#paneTrainee").classList.add("hidden");
     $("#paneManager").classList.remove("hidden");
-    $("#modeToggle").textContent = "My training";
+    $("#modeToggle").textContent = agentMulti() ? "All areas" : "My training";
     mgrTab = "ret";
     await loadRet();
     renderRetWorker();
+  }else if(mode === "marketing"){
+    // Same reasoning as the retention branch above: the partners screen is built inside
+    // the manager pane, but loadManager() is manager-gated and has no business running
+    // here. training_partner_gate checks the grant again on every write.
+    $("#paneTrainee").classList.add("hidden");
+    $("#paneManager").classList.remove("hidden");
+    $("#modeToggle").textContent = agentMulti() ? "All areas" : "My training";
+    mgrTab = "partners";
+    await loadPartners();
+    renderMktWorker();
+  }else if(mode === "home"){
+    $("#paneTrainee").classList.add("hidden");
+    $("#paneManager").classList.remove("hidden");
+    renderAgentHome();
   }else{
     $("#paneManager").classList.add("hidden");
     $("#paneTrainee").classList.remove("hidden");
     $("#modeToggle").textContent = isStaff(ME.role) ? "Manager dashboard"
+      : agentMulti() ? "All areas"
       : retWorkerOnly() ? "Retention worklist" : "";
     STATE = null; openTracks = null; openMods.clear();
     await loadTrainee();
@@ -983,7 +1022,8 @@ async function setMode(mode){
 $("#modeToggle").addEventListener("click", async ()=>{
   const btn = $("#modeToggle");
   btn.disabled = true;
-  try{ await setMode(MODE === "training" ? homeMode() : "training"); }
+  try{ await setMode(MODE === "training" ? homeMode()
+                   : agentMulti() ? "home" : "training"); }
   finally{ btn.disabled = false; }
 });
 
@@ -7103,6 +7143,62 @@ async function retLoadItem(id){
    preview buttons — everything a manager sees in this pane is either irrelevant to the
    job or something a worker should not be looking at. Drawn instead of renderManager(),
    not on top of it, so nothing manager-only is ever built and then hidden in CSS. */
+/* The agent home screen. Reuses the manager pane's tile markup, because a chip that
+   opens an area is the same object whichever half of the portal draws it. Deliberately
+   carries no counts: populating them would mean loading all three areas to render one
+   screen, and the chips are a way in, not a dashboard. */
+function renderAgentHome(){
+  const areas = agentAreas();
+  $("#paneManager").innerHTML = `
+    <div class="hero">
+      <div class="hero-row">
+        <div>
+          <h1>Welcome, ${esc(firstName(ME))}</h1>
+          <p>Pick an area to work in.</p>
+          <p style="margin-top:10px;font-size:13px;color:#b2b5d4">
+            ${ME.location?esc(ME.location)+" \u00b7 ":""}Start date ${sdate(ME.start_date)}
+          </p>
+        </div>
+      </div>
+    </div>
+    <div class="htiles">
+      ${areas.map(a=>`<button class="htile s-ok" data-area="${esc(a.mode)}">
+        <div class="hstripe"></div>
+        <div class="hb">
+          <h3>${esc(a.label)}</h3>
+          <p class="hsub">${esc(a.sub)}</p>
+          <p class="hgo">Open ${esc(a.label)} &rarr;</p>
+        </div>
+      </button>`).join("")}
+    </div>`;
+  $("#paneManager").querySelectorAll("[data-area]").forEach(b =>
+    b.addEventListener("click", ()=> setMode(b.dataset.area)));
+}
+
+function renderMktWorker(){
+  const all  = (PARTNERS && PARTNERS.partners) || [];
+  const seen = all.filter(p=>p.touch_count>0).length;
+  $("#paneManager").innerHTML = `
+    <div class="hero">
+      <div class="hero-row">
+        <div>
+          <h1>Marketing Programs</h1>
+          <p>Referral partners \u2014 who to see, who has been seen, and what came of it.</p>
+          <p style="margin-top:10px;font-size:13px;color:#b2b5d4">
+            ${all.length} partners${ME.marketing_access === "manage"
+              ? " across every office" : " at your office"} \u00b7
+            <b style="color:#f3e2bd">${all.length - seen} never visited</b>
+          </p>
+        </div>
+      </div>
+    </div>
+    <div class="tabs">
+      <button class="tab on" data-tab="partners">Referral partners</button>
+    </div>
+    <div id="mgrBody"></div>`;
+  mgrPartners();
+}
+
 function renderRetWorker(){
   const live = (RET && RET.open || []).filter(r =>
     r.deadline_date && new Date(r.deadline_date) >= new Date(new Date().toDateString()));
@@ -8264,8 +8360,10 @@ function mgrPartners(){
       <h3 style="font-size:16px;margin-bottom:4px">Referral partners</h3>
       <p style="color:var(--ink-2);font-size:14px;margin:0">
         ${PARTNERS && PARTNERS.visible===false
-          ? `<b style="color:var(--warn)">Not switched on yet.</b> You and Belinda can see this to review it;
-             <b>agents see nothing at all</b> until <code>partner_program_visible</code> is set to true.`
+          ? `<b style="color:var(--warn)">Not switched on yet.</b> ${isStaff(ME.role)
+               ? "You and Belinda can see this to review it"
+               : "You have been granted early access to test it"};
+             <b>other agents see nothing at all</b> until <code>partner_program_visible</code> is set to true.`
           : `Live. Agents see the partners for their own office.`}
       </p>
       <div class="grid-stats" style="margin-top:14px">
