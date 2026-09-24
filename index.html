@@ -710,6 +710,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     selCE=null,
     openMods=new Set(), openTracks=null, mgrTab="home", selTrainee=null,
     PARTNERS=null, pnFilter="all", pnOffice="", pnCat="", pnSel=null, pnSweep=false, pnHelp=null,
+    pnAdd=false,
     openCat=new Set(), draft=null,
     CM=null, cmSub="patterns", cmScope="current", cmDays=90, cmReturn=null, cmOppLabel="",
     cmLens="all",
@@ -8391,6 +8392,8 @@ function mgrPartners(){
       </select>
       <button class="btn ${pnSweep?"gold":"line"} sm" id="pnSweepBtn"
         title="Sweep mode: one tap per lot, quick verdict, move on">${pnSweep?"✓ Sweep mode on":"Sweep mode"}</button>
+      <button class="btn ${pnAdd?"gold":"line"} sm" id="pnAddBtn"
+        title="Something you found that is not on the list">${pnAdd?"\u2715 Cancel":"+ Add a partner"}</button>
 
       ${cats.length > 1 ? `
       <div style="flex-basis:100%;height:1px;background:var(--line);margin:3px 0"></div>
@@ -8410,6 +8413,46 @@ function mgrPartners(){
         comes back on the follow-up list.</div>
     </div>` : ""}
 
+    ${pnAdd ? `<div class="card pad" style="margin-bottom:12px">
+      <b style="font-size:14px">Add a partner</b>
+      <div style="font-size:13.5px;color:var(--ink-2);margin:5px 0 12px">
+        Something you found that is not on the list \u2014 a lot, a park, a shop. It goes on as
+        <b>not yet seen</b>, at ${(PARTNERS&&PARTNERS.is_manager)?"the office you choose":"your office"},
+        with your name against it.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px">
+        <label style="font-size:13px;color:var(--ink-2)">Name
+          <input id="paName" maxlength="120" placeholder="Business name" style="width:100%"></label>
+        <label style="font-size:13px;color:var(--ink-2)">Type
+          <select id="paCat" style="width:100%">${Object.entries(PN_CAT).map(([k,v])=>
+            `<option value="${esc(k)}"${k==="car_lot"?" selected":""}>${esc(v)}</option>`).join("")}</select></label>
+        ${(PARTNERS&&PARTNERS.is_manager)
+          ? `<label style="font-size:13px;color:var(--ink-2)">Office
+              <select id="paOff" style="width:100%">${((PARTNERS||{}).offices||[]).map(o=>
+                `<option value="${esc(o.id)}"${o.name===(ME.location||"")?" selected":""}
+                  >${esc(o.name)}</option>`).join("")}</select></label>`
+          : `<label style="font-size:13px;color:var(--ink-2)">Office
+              <input value="${esc(ME.location||"")}" disabled style="width:100%"></label>`}
+        <label style="font-size:13px;color:var(--ink-2)">Phone
+          <input id="paPhone" maxlength="40" style="width:100%"></label>
+        <label style="font-size:13px;color:var(--ink-2)">Address
+          <input id="paAddr" maxlength="160" style="width:100%"></label>
+        <label style="font-size:13px;color:var(--ink-2)">City
+          <input id="paCity" maxlength="80" style="width:100%"></label>
+        <label style="font-size:13px;color:var(--ink-2)">Contact name
+          <input id="paCName" maxlength="120" style="width:100%"></label>
+        <label style="font-size:13px;color:var(--ink-2)">Their role
+          <input id="paCRole" maxlength="80" placeholder="Owner, manager\u2026" style="width:100%"></label>
+      </div>
+      <label style="display:block;margin-top:10px;font-size:13px;color:var(--ink-2)">Notes
+        <textarea id="paNotes" rows="2" style="width:100%"
+          placeholder="Anything worth knowing before the first visit"></textarea></label>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+        <button class="btn" id="paSave">Add partner</button>
+        <button class="btn line" id="paCancel">Cancel</button>
+        <span id="paMsg" style="font-size:13px;color:var(--warn)"></span>
+      </div>
+    </div>` : ""}
+
     <div class="card">${ps.length ? ps.map(p=>pnRow(p)).join("")
       : `<div class="empty">Nothing here under this filter.</div>`}</div>
     <div id="pnDetail"></div>`;
@@ -8425,6 +8468,37 @@ function mgrPartners(){
   const off = $("#pnOff");
   if(off) off.addEventListener("change", e=>{ pnOffice=e.target.value; pnSel=null; mgrPartners(); });
   $("#pnSweepBtn").addEventListener("click", ()=>{ pnSweep=!pnSweep; pnSel=null; mgrPartners(); });
+  $("#pnAddBtn").addEventListener("click", ()=>{ pnAdd=!pnAdd; pnSel=null; mgrPartners(); });
+  const paCancel = $("#paCancel");
+  if(paCancel) paCancel.addEventListener("click", ()=>{ pnAdd=false; mgrPartners(); });
+  const paSave = $("#paSave");
+  if(paSave) paSave.addEventListener("click", async ()=>{
+    const msg = $("#paMsg"), nm = $("#paName").value.trim();
+    if(!nm){ msg.textContent = "A name is needed."; return; }
+    paSave.disabled = true; msg.textContent = "";
+    const off = $("#paOff");
+    try{
+      await rpc("training_partner_add",{p_code:CODE, p_partner:{
+        name:nm, category:$("#paCat").value,
+        home_location_id: off ? off.value : "",
+        phone:$("#paPhone").value, address:$("#paAddr").value, city:$("#paCity").value,
+        contact_name:$("#paCName").value, contact_role:$("#paCRole").value,
+        notes:$("#paNotes").value}});
+      pnAdd = false;
+      await loadPartners(); mgrPartners(); toast("Partner added");
+    }catch(ex){
+      paSave.disabled = false;
+      // The server speaks in codes so it can be called from anywhere; the wording that
+      // makes sense to the person who just typed the name belongs here.
+      msg.textContent = /DUPLICATE_PARTNER/.test(ex.message)
+        ? "That name is already on this office's list."
+        : /NO_OFFICE/.test(ex.message)
+        ? "There is no office on your record \u2014 ask Belinda to set one."
+        : /PARTNER_PROGRAM_OFF|NO_ACCESS/.test(ex.message)
+        ? "Adding partners is not switched on for your access code."
+        : ex.message;
+    }
+  });
   pnWire(body);
   if(pnSel) pnDetail();
 }
