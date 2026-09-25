@@ -7468,6 +7468,43 @@ function retList(){
    record that was clicked. It used to sit after the whole table, which on a queue of any real
    length meant clicking a customer and then scrolling past everyone else to find them. */
 
+/* ---------- The one closing dropdown ----------
+   Built from the disposition table, not from a list typed into this file. That is the
+   whole point: paid_carrier_direct was added to the database on 24 September and never
+   appeared in the old hard-coded save row, so the only correct answer for "the customer
+   paid the carrier direct" was unreachable from the button people actually pressed.
+   Ten reasons read as three decisions once they are grouped.
+
+   A record flagged licensed_required offers no save at all. Whether that policy was
+   rescued is not a call this person is licensed to make, and the hand-off row is the
+   honest route. */
+function retCloseGroups(it){
+  const ds = RET.dispositions || [];
+  return [
+    {label:"We saved it",
+     items: (it && it.licensed_required) ? [] : ds.filter(d => d.is_save)},
+    {label:"We called, and we lost it",
+     items: ds.filter(d => !d.is_save && d.no_call !== true)}
+  ];
+}
+
+/* Says what the selected reason will record, before the button is pressed rather than
+   after it refuses. Every line is derived from the disposition's own flags, so a new
+   disposition explains itself without an edit here. */
+function retCloseHint(code){
+  const d = (RET.dispositions||[]).find(x => x.code === code);
+  if(!d) return "";
+  if(d.takes_amount)
+    return "Counts as a save. Needs the amount you took at our counter.";
+  if(d.is_save)
+    return "Counts as a save. No money came through the agency, so there is no amount to enter.";
+  if(code === "declined_other")
+    return "Needs a note — write what they told you in the box above.";
+  return d.in_denominator
+    ? "Counts as a record we worked and lost."
+    : "Closes the record without counting against the save rate.";
+}
+
 function retDetail(){
   const it = retItem, host = $("#retDetail");
   if(!it || !host){ if(host) host.innerHTML=""; return; }
@@ -7559,46 +7596,25 @@ function retDetail(){
         <span class="rsh">Finish this record</span>
         <div class="tsub" style="margin-bottom:10px">A record only leaves the queue with a reason on it.</div>
 
-        <!-- The reason comes FIRST and the amount second. The other way round, the box
-             labelled "Amount collected" was the first thing on the row, so a policy the
-             customer had paid the carrier direct got an amount typed into it and the
-             agency looked like it had handled money it never touched. Brandi, 24 Sep 2026.
-             Whether the amount applies is read from the disposition's takes_amount, not
-             from a hard-coded list, so another moneyless save needs no change here. -->
-        ${!it.licensed_required ? `
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-          <select id="retRein" style="width:auto;padding:6px 9px;font-size:13px">
-            <option value="paid_reinstated">Policy reinstated</option>
-            <option value="paid_in_grace">Paid before cancellation</option>
-            <option value="paid_carrier_direct">Paid the carrier direct \u2014 nothing through us</option>
-          </select>
-          <input id="retAmt" type="number" step="0.01" min="0" placeholder="Amount collected"
-                 style="width:150px;padding:6px 9px;font-size:13px">
-          <button class="btn sm" id="retPay">Record the save</button>
-        </div>` : ""}
+        <!-- Rebuilt 25 September 2026, after Brandi reported the blue button "still will not
+             close the record". What was here: FOUR ways to close one record on one panel - a
+             blue "Record the save" row, a one-click triage row, a "Called, and we lost it"
+             dropdown, and a hand-off row - each with its own validation rule. Worse, the save
+             row's dropdown was HARD-CODED in this file with three options and opened already
+             set to "Policy reinstated", the one choice that demands money. A customer who had
+             paid the carrier direct therefore met "A payment needs an amount" from the button
+             that looked right. She used the correct option zero times in the week it existed.
 
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;
-             border-top:1px solid var(--line);padding-top:10px">
-          <select id="retEscWhy" style="width:auto;padding:6px 9px;font-size:13px">
-            ${RET_ESC_REASON.map(([c,l])=>`<option value="${c}">${esc(l)}</option>`).join("")}
-          </select>
-          <select id="retEscWho" style="width:auto;padding:6px 9px;font-size:13px">
-            <option value="">Which producer…</option>
-            ${(RET.producers||[]).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}${
-              p.location?` · ${esc(p.location)}`:""}</option>`).join("")}
-          </select>
-          <button class="btn line sm" id="retEsc">Hand off</button>
-        </div>
+             Now: the triage shortcuts stay, because most records need no call at all (Braden,
+             9 September). Everything needing a judgement goes through ONE dropdown and ONE
+             button, and that dropdown is built from RET.dispositions rather than typed here -
+             which is the actual defect, since it is why paid_carrier_direct was missing from
+             the save row in the first place. Nothing is pre-selected, so no reason can be
+             submitted by accident. -->
 
-        <!-- Finalising is the COMMON path, not a footnote. Braden, 9 September 2026, on
-             the real workflow: she looks the policy up in Agency Matrix first, and most
-             records turn out to need no call at all. Those reasons are one click each,
-             named on the button, with the reason recorded - a record never leaves the
-             queue without one. The call outcomes stay behind a picker because they are
-             the rarer half and one of them demands a note. -->
-        <div style="margin-bottom:10px;border-top:1px solid var(--line);padding-top:10px">
+        <div style="margin-bottom:12px">
           <div class="tsub" style="font-weight:600;margin-bottom:6px">
-            No call needed — Matrix already answered it</div>
+            No call needed &mdash; Matrix already answered it</div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             ${(RET.dispositions||[]).filter(d=>!d.is_save && d.no_call===true).map(d=>`
               <button class="btn line sm" data-shut="${esc(d.code)}"
@@ -7606,13 +7622,43 @@ function retDetail(){
           </div>
         </div>
 
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <select id="retShutWhy" style="width:auto;padding:6px 9px;font-size:13px">
-            <option value="">Called, and we lost it…</option>
-            ${(RET.dispositions||[]).filter(d=>!d.is_save && d.no_call!==true).map(d=>`
-              <option value="${esc(d.code)}">${esc(d.label)}</option>`).join("")}
-          </select>
-          <button class="btn line sm" id="retShut">Close</button>
+        <div style="border-top:1px solid var(--line);padding-top:12px">
+          <div class="tsub" style="font-weight:600;margin-bottom:6px">Anything else</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <select id="retWhat" style="flex:0 1 380px;min-width:260px;padding:6px 9px;font-size:13px">
+              <option value="">Choose what happened&hellip;</option>
+              ${retCloseGroups(it).map(g => g.items.length ? `
+                <optgroup label="${esc(g.label)}">${g.items.map(d=>`
+                  <option value="${esc(d.code)}">${esc(d.label)}</option>`).join("")}
+                </optgroup>` : "").join("")}
+            </select>
+            <span id="retAmtWrap" style="display:none;align-items:center;gap:6px">
+              <input id="retAmt" type="number" step="0.01" min="0" placeholder="Amount collected"
+                     style="width:150px;padding:6px 9px;font-size:13px">
+            </span>
+            <button class="btn sm" id="retFinish">Close the record</button>
+          </div>
+          <!-- Says what the chosen reason will record BEFORE the button is pressed. The old
+               panel only ever explained itself by refusing. -->
+          <div id="retWhatHint" class="tsub" style="margin-top:7px;min-height:17px"></div>
+        </div>
+
+        <!-- Deliberately below the closing block and deliberately labelled as not a close:
+             a handed-off record is not finished, it has moved. -->
+        <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+          <div class="tsub" style="font-weight:600;margin-bottom:6px">
+            Not finished &mdash; send it to a licensed producer</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <select id="retEscWhy" style="width:auto;padding:6px 9px;font-size:13px">
+              ${RET_ESC_REASON.map(([c,l])=>`<option value="${c}">${esc(l)}</option>`).join("")}
+            </select>
+            <select id="retEscWho" style="width:auto;padding:6px 9px;font-size:13px">
+              <option value="">Which producer&hellip;</option>
+              ${(RET.producers||[]).map(p=>`<option value="${esc(p.id)}">${esc(p.name)}${
+                p.location?` &middot; ${esc(p.location)}`:""}</option>`).join("")}
+            </select>
+            <button class="btn line sm" id="retEsc">Hand off</button>
+          </div>
         </div>
       </div>` : `<div class="tsub" style="margin-top:12px">Closed${
         it.disposition?` — ${esc((RET.dispositions||[]).find(d=>d.code===it.disposition)?.label||it.disposition)}`:""}${
@@ -7635,32 +7681,48 @@ function retDetail(){
     retDo("ret_touch_log",{p_item:it.id, p_channel:btn.dataset.ch || "phone",
                            p_outcome:btn.dataset.out, p_notes:note()}, true)));
 
-  // ret_close refuses an amount on a disposition that does not take one, so this is a
-  // courtesy rather than the guard: the server is the guard.
-  const retTakesAmount = code => {
+  // One dropdown, one button, one rule. Whether an amount applies is read from the
+  // disposition's takes_amount and never from a list typed into this file; ret_close
+  // enforces the same rule server-side, so this is the courtesy that saves a round trip
+  // rather than the guard itself.
+  const retTakes = code => {
     const d = (RET.dispositions||[]).find(x=>x.code===code);
-    return d ? d.takes_amount !== false : true;
+    return !!(d && d.takes_amount);
   };
-  const retAmtSync = () => {
-    const sel = q("#retRein"), amtEl = q("#retAmt");
-    if(!sel || !amtEl) return;
-    const needs = retTakesAmount(sel.value);
-    amtEl.disabled = !needs;
-    amtEl.placeholder = needs ? "Amount collected" : "Nothing collected by us";
-    amtEl.style.opacity = needs ? "" : ".5";
-    if(!needs) amtEl.value = "";
+  const retWhatSync = () => {
+    const sel=q("#retWhat"), wrap=q("#retAmtWrap"), amtEl=q("#retAmt"), hint=q("#retWhatHint");
+    if(!sel) return;
+    const needs = retTakes(sel.value);
+    // Shown or hidden, not enabled or disabled: a greyed-out box still reads as a field
+    // somebody forgot to fill in, which is the whole misunderstanding being fixed.
+    if(wrap) wrap.style.display = needs ? "inline-flex" : "none";
+    if(!needs && amtEl) amtEl.value = "";
+    if(hint) hint.textContent = retCloseHint(sel.value);
   };
-  const reinSel = q("#retRein");
-  if(reinSel){ reinSel.addEventListener("change", retAmtSync); retAmtSync(); }
+  const whatSel = q("#retWhat");
+  if(whatSel){ whatSel.addEventListener("change", retWhatSync); retWhatSync(); }
 
-  on("#retPay", ()=>{
-    const kind = q("#retRein").value;
-    const needs = retTakesAmount(kind);
-    const amt = Number((q("#retAmt")||{}).value);
-    if(needs && (!amt || amt<=0)){ retMsg="A payment needs an amount."; mgrRet(); return; }
-    retCloseAdvance({p_item:it.id, p_disposition:kind,
+  on("#retFinish", ()=>{
+    const code = (q("#retWhat")||{}).value;
+    if(!code){
+      retMsg="Choose what happened. A record does not leave the queue without a reason.";
+      mgrRet(); return; }
+    const needs = retTakes(code);
+    const amt   = Number((q("#retAmt")||{}).value);
+    if(needs && (!amt || amt<=0)){
+      // Names the way out. The old message said only "A payment needs an amount", which is
+      // true and useless when the answer is that no payment came through the agency.
+      retMsg="That reason records money taken at our counter, so it needs an amount. "+
+             "If the customer paid the carrier direct and nothing came through us, "+
+             "choose Saved - customer paid the carrier direct instead.";
+      mgrRet(); return; }
+    const n = note();
+    if(code==="declined_other" && !n){
+      retMsg="That reason needs a note - write what they told you in the box above.";
+      mgrRet(); return; }
+    retCloseAdvance({p_item:it.id, p_disposition:code,
                      p_amount: needs ? amt : null,
-                     p_reinstated: kind==="paid_reinstated", p_note:note()});
+                     p_reinstated: code==="paid_reinstated", p_note:n});
   });
 
   on("#retEsc", ()=>{
@@ -7673,15 +7735,6 @@ function retDetail(){
   // One click, reason recorded, straight to the next record.
   host.querySelectorAll("[data-shut]").forEach(btn=>btn.addEventListener("click", ()=>
     retCloseAdvance({p_item:it.id, p_disposition:btn.dataset.shut, p_note:note()})));
-
-  on("#retShut", ()=>{
-    const code = q("#retShutWhy").value;
-    if(!code){ retMsg="Choose a reason. A record does not leave the queue without one."; mgrRet(); return; }
-    const n = note();
-    if(code==="declined_other" && !n){
-      retMsg="That reason needs a note — write what they told you in the box above."; mgrRet(); return; }
-    retCloseAdvance({p_item:it.id, p_disposition:code, p_note:n});
-  });
 
   retXdateWire(host, it);
 }
