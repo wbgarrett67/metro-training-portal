@@ -7530,15 +7530,22 @@ function retDetail(){
         <b>Finish this record</b>
         <div class="tsub" style="margin-bottom:8px">A record only leaves the queue with a reason on it.</div>
 
+        <!-- The reason comes FIRST and the amount second. The other way round, the box
+             labelled "Amount collected" was the first thing on the row, so a policy the
+             customer had paid the carrier direct got an amount typed into it and the
+             agency looked like it had handled money it never touched. Brandi, 24 Sep 2026.
+             Whether the amount applies is read from the disposition's takes_amount, not
+             from a hard-coded list, so another moneyless save needs no change here. -->
         ${!it.licensed_required ? `
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-          <input id="retAmt" type="number" step="0.01" min="0" placeholder="Amount collected"
-                 style="width:150px;padding:6px 9px;font-size:13px">
           <select id="retRein" style="width:auto;padding:6px 9px;font-size:13px">
             <option value="paid_reinstated">Policy reinstated</option>
             <option value="paid_in_grace">Paid before cancellation</option>
+            <option value="paid_carrier_direct">Paid the carrier direct \u2014 nothing through us</option>
           </select>
-          <button class="btn sm" id="retPay">Record the payment</button>
+          <input id="retAmt" type="number" step="0.01" min="0" placeholder="Amount collected"
+                 style="width:150px;padding:6px 9px;font-size:13px">
+          <button class="btn sm" id="retPay">Record the save</button>
         </div>` : ""}
 
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
@@ -7598,12 +7605,32 @@ function retDetail(){
     retDo("ret_touch_log",{p_item:it.id, p_channel:"phone",
                            p_outcome:btn.dataset.out, p_notes:note()}, true)));
 
+  // ret_close refuses an amount on a disposition that does not take one, so this is a
+  // courtesy rather than the guard: the server is the guard.
+  const retTakesAmount = code => {
+    const d = (RET.dispositions||[]).find(x=>x.code===code);
+    return d ? d.takes_amount !== false : true;
+  };
+  const retAmtSync = () => {
+    const sel = q("#retRein"), amtEl = q("#retAmt");
+    if(!sel || !amtEl) return;
+    const needs = retTakesAmount(sel.value);
+    amtEl.disabled = !needs;
+    amtEl.placeholder = needs ? "Amount collected" : "Nothing collected by us";
+    amtEl.style.opacity = needs ? "" : ".5";
+    if(!needs) amtEl.value = "";
+  };
+  const reinSel = q("#retRein");
+  if(reinSel){ reinSel.addEventListener("change", retAmtSync); retAmtSync(); }
+
   on("#retPay", ()=>{
-    const amt = Number((q("#retAmt")||{}).value);
-    if(!amt || amt<=0){ retMsg="A payment needs an amount."; mgrRet(); return; }
     const kind = q("#retRein").value;
-    retCloseAdvance({p_item:it.id, p_disposition:kind, p_amount:amt,
-                     p_reinstated:kind==="paid_reinstated", p_note:note()});
+    const needs = retTakesAmount(kind);
+    const amt = Number((q("#retAmt")||{}).value);
+    if(needs && (!amt || amt<=0)){ retMsg="A payment needs an amount."; mgrRet(); return; }
+    retCloseAdvance({p_item:it.id, p_disposition:kind,
+                     p_amount: needs ? amt : null,
+                     p_reinstated: kind==="paid_reinstated", p_note:note()});
   });
 
   on("#retEsc", ()=>{
