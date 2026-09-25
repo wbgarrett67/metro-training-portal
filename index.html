@@ -601,6 +601,23 @@ tbody tr.clk:hover{background:#f8f9fc}
 /* On a phone the card scrolls sideways rather than shredding the name column. */
 @media(max-width:640px){ .fin-t td:first-child,.fin-t th:first-child{min-width:132px} }
 
+
+/* ---------- retention record panel ---------- */
+/* The panel had grown into one long column of bold headings and grey text, and Braden
+   called it overwhelming (25 September 2026). Same content, three surfaces, so the eye
+   can find the part it wants: what we already know, what you do on the call, and how the
+   record ends. The alert cards keep their coloured left borders -- they are meant to
+   interrupt, and would be lost if everything were tinted. */
+.rsec{border-radius:10px;padding:12px 14px;margin:10px 0;border:1px solid var(--line)}
+.rsec .rsh{display:block;font-size:11.5px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+/* Read-only context: recedes. */
+.rsec-fact{background:#fafbfd}
+/* Live work, done while the customer is on the line. */
+.rsec-do{background:var(--info-bg);border-color:#d6d8ee}
+/* The decision. White and lifted, so it reads as the end of the column rather than
+   another band of the same weight. */
+.rsec-end{background:var(--card);border-color:var(--line-2);box-shadow:var(--shadow)}
 </style>
 </head>
 <body>
@@ -6996,6 +7013,14 @@ const RET_OUTCOME = [
 
 /* Bound to ret_escalate, which rejects anything outside this list. 'other_product' is the
    cross-sell handoff: the customer wants something we do not have on this record. */
+/* A text is a contact attempt on a different channel, not a phone outcome, so it is not
+   in RET_OUTCOME -- that list is what the phone-outcome row is built from. ret_touch_log
+   already accepts the 'text' channel, so nothing changed server-side. */
+const RET_CHANNEL = {phone:"Call", text:"Text", email:"Email", walk_in:"Walk-in", system:"System"};
+
+const retOutcomeLabel = code =>
+  (RET_OUTCOME.find(o => o[0] === code) || [])[1] || (code === "texted" ? "Texted" : code) || "";
+
 const RET_ESC_REASON = [
   ["rewrite_required",  "Needs a rewrite — licensed producer only"],
   ["coverage_question", "Coverage question I cannot answer"],
@@ -7475,8 +7500,8 @@ function retDetail(){
         worked it and your call is why they paid, close it as a save; it was left open for you.</div>
       </div>` : ""}
 
-      ${it.carrier_reason ? `<div style="margin:8px 0">
-        <b>${esc(RET_PATH[it.action_path] || "What the carrier said")}</b>
+      ${it.carrier_reason ? `<div class="rsec rsec-fact">
+        <span class="rsh">${esc(RET_PATH[it.action_path] || "What the carrier said")}</span>
         <div class="tsub">Carrier's own words: <span class="code">${esc(it.carrier_reason)}</span></div>
       </div>` : ""}
 
@@ -7486,16 +7511,18 @@ function retDetail(){
         only be rewritten, which requires a licensed producer. An unlicensed specialist may research it
         and hand it off, and nothing else.</div></div>` : ""}
 
-      <div class="grid-stats" style="margin:10px 0">
+      <div class="rsec rsec-fact">
+        <span class="rsh">Dates and the amount to cure</span>
+      <div class="grid-stats" style="margin:0">
         <div class="stat"><div class="k">Notice</div><div class="v" style="font-size:15px">${sdate(it.notice_date)}</div></div>
         <div class="stat"><div class="k">Cancels</div><div class="v" style="font-size:15px">${sdate(it.cancel_date)}</div></div>
         <div class="stat"><div class="k">Deadline</div><div class="v" style="font-size:15px">${sdate(it.deadline_date)}${
           it.days_left!==null&&it.days_left!==undefined?`<small> · ${it.days_left}d</small>`:""}</div></div>
         <div class="stat"><div class="k">To cure</div><div class="v" style="font-size:15px">${retMoney(it.amount_to_cure)}</div></div>
-      </div>
+      </div></div>
 
-      <div style="margin:10px 0">
-        <b>Call</b>
+      <div class="rsec rsec-fact">
+        <span class="rsh">Who to call</span>
         <div class="tsub">${ph
           ? `${esc(ph)}${phc?` · ${esc(phc)} confidence, recovered from our own call recordings`:""}`
           : "No number on the carrier notice, and none recovered from call recordings. Look this customer up in Agency Matrix."}</div>
@@ -7503,21 +7530,23 @@ function retDetail(){
       </div>
 
       ${!closed ? `
-      <div style="margin:12px 0">
-        <b>How did it go?</b>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+      <div class="rsec rsec-do">
+        <span class="rsh">Log an attempt</span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
           ${RET_OUTCOME.map(([code,label])=>`
-            <button class="btn line sm" data-out="${code}">${esc(label)}</button>`).join("")}
+            <button class="btn line sm" data-out="${code}" data-ch="phone">${esc(label)}</button>`).join("")}
+          <button class="btn line sm" data-out="texted" data-ch="text"
+                  title="Logs a contact attempt on the text channel">Texted</button>
         </div>
         <input id="retNote" placeholder="Anything worth remembering (optional)"
                style="width:100%;margin-top:8px;padding:6px 9px;font-size:13px">
       </div>` : ""}
 
-      <div style="margin:12px 0">
-        <b>Attempts</b>
-        ${touches.length ? `<div style="margin-top:6px">${touches.map(t=>`
-          <div class="ovw-feed"><div style="font-size:13.5px">${esc(t.channel||"")} · ${
-            esc((RET_OUTCOME.find(o=>o[0]===t.outcome)||[,t.outcome])[1]||t.outcome||"")}${
+      <div class="rsec rsec-fact">
+        <span class="rsh">Attempts so far</span>
+        ${touches.length ? `<div>${touches.map(t=>`
+          <div class="ovw-feed"><div style="font-size:13.5px">${esc(RET_CHANNEL[t.channel]||t.channel||"")} · ${
+            esc(retOutcomeLabel(t.outcome))}${
             t.notes?` — ${esc(t.notes)}`:""}</div>
           <div class="tsub">${when(t.at)}</div></div>`).join("")}</div>`
           : `<div class="tsub">Nothing logged yet.</div>`}
@@ -7526,9 +7555,9 @@ function retDetail(){
       ${retXdatePanel(it, closed)}
 
       ${!closed ? `
-      <div style="border-top:1px solid var(--line,#e5e5e5);margin-top:14px;padding-top:12px">
-        <b>Finish this record</b>
-        <div class="tsub" style="margin-bottom:8px">A record only leaves the queue with a reason on it.</div>
+      <div class="rsec rsec-end" style="margin-top:14px">
+        <span class="rsh">Finish this record</span>
+        <div class="tsub" style="margin-bottom:10px">A record only leaves the queue with a reason on it.</div>
 
         <!-- The reason comes FIRST and the amount second. The other way round, the box
              labelled "Amount collected" was the first thing on the row, so a policy the
@@ -7548,7 +7577,8 @@ function retDetail(){
           <button class="btn sm" id="retPay">Record the save</button>
         </div>` : ""}
 
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;
+             border-top:1px solid var(--line);padding-top:10px">
           <select id="retEscWhy" style="width:auto;padding:6px 9px;font-size:13px">
             ${RET_ESC_REASON.map(([c,l])=>`<option value="${c}">${esc(l)}</option>`).join("")}
           </select>
@@ -7566,7 +7596,7 @@ function retDetail(){
              named on the button, with the reason recorded - a record never leaves the
              queue without one. The call outcomes stay behind a picker because they are
              the rarer half and one of them demands a note. -->
-        <div style="margin-bottom:10px">
+        <div style="margin-bottom:10px;border-top:1px solid var(--line);padding-top:10px">
           <div class="tsub" style="font-weight:600;margin-bottom:6px">
             No call needed — Matrix already answered it</div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -7602,7 +7632,7 @@ function retDetail(){
   on("#retCloseP", ()=>{ retSel=null; retItem=null; retRes=null; retFocus=false; mgrRet(); });
 
   host.querySelectorAll("[data-out]").forEach(btn=>btn.addEventListener("click", ()=>
-    retDo("ret_touch_log",{p_item:it.id, p_channel:"phone",
+    retDo("ret_touch_log",{p_item:it.id, p_channel:btn.dataset.ch || "phone",
                            p_outcome:btn.dataset.out, p_notes:note()}, true)));
 
   // ret_close refuses an amount on a disposition that does not take one, so this is a
@@ -7664,8 +7694,8 @@ function retDetail(){
 function retXdatePanel(it, closed){
   const xs = it.xdates || [];
   return `
-    <div class="card" style="border-left:3px solid var(--gold);margin:12px 0">
-      <b>What else do they have?</b>
+    <div class="rsec" style="border-left:3px solid var(--gold);background:var(--card)">
+      <span class="rsh" style="color:var(--gold-deep)">What else do they have?</span>
       <div class="tsub" style="margin-bottom:8px">Ask on every call, including the ones we lose.
       A customer who left over auto price still has a home policy renewing, and this is the
       cheapest moment we will ever get that date.</div>
