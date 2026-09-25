@@ -7073,7 +7073,11 @@ async function loadRet(){
     // Reference lists, fetched once. All three are RLS-locked tables reachable only through
     // their own definer functions, which is why they are loaded rather than typed into this file.
     try{ RET.producers    = await rpc("ret_producers",{p_code:CODE}); }   catch(e){ RET.producers=[]; }
-    try{ RET.dispositions = await rpc("ret_dispositions",{p_code:CODE}); }catch(e){ RET.dispositions=[]; }
+    // The reason list is the ONLY source of closing options now that nothing is hard-coded
+    // in this file, so a failure here empties the close block rather than degrading it.
+    // Record why, so the panel can say so instead of showing an empty dropdown.
+    try{ RET.dispositions = await rpc("ret_dispositions",{p_code:CODE}); RET.dispoError=null; }
+    catch(e){ RET.dispositions=[]; RET.dispoError = String(e.message||e); }
     try{ RET.products     = await rpc("ret_products",{p_code:CODE}); }    catch(e){ RET.products=[]; }
     await retReload();
   }catch(e){ RET = {scope:null, open:[], closed:[], dash:null, error:String(e.message||e)}; }
@@ -7159,8 +7163,26 @@ function retFocusList(){
   return (RET.open||[]).slice();
 }
 
+/* A transient failure on ret_dispositions used to persist for the whole session: the list
+   is fetched once in loadRet() and nothing refetches it. That was survivable while the save
+   options were hard-coded in this file, because the panel still showed three of them. Now
+   that every closing option comes from this list, an empty list is a dead end - so try once
+   more whenever a record is opened, and let the panel offer the retry by hand after that. */
+async function retEnsureDispositions(){
+  if((RET.dispositions||[]).length) return true;
+  try{
+    RET.dispositions = await rpc("ret_dispositions",{p_code:CODE});
+    RET.dispoError = null;
+  }catch(e){
+    RET.dispositions = [];
+    RET.dispoError = String(e.message||e);
+  }
+  return (RET.dispositions||[]).length > 0;
+}
+
 async function retLoadItem(id){
   retSel = id;
+  await retEnsureDispositions();
   retItem = await rpc("ret_item",{p_code:CODE, p_item:id});
   try{ retRes = await rpc("ret_research",{p_code:CODE, p_item:id}); }catch(e){ retRes=null; }
 }
@@ -7596,6 +7618,22 @@ function retDetail(){
         <span class="rsh">Finish this record</span>
         <div class="tsub" style="margin-bottom:10px">A record only leaves the queue with a reason on it.</div>
 
+        ${!(RET.dispositions||[]).length ? `
+        <!-- Every closing option on this panel is built from ret_dispositions. If that list
+             did not load there is nothing to draw, and the old behaviour - an empty dropdown
+             under a cheerful heading - looks exactly like a broken page. Say so instead, name
+             the cause, and offer the retry. Braden hit this on 25 September 2026 and quite
+             reasonably read it as the rebuild having broken. -->
+        <div style="border:1px solid var(--bad-line,#e2b4b4);background:var(--bad-bg,#fdf3f3);
+                    border-radius:8px;padding:12px 14px">
+          <div style="font-weight:600;margin-bottom:5px">The list of closing reasons did not load.</div>
+          <div class="tsub" style="margin-bottom:9px">
+            Nothing is wrong with this record and nothing has been lost &mdash; the panel simply has
+            no reasons to offer until that list arrives.${
+              RET.dispoError ? ` The server said: ${esc(RET.dispoError)}` : ""}</div>
+          <button class="btn sm" id="retDispoRetry">Load the reasons</button>
+        </div>` : `
+
         <!-- Rebuilt 25 September 2026, after Brandi reported the blue button "still will not
              close the record". What was here: FOUR ways to close one record on one panel - a
              blue "Record the save" row, a one-click triage row, a "Called, and we lost it"
@@ -7643,8 +7681,11 @@ function retDetail(){
           <div id="retWhatHint" class="tsub" style="margin-top:7px;min-height:17px"></div>
         </div>
 
+`}
+
         <!-- Deliberately below the closing block and deliberately labelled as not a close:
-             a handed-off record is not finished, it has moved. -->
+             a handed-off record is not finished, it has moved. The hand-off does NOT depend
+             on the disposition list, so it stays available even when that list failed. -->
         <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
           <div class="tsub" style="font-weight:600;margin-bottom:6px">
             Not finished &mdash; send it to a licensed producer</div>
@@ -7699,6 +7740,12 @@ function retDetail(){
     if(!needs && amtEl) amtEl.value = "";
     if(hint) hint.textContent = retCloseHint(sel.value);
   };
+  on("#retDispoRetry", async ()=>{
+    if(await retEnsureDispositions()) retMsg = null;
+    else retMsg = "The reason list still will not load. If this keeps happening, reload the page.";
+    mgrRet();
+  });
+
   const whatSel = q("#retWhat");
   if(whatSel){ whatSel.addEventListener("change", retWhatSync); retWhatSync(); }
 
