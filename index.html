@@ -357,6 +357,27 @@ tbody tr.clk:hover{background:#f8f9fc}
 .pg-cv{border:1px solid var(--line);border-radius:9px;padding:9px 11px;flex:1 1 215px;min-width:0}
 .pg-cv b{display:block;font-size:12px;color:var(--ink);margin-bottom:5px}
 .pg-cv p{margin:5px 0 0;font-size:11px;color:var(--ink-3);line-height:1.45}
+button.pg-m{text-align:left;width:100%;font:inherit;color:inherit;display:block}
+.pg-m.clk{cursor:pointer;transition:border-color .12s,background .12s}
+.pg-m.clk:hover{border-color:var(--line-2);background:var(--info-bg)}
+.pg-m.on{border-color:var(--navy-3);box-shadow:0 0 0 2px rgba(59,61,128,.13)}
+.pg-more{font-size:10.5px;color:var(--info);margin-top:7px;font-weight:650}
+.pg-det{margin-top:14px;border:1px solid var(--line);border-radius:10px;
+  padding:14px 16px;background:#fbfbfe}
+.pg-det h4{margin:0 0 5px;font-size:14px;font-weight:700;color:var(--ink)}
+.pg-dn{margin:0 0 12px;font-size:12px;color:var(--ink-3);line-height:1.5}
+.pg-blk{margin-top:15px}
+.pg-blk h6{margin:0 0 3px;font-size:10.5px;font-weight:700;color:var(--ink-2);
+  text-transform:uppercase;letter-spacing:.04em}
+.pg-bn{margin:0 0 8px;font-size:11.5px;color:var(--ink-3);line-height:1.45}
+.pg-tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.pg-t{width:100%;border-collapse:collapse;font-size:12.5px}
+.pg-t th{text-align:left;font-weight:700;color:var(--ink-3);font-size:10px;
+  text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid var(--line);
+  padding:6px 9px;white-space:nowrap}
+.pg-t td{padding:6px 9px;border-bottom:1px solid #f0f1f7;color:var(--ink-2)}
+.pg-t td.n,.pg-t th.n{text-align:right;font-variant-numeric:tabular-nums}
+.pg-t tr.zero td{color:#a9adc6}
 .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px}
 .mcell{border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:#fff}
 .mcell .mt{font-size:13.5px;font-weight:620;margin-bottom:7px}
@@ -1716,8 +1737,15 @@ const MGR_NAV = [
   /* Agent Coaching. Absorbed Retention and TurboRater Quotes on 22 September 2026: both
      measure how the people are doing rather than what the book earned, so they sit with
      the roster and the call monitor. The work queues lead, the people admin follows. */
+  /* Agent Scorecard stands on its own rather than sitting inside Agent Coaching.
+     Braden, 26 September: it is the summary the two of them open first, and burying a
+     summary one level down inside a work-queue category is how the Daily Log Audit
+     ended up two clicks deep before the September regrouping. It will grow items as
+     each of the ten measures gets its own view. */
+  {key:"scorecard", label:"Agent Scorecard", show:()=>finHasFin(), items:[
+    {tab:"progress",         label:"By agent"}]},
+
   {key:"coaching",  label:"Agent Coaching", show:()=>true, items:[
-    {tab:"progress",         label:"Agent Progress",       show:()=>finHasFin()},
     {tab:"ret",              label:"Retention work queue", show:()=>retHasAccess(),
      badge:()=>RET && RET.dash && RET.dash.totals && RET.dash.totals.past_deadline},
     {tab:"fin", sub:"quotes",label:"TurboRater Quotes",    show:()=>finHasFin()},
@@ -11114,8 +11142,17 @@ function mgrProgress(){
     </div>
 
     ${agents.map(a => pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy)).join("")}`;
+
+  body.querySelectorAll("[data-pgm]").forEach(el =>
+    el.addEventListener("click", () => pgToggle(el.dataset.pgp, el.dataset.pgm)));
 }
 
+/* One agent's card. Every metric tile is a button that opens the detail behind it —
+   Braden, 26 September: "We will need to see the detail to help explain to the agent
+   what they did well and what needs improvement."
+
+   Tiles are built from a list rather than written out one by one, so the click wiring
+   is uniform and a new metric is one entry, not a new branch. */
 function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
   const f = a.fees || {}, c = a.calls || {}, q = a.quotes || {},
         r = a.retention || {}, m = a.marketing || {}, at = a.attendance || {};
@@ -11126,11 +11163,71 @@ function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
   const hasAny = [total, pgNum(c.total), pgNum(q.quoted), pgNum(r.records_closed)]
     .some(v => v !== null && v !== 0);
 
-  const unver = pgNum(r.unverified_amount);
   const claims = pgNum(r.claims_counter_money);
   const found  = pgNum(r.counter_records_found);
+  const unver  = pgNum(r.unverified_amount);
 
-  return `<div class="card fin-pad pg-ag">
+  const pct1 = v => (v === null || v === undefined) ? "—" : (+v).toFixed(1) + "%";
+
+  const tiles = [
+    {metric:"fees", label:"Fees", state:(cov.fees||{}).state,
+     value: money0(total),
+     sub: `${money0(perDay)} a day · ${pgInt(f.lines)} lines${
+            pgNum(f.offices_worked) > 1 ? " · " + pgInt(f.offices_worked) + " offices" : ""}`
+          + pgPace(total, dEl, f.prior_month, dPrev, "their last month")
+          + pgPace(total, dEl, f.year_ago, dYoy, "their last year")
+          + (pgNum(f.reversals) ? `<div class="pg-s">${pgInt(f.reversals)} reversal${
+              pgNum(f.reversals)===1?"":"s"}</div>` : "")},
+
+    {metric:null, label:"Fee mix", value: money0(f.new_business),
+     sub:`new business${pgNum(f.reinstatement) ? ` · ${money0(f.reinstatement)} reinstatement` : ""}${
+          pgNum(f.payment) ? ` · ${money0(f.payment)} payment` : ""}`},
+
+    {metric:"calls", label:"Calls", state: pgNum(c.total)===null ? null : (cov.calls||{}).state,
+     value: pgInt(c.total),
+     sub: pgNum(c.total) === null ? "no recorded calls this month"
+        : `${pgInt(c.inbound)} in · ${pgInt(c.outbound)} out · ${pgInt(c.over_30s)} over 30s`
+          + `<div class="pg-s">${pgMin(c.talk_minutes)} talking</div>`},
+
+    {metric:"quotes", label:"Quotes", state: pgNum(q.quoted)===null ? null : (cov.quotes||{}).state,
+     value: pct1(q.close_rate_pct),
+     sub: pgNum(q.quoted) === null ? "no quotes in the window loaded"
+        : `${pgInt(q.quoted)} quoted · ${pgInt(q.written)} written · ${pgInt(q.not_sold)} not sold`
+          + (pgNum(q.quoted) < 10
+             ? `<div class="pg-s"><b>${pgInt(q.quoted)} quotes is a sample, not a close rate.</b></div>` : "")},
+
+    {metric:"retention", label:"Retention",
+     state: pgNum(r.records_closed)===null ? null : (cov.retention||{}).state,
+     value: pct1(r.save_rate_pct),
+     sub: pgNum(r.records_closed) === null ? "no retention records closed this month"
+        : `${pgInt(r.saves)} saved of ${pgInt(r.worked)} worked · ${pgInt(r.records_closed)} closed`
+          + (pgNum(r.amount_collected) !== null
+             ? `<div class="pg-s">${money0(r.amount_collected)} recorded as collected</div>` : "")},
+
+    {metric:"marketing", label:"Marketing", state:(cov.marketing||{}).state,
+     value: pgNum(m.partner_touches) === null ? "0" : pgInt(m.partner_touches),
+     sub: `partner visits logged${pgNum(m.partner_touches) ? "" : " — nobody is logging these yet"}`},
+
+    {metric:"attendance", label:"Office open/close", state:(cov.attendance||{}).state,
+     value: pgInt(at.days_seen),
+     sub: (at.days_seen ? `${pgInt(at.on_time)} on time · ${pgInt(at.flagged)} flagged`
+                        : "no panel feed for this office")
+          + `<div class="pg-s">office level, not this person</div>`},
+
+    {metric:"audit", label:"Audit errors", state:(cov.audit||{}).state,
+     value: "—", sub:"office level — open for the exception list"},
+
+    {metric:"commission", label:"Commission", state:"office",
+     value: "—", sub:"by office only — open for the carrier breakdown"},
+
+    {metric:"crosssell", label:"Cross-sell", state:"office",
+     value: "—", sub:"book penetration by office — not attributable"}
+  ];
+
+  const openKey = progOpen;
+  const mine = openKey && openKey.split("|")[0] === a.person_id ? openKey.split("|")[1] : null;
+
+  return `<div class="card fin-pad pg-ag" data-agent="${esc(a.person_id)}">
     <div class="pg-hd">
       <div>
         <div class="pg-nm">${esc(a.name)}</div>
@@ -11145,99 +11242,103 @@ function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
       ${esc(PROG.month_label || "this month")}.</div>` : `
 
     <div class="pg-grid">
-      <div class="pg-m">
-        <h5>Fees ${pgBadge((cov.fees||{}).state, "")}</h5>
-        <div class="pg-v">${money0(total)}</div>
-        <div class="pg-s">${money0(perDay)} a day · ${pgInt(f.lines)} lines${
-          pgNum(f.offices_worked) > 1 ? " · " + pgInt(f.offices_worked) + " offices" : ""}</div>
-        ${pgPace(total, dEl, f.prior_month, dPrev, "their last month")}
-        ${pgPace(total, dEl, f.year_ago, dYoy, "their last year")}
-        ${pgNum(f.reversals) ? `<div class="pg-s">${pgInt(f.reversals)} reversal${
-          pgNum(f.reversals)===1?"":"s"}</div>` : ""}
-      </div>
-
-      <div class="pg-m">
-        <h5>Fee mix</h5>
-        <div class="pg-v">${money0(f.new_business)}</div>
-        <div class="pg-s">new business${
-          pgNum(f.reinstatement) ? ` · ${money0(f.reinstatement)} reinstatement` : ""}${
-          pgNum(f.payment) ? ` · ${money0(f.payment)} payment` : ""}</div>
-      </div>
-
-      <div class="pg-m">
-        <h5>Calls ${pgNum(c.total) === null ? "" : pgBadge((cov.calls||{}).state, "")}</h5>
-        <div class="pg-v">${pgInt(c.total)}</div>
-        ${pgNum(c.total) === null
-          ? `<div class="pg-s">no recorded calls this month</div>`
-          : `<div class="pg-s">${pgInt(c.inbound)} in · ${pgInt(c.outbound)} out ·
-               ${pgInt(c.over_30s)} over 30s</div>
-             <div class="pg-s">${pgMin(c.talk_minutes)} talking</div>`}
-      </div>
-
-      <div class="pg-m">
-        <h5>Quotes ${pgNum(q.quoted) === null ? "" : pgBadge((cov.quotes||{}).state, "")}</h5>
-        <div class="pg-v">${q.close_rate_pct === null || q.close_rate_pct === undefined
-          ? "—" : (+q.close_rate_pct).toFixed(1) + "%"}</div>
-        ${pgNum(q.quoted) === null
-          ? `<div class="pg-s">no quotes in the window loaded</div>`
-          : `<div class="pg-s">${pgInt(q.quoted)} quoted · ${pgInt(q.written)} written ·
-               ${pgInt(q.not_sold)} not sold</div>
-             ${pgNum(q.quoted) < 10
-               ? `<div class="pg-s"><b>${pgInt(q.quoted)} quotes is a sample, not a close rate.</b></div>` : ""}`}
-      </div>
-
-      <div class="pg-m">
-        <h5>Retention ${pgNum(r.records_closed) === null ? "" : pgBadge((cov.retention||{}).state, "")}</h5>
-        <div class="pg-v">${r.save_rate_pct === null || r.save_rate_pct === undefined
-          ? "—" : (+r.save_rate_pct).toFixed(1) + "%"}</div>
-        ${pgNum(r.records_closed) === null
-          ? `<div class="pg-s">no retention records closed this month</div>`
-          : `<div class="pg-s">${pgInt(r.saves)} saved of ${pgInt(r.worked)} worked ·
-               ${pgInt(r.records_closed)} closed</div>
-             ${pgNum(r.amount_collected) !== null
-               ? `<div class="pg-s">${money0(r.amount_collected)} recorded as collected</div>` : ""}`}
-      </div>
-
-      <div class="pg-m">
-        <h5>Marketing ${pgBadge((cov.marketing||{}).state, "")}</h5>
-        <div class="pg-v">${pgNum(m.partner_touches) === null ? "0" : pgInt(m.partner_touches)}</div>
-        <div class="pg-s">partner visits logged${
-          pgNum(m.partner_touches) ? "" : " — nobody is logging these yet"}</div>
-      </div>
-
-      <div class="pg-m">
-        <h5>Office open/close ${pgBadge((cov.attendance||{}).state, "")}</h5>
-        <div class="pg-v">${pgInt(at.days_seen)}</div>
-        <div class="pg-s">${at.days_seen
-          ? pgInt(at.on_time) + " on time · " + pgInt(at.flagged) + " flagged"
-          : "no panel feed for this office"}</div>
-        <div class="pg-s">office level, not this person</div>
-      </div>
-
-      <div class="pg-m">
-        <h5>Commission ${pgBadge("office", "")}</h5>
-        <div class="pg-v">—</div>
-        <div class="pg-s">by office only — see Revenue by office</div>
-      </div>
-
-      <div class="pg-m">
-        <h5>Cross-sell ${pgBadge("office", "")}</h5>
-        <div class="pg-v">—</div>
-        <div class="pg-s">book penetration by office — not attributable</div>
-      </div>
+      ${tiles.map(t => {
+        const on = t.metric && t.metric === mine;
+        const tag = t.metric ? "button" : "div";
+        const attrs = t.metric
+          ? ` class="pg-m clk${on?" on":""}" data-pgm="${esc(t.metric)}" data-pgp="${esc(a.person_id)}"`
+          : ` class="pg-m"`;
+        return `<${tag}${attrs}>
+          <h5>${esc(t.label)} ${t.state ? pgBadge(t.state, "") : ""}</h5>
+          <div class="pg-v">${t.value}</div>
+          <div class="pg-s">${t.sub}</div>
+          ${t.metric ? `<div class="pg-more">${on ? "Hide detail ↑" : "See detail ↓"}</div>` : ""}
+        </${tag}>`;
+      }).join("")}
     </div>
+
+    ${mine ? pgDetailHtml(PROGD[a.person_id + "|" + mine]) : ""}
 
     ${claims && found === 0 ? `<div class="pg-warn">
       <b>${pgInt(claims)} save${claims===1?"":"s"} above ${claims===1?"is":"are"} unverified.</b>
       ${claims===1?"It was":"They were"} closed on a reason that says the customer paid
       <b>at our counter</b>, and ${money0(unver)} ${claims===1?"was":"were"} recorded as collected —
       but the Fee Detail shows no counter transaction for ${claims===1?"that customer":"those customers"}
-      within three days either side. Until ${esc(firstName({full_name:a.name}))} confirms what
-      happened, treat the save rate and the amount on this card as unconfirmed.
-      This notice clears itself once the records are closed on a reason that does not claim
+      within three days either side. Open the Retention tile to see the records themselves.
+      This notice clears itself once they are closed on a reason that does not claim
       counter money.</div>` : ""}
     `}
   </div>`;
+}
+
+/* ---- the detail behind a tile ---- */
+/* score_agent_detail returns {blocks:[{title, note, columns, rows, footer}]} and this
+   renders any of them with one loop, so a metric added server-side needs no change
+   here beyond a tile entry above. */
+let PROGD = {}, progOpen = null;
+
+async function progLoadDetail(person, metric){
+  const k = person + "|" + metric;
+  if(PROGD[k]) return;
+  try{
+    PROGD[k] = await rpc("score_agent_detail", {
+      p_code: CODE, p_person: person,
+      p_month: (PROG && PROG.month) || null, p_metric: metric});
+  }catch(e){ PROGD[k] = {error: String(e.message || e)}; }
+}
+
+/* A numeric column is money when its own label says so. Everything else that is
+   numeric is a count, and counts are not dollars. */
+const PG_MONEY = /charged|amount|premium|commission|bank|receipt/i;
+function pgCell(v, col){
+  if(v === null || v === undefined || v === "") return "—";
+  if(col.a === "n"){
+    const n = +v;
+    if(isNaN(n)) return esc(String(v));
+    return PG_MONEY.test(col.label || "") ? money0(n) : Math.round(n).toLocaleString("en-US");
+  }
+  return esc(String(v));
+}
+
+function pgDetailHtml(d){
+  if(!d) return `<div class="pg-det"><div class="empty">Loading…</div></div>`;
+  if(d.error) return `<div class="pg-det"><div class="empty">${esc(d.error)}</div></div>`;
+  return `<div class="pg-det">
+    <h4>${esc(d.title || "")}</h4>
+    ${d.note ? `<p class="pg-dn">${esc(d.note)}</p>` : ""}
+    ${(d.blocks || []).map(b => {
+      const cols = b.columns || [], rows = b.rows || [];
+      return `<div class="pg-blk">
+        <h6>${esc(b.title || "")}</h6>
+        ${b.note ? `<p class="pg-bn">${esc(b.note)}</p>` : ""}
+        ${rows.length ? `<div class="pg-tw"><table class="pg-t">
+          <thead><tr>${cols.map(c =>
+            `<th class="${c.a === "n" ? "n" : ""}">${esc(c.label)}</th>`).join("")}</tr></thead>
+          <tbody>${rows.map(rw => {
+            // A day with no activity is dimmed rather than hidden, so a gap is visible.
+            const blank = cols.some(c => c.a === "n") &&
+                          cols.every(c => c.a !== "n" || !+rw[c.k]);
+            return `<tr class="${blank ? "zero" : ""}">${cols.map(c =>
+              `<td class="${c.a === "n" ? "n" : ""}">${pgCell(rw[c.k], c)}</td>`).join("")}</tr>`;
+          }).join("")}</tbody></table></div>`
+          : `<div class="empty">Nothing recorded.</div>`}
+        ${b.footer ? `<p class="pg-bn" style="margin-top:9px">${esc(b.footer)}</p>` : ""}
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+async function pgToggle(person, metric){
+  const k = person + "|" + metric;
+  if(progOpen === k){ progOpen = null; mgrProgress(); return; }
+  progOpen = k;
+  if(!PROGD[k]){
+    mgrProgress();                       // show the tile as open, with Loading…
+    await progLoadDetail(person, metric);
+  }
+  mgrProgress();
+  const card = $("#mgrBody").querySelector(`[data-agent="${person}"]`);
+  if(card) card.scrollIntoView({block:"nearest", behavior:"smooth"});
 }
 
 /* ================= restore the session ================= */
