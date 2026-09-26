@@ -330,6 +330,33 @@ tbody tr.clk:hover{background:#f8f9fc}
 .chip{font-size:11px;font-weight:650;padding:2px 8px;border-radius:99px;background:#eef0f6;color:var(--ink-3)}
 .chip.gold{background:var(--gold-soft);color:var(--gold-deep)}
 .chip.bad{background:var(--bad-bg);color:var(--bad)}
+/* Agent Progress: confidence badges and the per-agent metric grid. */
+.pg-b{display:inline-flex;align-items:center;font-size:10px;font-weight:700;padding:2px 7px;
+  border-radius:99px;letter-spacing:.02em;white-space:nowrap;vertical-align:middle}
+.pg-b.good{background:var(--ok-bg);color:var(--ok)}
+.pg-b.thin{background:var(--warn-bg);color:var(--warn)}
+.pg-b.office{background:var(--info-bg);color:var(--info)}
+.pg-b.review{background:var(--bad-bg);color:var(--bad)}
+.pg-b.none{background:#eef0f6;color:var(--ink-3)}
+.pg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:11px}
+.pg-m{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fff;min-width:0}
+.pg-m h5{margin:0 0 7px;font-size:10.5px;font-weight:700;color:var(--ink-3);text-transform:uppercase;
+  letter-spacing:.04em;display:flex;justify-content:space-between;align-items:center;gap:6px}
+.pg-v{font-size:19px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.15}
+.pg-s{font-size:11.5px;color:var(--ink-3);margin-top:4px;line-height:1.4}
+.pg-ag{margin-bottom:14px}
+.pg-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;
+  flex-wrap:wrap;margin-bottom:12px}
+.pg-nm{font-size:16px;font-weight:700;color:var(--ink)}
+.pg-loc{font-size:12px;color:var(--ink-3);margin-top:3px}
+.pg-rk{font-size:11px;font-weight:700;color:var(--gold-deep);background:var(--gold-soft);
+  padding:3px 9px;border-radius:99px;white-space:nowrap}
+.pg-warn{background:var(--bad-bg);border:1px solid #f3c9c5;border-radius:9px;padding:10px 12px;
+  margin-top:12px;font-size:12.5px;color:#7d1b16;line-height:1.5}
+.pg-cov{display:flex;flex-wrap:wrap;gap:9px}
+.pg-cv{border:1px solid var(--line);border-radius:9px;padding:9px 11px;flex:1 1 215px;min-width:0}
+.pg-cv b{display:block;font-size:12px;color:var(--ink);margin-bottom:5px}
+.pg-cv p{margin:5px 0 0;font-size:11px;color:var(--ink-3);line-height:1.45}
 .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px}
 .mcell{border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:#fff}
 .mcell .mt{font-size:13.5px;font-weight:620;margin-bottom:7px}
@@ -1690,6 +1717,7 @@ const MGR_NAV = [
      measure how the people are doing rather than what the book earned, so they sit with
      the roster and the call monitor. The work queues lead, the people admin follows. */
   {key:"coaching",  label:"Agent Coaching", show:()=>true, items:[
+    {tab:"progress",         label:"Agent Progress",       show:()=>finHasFin()},
     {tab:"ret",              label:"Retention work queue", show:()=>retHasAccess(),
      badge:()=>RET && RET.dash && RET.dash.totals && RET.dash.totals.past_deadline},
     {tab:"fin", sub:"quotes",label:"TurboRater Quotes",    show:()=>finHasFin()},
@@ -1750,6 +1778,7 @@ async function navLoad(it){
   if(it.tab === "partners")         await loadPartners();
   if(it.tab === "tips")             await loadTipsManage();
   if(it.tab === "ret")              await retReload();
+  if(it.tab === "progress" && !PROG) await loadProgress();
   if(it.tab === "fin"){
     if(!REV) await loadFin();
     if(it.sub === "pl"    && !FIN)   await loadFinPL();
@@ -6940,6 +6969,7 @@ function renderManager(){
   if(mgrTab === "calls" && !cmHasCall()) mgrTab = "home";
   if(mgrTab === "fin"   && !finHasFin()) mgrTab = "home";
   if(mgrTab === "ret"   && !retHasAccess()) mgrTab = "home";
+  if(mgrTab === "progress" && !finHasFin()) mgrTab = "home";
   if(mgrTab === "fin" && (finSub === "trust" || finSub === "audit") && !finHasTrust()) finSub = "revenue";
   if(mgrTab === "fin" && finSub === "pl" && !finHasPL()) finSub = "revenue";
   if(mgrTab === "home") mgrCat = null;
@@ -6948,7 +6978,8 @@ function renderManager(){
   if(mgrCat && !navCat(mgrCat)) mgrCat = (navFind(mgrTab, mgrTab === "fin" ? finSub : null) || {cat:{}}).cat.key || null;
   ({home:mgrHome, roster:mgrRoster, ce:mgrCE, content:mgrContent, tracks:mgrTracks,
     activity:mgrActivity, add:mgrAdd, calls:mgrCall, feedback:mgrFeedback,
-    partners:mgrPartners, tips:mgrTips, fin:mgrFin, ret:mgrRet})[mgrTab]();
+    partners:mgrPartners, tips:mgrTips, fin:mgrFin, ret:mgrRet,
+    progress:mgrProgress})[mgrTab]();
 }
 
 /* ================= Retention =================
@@ -10937,6 +10968,276 @@ function previewModule(slug){
   modal.scrollTop = 0;
   modal.querySelector("#pClose").addEventListener("click", closeModal);
   modal.querySelector("#pBack").addEventListener("click", ()=>drawModuleEditor(slug));
+}
+
+
+/* ================= Agent Progress =========================================
+   Added 26 September 2026. Braden: "an agent by agent summary, with some
+   detail on how each agent is progressing through the month."
+
+   ONE CALL. score_agent_card(code, month) returns the whole panel - agency
+   totals, every agent's ten items, and the CONFIDENCE of each item. The
+   confidence is part of the payload on purpose. Braden chose to see all ten
+   metrics rather than only the trustworthy two, and a badge that lives in the
+   server response improves by itself when the data does; a badge hand-written
+   into this file becomes a lie the first time somebody loads a fuller month.
+
+   WHAT THE BADGES MEAN.
+     good    the number means what it says
+     thin    correct, but the window is too short to read as performance
+     office  measured at office grain - not attributable to a person
+     review  a number we have specific reason to doubt
+     none    nothing logged at all
+
+   THE RETENTION WARNING IS COMPUTED, NOT WRITTEN. A save closed on a
+   disposition claiming money crossed our counter should have a matching line
+   in the Fee Detail. The server checks that correspondence per agent. When the
+   disputed September closes are re-closed as paid_carrier_direct the warning
+   disappears on its own - nobody has to remember to delete a footnote naming a
+   person.
+
+   PACE, NOT TOTALS. Comparing 25 days against a whole prior month makes every
+   agent look like they collapsed. Every comparison here is per calendar day,
+   which is the same rule the revenue panels use. */
+
+let PROG = null, progMonth = null;
+
+async function loadProgress(){
+  try{
+    PROG = await rpc("score_agent_card", {p_code: CODE, p_month: progMonth});
+    if(PROG) PROG.error = null;
+  }catch(e){ PROG = {error: String(e.message || e)}; }
+}
+
+const PG_LABEL = {good:"Reliable", thin:"Thin data", office:"Office level",
+                  review:"Under review", none:"No data"};
+
+function pgBadge(state, text){
+  const s = PG_LABEL[state] ? state : "none";
+  return `<span class="pg-b ${s}">${esc(text || PG_LABEL[s])}</span>`;
+}
+
+/* Days in the month a date string names. Used to turn every total into a
+   per-day rate so a part-month never gets compared against a whole one. */
+function pgDays(iso){
+  if(!iso) return null;
+  const d = new Date(iso + (iso.length === 7 ? "-01" : ""));
+  if(isNaN(d)) return null;
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+}
+function pgShiftMonth(iso, n){
+  const d = new Date(iso.slice(0,10));
+  d.setMonth(d.getMonth() + n);
+  return d.toISOString().slice(0,10);
+}
+const pgNum = v => (v === null || v === undefined || v === "" || isNaN(+v)) ? null : +v;
+const pgInt = v => { const n = pgNum(v); return n === null ? "—" : Math.round(n).toLocaleString("en-US"); };
+const pgMin = v => { const n = pgNum(v); return n === null ? "—" : Math.round(n).toLocaleString("en-US") + " min"; };
+
+/* A per-day comparison, rendered only when both sides exist. */
+function pgPace(nowTotal, nowDays, thenTotal, thenDays, label){
+  const a = pgNum(nowTotal), b = pgNum(thenTotal);
+  if(a === null || b === null || !nowDays || !thenDays || b === 0) return "";
+  const rate = a / nowDays, was = b / thenDays;
+  const p = (rate - was) / Math.abs(was) * 100;
+  return `<div class="pg-s">${pctSpan(p)} a day vs ${esc(label)}</div>`;
+}
+
+function mgrProgress(){
+  const body = $("#mgrBody");
+  if(!PROG){ body.innerHTML = `<div class="card fin-pad"><div class="empty">Loading…</div></div>`; return; }
+  if(PROG.error){
+    body.innerHTML = `<div class="card fin-pad"><div class="empty">${esc(PROG.error)}</div></div>`;
+    return;
+  }
+  const ag = PROG.agency || {}, cov = PROG.coverage || {}, agents = PROG.agents || [];
+  const dEl = pgNum(ag.days_elapsed) || 0;
+  const dIn = pgNum(ag.days_in_month) || pgDays(PROG.month) || 30;
+  const dPrev = pgDays(pgShiftMonth(PROG.month, -1));
+  const dYoy  = pgDays(pgShiftMonth(PROG.month, -12));
+  const total = pgNum(ag.fees_total) || 0;
+  const perDay = dEl ? total / dEl : null;
+  const projected = perDay === null ? null : perDay * dIn;
+
+  const covOrder = [
+    ["fees","Monthly fee progress"], ["commission","Office commission"],
+    ["retention","Retention"], ["marketing","Marketing program"],
+    ["audit","Daily Log Audit errors"], ["crosssell","Cross-sell"],
+    ["quotes","Quoted not sold & close rate"], ["calls","Calls"],
+    ["attendance","Office open / close"]
+  ];
+
+  body.innerHTML = `
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">${esc(PROG.month_label || "")} — agency</p>
+      <p class="fin-sub2">Fees recorded through ${ag.fee_through ? esc(sdate(ag.fee_through)) : "—"}. Day ${dEl} of ${dIn}.
+        Every comparison below is per calendar day, because a part month set against a whole
+        one makes everybody look like they stopped working.</p>
+      <div class="pg-grid" style="margin-top:12px">
+        <div class="pg-m">
+          <h5>Fees so far</h5>
+          <div class="pg-v">${money0(total)}</div>
+          <div class="pg-s">${money0(perDay)} a day</div>
+        </div>
+        <div class="pg-m">
+          <h5>On this pace</h5>
+          <div class="pg-v">${money0(projected)}</div>
+          <div class="pg-s">if the rest of the month runs the same</div>
+        </div>
+        <div class="pg-m">
+          <h5>Last month</h5>
+          <div class="pg-v">${money0(ag.fees_prior_month)}</div>
+          ${pgPace(total, dEl, ag.fees_prior_month, dPrev, "last month")}
+        </div>
+        <div class="pg-m">
+          <h5>Same month last year</h5>
+          <div class="pg-v">${money0(ag.fees_year_ago)}</div>
+          ${pgPace(total, dEl, ag.fees_year_ago, dYoy, "a year ago")}
+        </div>
+      </div>
+    </div>
+
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">What each number on this page is worth</p>
+      <p class="fin-sub2">All ten items are shown. They are not all equally trustworthy, and the
+        badge says which is which. Read this once before reading anybody's card.</p>
+      <div class="pg-cov" style="margin-top:12px">
+        ${covOrder.map(([k,label])=>{
+          const c = cov[k] || {state:"none"};
+          return `<div class="pg-cv">
+            <b>${esc(label)}</b>
+            ${pgBadge(c.state, c.label)}
+            <p>${esc(c.detail || "")}</p>
+          </div>`;
+        }).join("")}
+      </div>
+    </div>
+
+    ${agents.map(a => pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy)).join("")}`;
+}
+
+function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
+  const f = a.fees || {}, c = a.calls || {}, q = a.quotes || {},
+        r = a.retention || {}, m = a.marketing || {}, at = a.attendance || {};
+  const total = pgNum(f.total);
+  const perDay = (total !== null && dEl) ? total / dEl : null;
+
+  // Nobody with nothing recorded gets a wall of em-dashes pretending to be a report.
+  const hasAny = [total, pgNum(c.total), pgNum(q.quoted), pgNum(r.records_closed)]
+    .some(v => v !== null && v !== 0);
+
+  const unver = pgNum(r.unverified_amount);
+  const claims = pgNum(r.claims_counter_money);
+  const found  = pgNum(r.counter_records_found);
+
+  return `<div class="card fin-pad pg-ag">
+    <div class="pg-hd">
+      <div>
+        <div class="pg-nm">${esc(a.name)}</div>
+        <div class="pg-loc">${esc(a.location || "No office recorded")}${
+          a.role && a.role !== "trainee" ? " · " + esc(a.role) : ""}${
+          a.start_date ? " · started " + sdate(a.start_date) : ""}</div>
+      </div>
+      ${f.rank ? `<span class="pg-rk">#${esc(String(f.rank))} by fees</span>` : ""}
+    </div>
+
+    ${!hasAny ? `<div class="empty">Nothing recorded against this person for
+      ${esc(PROG.month_label || "this month")}.</div>` : `
+
+    <div class="pg-grid">
+      <div class="pg-m">
+        <h5>Fees ${pgBadge((cov.fees||{}).state, "")}</h5>
+        <div class="pg-v">${money0(total)}</div>
+        <div class="pg-s">${money0(perDay)} a day · ${pgInt(f.lines)} lines${
+          pgNum(f.offices_worked) > 1 ? " · " + pgInt(f.offices_worked) + " offices" : ""}</div>
+        ${pgPace(total, dEl, f.prior_month, dPrev, "their last month")}
+        ${pgPace(total, dEl, f.year_ago, dYoy, "their last year")}
+        ${pgNum(f.reversals) ? `<div class="pg-s">${pgInt(f.reversals)} reversal${
+          pgNum(f.reversals)===1?"":"s"}</div>` : ""}
+      </div>
+
+      <div class="pg-m">
+        <h5>Fee mix</h5>
+        <div class="pg-v">${money0(f.new_business)}</div>
+        <div class="pg-s">new business${
+          pgNum(f.reinstatement) ? ` · ${money0(f.reinstatement)} reinstatement` : ""}${
+          pgNum(f.payment) ? ` · ${money0(f.payment)} payment` : ""}</div>
+      </div>
+
+      <div class="pg-m">
+        <h5>Calls ${pgNum(c.total) === null ? "" : pgBadge((cov.calls||{}).state, "")}</h5>
+        <div class="pg-v">${pgInt(c.total)}</div>
+        ${pgNum(c.total) === null
+          ? `<div class="pg-s">no recorded calls this month</div>`
+          : `<div class="pg-s">${pgInt(c.inbound)} in · ${pgInt(c.outbound)} out ·
+               ${pgInt(c.over_30s)} over 30s</div>
+             <div class="pg-s">${pgMin(c.talk_minutes)} talking</div>`}
+      </div>
+
+      <div class="pg-m">
+        <h5>Quotes ${pgNum(q.quoted) === null ? "" : pgBadge((cov.quotes||{}).state, "")}</h5>
+        <div class="pg-v">${q.close_rate_pct === null || q.close_rate_pct === undefined
+          ? "—" : (+q.close_rate_pct).toFixed(1) + "%"}</div>
+        ${pgNum(q.quoted) === null
+          ? `<div class="pg-s">no quotes in the window loaded</div>`
+          : `<div class="pg-s">${pgInt(q.quoted)} quoted · ${pgInt(q.written)} written ·
+               ${pgInt(q.not_sold)} not sold</div>
+             ${pgNum(q.quoted) < 10
+               ? `<div class="pg-s"><b>${pgInt(q.quoted)} quotes is a sample, not a close rate.</b></div>` : ""}`}
+      </div>
+
+      <div class="pg-m">
+        <h5>Retention ${pgNum(r.records_closed) === null ? "" : pgBadge((cov.retention||{}).state, "")}</h5>
+        <div class="pg-v">${r.save_rate_pct === null || r.save_rate_pct === undefined
+          ? "—" : (+r.save_rate_pct).toFixed(1) + "%"}</div>
+        ${pgNum(r.records_closed) === null
+          ? `<div class="pg-s">no retention records closed this month</div>`
+          : `<div class="pg-s">${pgInt(r.saves)} saved of ${pgInt(r.worked)} worked ·
+               ${pgInt(r.records_closed)} closed</div>
+             ${pgNum(r.amount_collected) !== null
+               ? `<div class="pg-s">${money0(r.amount_collected)} recorded as collected</div>` : ""}`}
+      </div>
+
+      <div class="pg-m">
+        <h5>Marketing ${pgBadge((cov.marketing||{}).state, "")}</h5>
+        <div class="pg-v">${pgNum(m.partner_touches) === null ? "0" : pgInt(m.partner_touches)}</div>
+        <div class="pg-s">partner visits logged${
+          pgNum(m.partner_touches) ? "" : " — nobody is logging these yet"}</div>
+      </div>
+
+      <div class="pg-m">
+        <h5>Office open/close ${pgBadge((cov.attendance||{}).state, "")}</h5>
+        <div class="pg-v">${pgInt(at.days_seen)}</div>
+        <div class="pg-s">${at.days_seen
+          ? pgInt(at.on_time) + " on time · " + pgInt(at.flagged) + " flagged"
+          : "no panel feed for this office"}</div>
+        <div class="pg-s">office level, not this person</div>
+      </div>
+
+      <div class="pg-m">
+        <h5>Commission ${pgBadge("office", "")}</h5>
+        <div class="pg-v">—</div>
+        <div class="pg-s">by office only — see Revenue by office</div>
+      </div>
+
+      <div class="pg-m">
+        <h5>Cross-sell ${pgBadge("office", "")}</h5>
+        <div class="pg-v">—</div>
+        <div class="pg-s">book penetration by office — not attributable</div>
+      </div>
+    </div>
+
+    ${claims && found === 0 ? `<div class="pg-warn">
+      <b>${pgInt(claims)} save${claims===1?"":"s"} above ${claims===1?"is":"are"} unverified.</b>
+      ${claims===1?"It was":"They were"} closed on a reason that says the customer paid
+      <b>at our counter</b>, and ${money0(unver)} ${claims===1?"was":"were"} recorded as collected —
+      but the Fee Detail shows no counter transaction for ${claims===1?"that customer":"those customers"}
+      within three days either side. Until ${esc(firstName({full_name:a.name}))} confirms what
+      happened, treat the save rate and the amount on this card as unconfirmed.
+      This notice clears itself once the records are closed on a reason that does not claim
+      counter money.</div>` : ""}
+    `}
+  </div>`;
 }
 
 /* ================= restore the session ================= */
