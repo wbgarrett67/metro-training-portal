@@ -378,6 +378,13 @@ button.pg-m{text-align:left;width:100%;font:inherit;color:inherit;display:block}
 .pg-t td{padding:6px 9px;border-bottom:1px solid #f0f1f7;color:var(--ink-2)}
 .pg-t td.n,.pg-t th.n{text-align:right;font-variant-numeric:tabular-nums}
 .pg-t tr.zero td{color:#a9adc6}
+.pg-call{font:inherit;font-size:10.5px;font-weight:700;cursor:pointer;
+  border:1px solid var(--line);background:#fff;color:var(--ink-2);
+  border-radius:6px;padding:2px 8px;white-space:nowrap}
+.pg-call:hover{background:var(--tint);color:var(--ink-1)}
+.pg-ch{font-size:10px;font-weight:700;border-radius:5px;padding:1px 6px;white-space:nowrap}
+.pg-ch.ph{background:#e8f0fe;color:#1a4f9c}
+.pg-ch.of{background:#eef1f4;color:#5a6474}
 .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));gap:10px}
 .mcell{border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:#fff}
 .mcell .mt{font-size:13.5px;font-weight:620;margin-bottom:7px}
@@ -11146,6 +11153,8 @@ function mgrProgress(){
 
   body.querySelectorAll("[data-pgm]").forEach(el =>
     el.addEventListener("click", () => pgToggle(el.dataset.pgp, el.dataset.pgm)));
+  body.querySelectorAll("[data-rec]").forEach(el =>
+    el.addEventListener("click", ev => { ev.stopPropagation(); openCallDetail(el.dataset.rec); }));
 }
 
 /* One agent's card. Every metric tile is a button that opens the detail behind it —
@@ -11292,6 +11301,17 @@ async function progLoadDetail(person, metric){
    numeric is a count, and counts are not dollars. */
 const PG_MONEY = /charged|amount|premium|commission|bank|receipt/i;
 function pgCell(v, col){
+  // A recording id renders as a button, not text. The audio itself is fetched only
+  // on click, through the same signed-URL path the call monitor already uses.
+  if(col.a === "call"){
+    if(!v) return `<span class="pg-ch of">no call</span>`;
+    return `<button class="pg-call" data-rec="${esc(String(v))}">&#9654; Listen</button>`;
+  }
+  if(col.a === "chan"){
+    return v === "phone" ? `<span class="pg-ch ph">Phone</span>`
+         : v === "office" ? `<span class="pg-ch of">Counter</span>`
+         : `<span class="pg-ch of">—</span>`;
+  }
   if(v === null || v === undefined || v === "") return "—";
   if(col.a === "n"){
     const n = +v;
@@ -11318,6 +11338,7 @@ function pgDetailHtml(d){
           <tbody>${rows.map(rw => {
             // A day with no activity is dimmed rather than hidden, so a gap is visible.
             const blank = cols.some(c => c.a === "n") &&
+                          !cols.some(c => c.a === "call" || c.a === "chan") &&
                           cols.every(c => c.a !== "n" || !+rw[c.k]);
             return `<tr class="${blank ? "zero" : ""}">${cols.map(c =>
               `<td class="${c.a === "n" ? "n" : ""}">${pgCell(rw[c.k], c)}</td>`).join("")}</tr>`;
