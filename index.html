@@ -7087,6 +7087,15 @@ function retManages(){ return !!(RET && RET.scope && RET.scope.access === "manag
    worker it is noise, so the tab and the button are hidden rather than removed - hire an
    unlicensed worker and the feature returns by itself. Braden, 27 September. */
 function retLicensed(){ return !!(RET && RET.scope && RET.scope.licensed); }
+/* Every number we hold is a US number. The carrier feeds and the call recordings both
+   hand back +1 prefixes and raw digit strings; neither is what an agent wants to read off
+   a screen while dialling. Braden, 27 September. */
+function retTel(v){
+  if(v === null || v === undefined || v === "") return "";
+  const d = String(v).replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+  if(d.length !== 10) return String(v).trim();
+  return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+}
 const retMoney = v => (v===null||v===undefined) ? "—"
   : "$" + Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 const retPct = v => (v===null||v===undefined) ? "—" : `${Math.round(v*1000)/10}%`;
@@ -7096,7 +7105,7 @@ const retPct = v => (v===null||v===undefined) ? "—" : `${Math.round(v*1000)/10
    the working list makes the specialist's own number look worse than it is. */
 const RET_STATE_ALL = [
   ["new",       "New"],
-  ["working",   "Working"],
+  ["working",   "Follow Up"],
   ["escalated", "Escalated"],
   ["closed",    "Closed"]
 ];
@@ -7487,7 +7496,8 @@ function retTableHtml(rows, empty){
           <td>${r.deadline_date?`<div>${sdate(r.deadline_date)}</div>`:"<div class='tsub'>—</div>"}<div>${urg}</div></td>
           <td>${retMoney(r.amount_to_cure)}</td>
           <td class="hide-sm">${r.reachable
-                ? `<div>${esc(r.phone||"")}</div><div class="tsub">${esc(r.phone_confidence||"")} confidence</div>`
+                ? `<div style="font-size:15px;font-weight:600;white-space:nowrap">${
+                    esc(retTel(r.phone))}</div><div class="tsub">${esc(r.phone_confidence||"")} confidence</div>`
                 : `<span class="tsub" style="color:var(--warn)">No number</span>`}
               ${r.they_called?`<div class="tsub">They called in</div>`:""}
               ${r.we_called?`<div class="tsub">We called${r.last_contact_agent?` · ${esc(r.last_contact_agent)}`:""}</div>`:""}</td>
@@ -7574,13 +7584,13 @@ function retList(){
   const rows = retSub==="closed" ? (RET.closed||[]) : retBucket(retSub);
   const blurb = {
     new:       "Nobody has touched these. This is where a shift starts.",
-    working:   "Attempted at least once and not yet resolved.",
+    working:   "One attempt made and no answer yet. These need a second contact.",
     escalated: "Handed to a licensed producer. Waiting on them, not on you.",
     closed:    "Finished, with a reason recorded against each one."
   }[retSub];
   const empty = {
     new:       "Nothing new. Everything that has arrived has been picked up.",
-    working:   "Nothing in progress.",
+    working:   "Nothing waiting on a second attempt.",
     escalated: "No handoffs. Each one that appears here is the compliance record that an unlicensed employee stopped where they should.",
     closed:    "Nothing closed yet."
   }[retSub];
@@ -7659,6 +7669,11 @@ function retDetail(){
           <div class="tname" style="font-size:22px;font-weight:800;line-height:1.2">${esc(it.insured_name||"—")}</div>
           <div class="tsub" style="font-size:14px;font-weight:600;color:var(--ink-2);margin-top:2px">${
             esc(it.carrier_code||"")} · ${esc(it.policy_number||"")} · ${esc(it.location_key||"")}</div>
+          ${(it.found_phone || ph) ? `<div style="font-size:21px;font-weight:700;margin-top:6px;
+               letter-spacing:.01em;white-space:nowrap">${esc(retTel(it.found_phone || ph))}</div>` : ""}
+          ${it.found_email ? `<div class="tsub" style="font-size:14px">${esc(it.found_email)}</div>` : ""}
+          ${alts.length ? `<div class="tsub">Also seen: ${
+            alts.map(a=>esc(retTel(a))).join(" · ")}</div>` : ""}
           ${retFocus && at>=0 ? `<div class="tsub">Record ${at+1} of ${list.length}</div>` : ""}
         </div>
         <button class="btn line sm" id="retCloseP">${retFocus?"Back to the list":"Close panel"}</button>
@@ -7808,16 +7823,7 @@ function retDetail(){
         it.disposition?` — ${esc((RET.dispositions||[]).find(d=>d.code===it.disposition)?.label||it.disposition)}`:""}${
         it.amount_collected?` · ${retMoney(it.amount_collected)} collected`:""}.</div>`}
 
-      ${(ph || it.found_phone || it.found_email) ? `
-      <div class="rsec rsec-fact">
-        <span class="rsh">Who to call</span>
-        <div class="tsub">${(it.found_phone || ph)
-          ? `${esc(it.found_phone || ph)}${it.found_phone ? " · found during research"
-              : (phc?` · ${esc(phc)} confidence, recovered from our own call recordings`:"")}`
-          : ""}</div>
-        ${it.found_email?`<div class="tsub">${esc(it.found_email)}</div>`:""}
-        ${alts.length?`<div class="tsub">Also seen: ${alts.map(a=>esc(a)).join(" · ")}</div>`:""}
-      </div>` : `
+      ${(ph || it.found_phone || it.found_email) ? "" : `
       <!-- Nothing to call. The carrier notice carried no number and none was recovered from
            our own recordings, so the section stops being a read-out and becomes the place to
            put what the agent found in Matrix or at the carrier. Braden, 27 September. -->
@@ -8069,7 +8075,7 @@ function retXdates(){
                 ? `<span class="pill fail">past ${Math.abs(r.days_until)}d</span>`
                 : r.days_until<=14 ? `<span class="pill prog">${r.days_until}d</span>`
                 : `<span class="tsub">${r.days_until}d</span>`}</td>
-          <td class="hide-sm">${esc(r.phone||"—")}</td>
+          <td class="hide-sm">${esc(retTel(r.phone)) || "—"}</td>
           <td class="hide-sm">${r.outcome_was_save
                 ? `<span class="pill done">a save</span>`
                 : `<span class="pill todo">${esc(r.disposition_label||"still open")}</span>`}</td>
