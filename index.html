@@ -357,7 +357,15 @@ tbody tr.clk:hover{background:#f8f9fc}
 .pg-cv{border:1px solid var(--line);border-radius:9px;padding:9px 11px;flex:1 1 215px;min-width:0}
 .pg-cv b{display:block;font-size:12px;color:var(--ink);margin-bottom:5px}
 .pg-cv p{margin:5px 0 0;font-size:11px;color:var(--ink-3);line-height:1.45}
-button.pg-m{text-align:left;width:100%;font:inherit;color:inherit;display:block}
+/* A stretched <button> vertically centres its own content, so in a grid row the
+   short tiles pushed their heading down to 69px while the tallest sat at 11px.
+   display:flex removes that anonymous centring; column keeps the children stacking
+   exactly as they did in block flow. */
+button.pg-m{text-align:left;width:100%;font:inherit;color:inherit;
+  display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start}
+/* With the content top-aligned, the footer would otherwise float in the middle of
+   a short tile's whitespace. Push it to the bottom edge instead. */
+button.pg-m > .pg-more{margin-top:auto;padding-top:7px}
 .pg-m.clk{cursor:pointer;transition:border-color .12s,background .12s}
 .pg-m.clk:hover{border-color:var(--line-2);background:var(--info-bg)}
 .pg-m.on{border-color:var(--navy-3);box-shadow:0 0 0 2px rgba(59,61,128,.13)}
