@@ -7736,6 +7736,11 @@ function retDetail(){
           </div>
         </div>
 
+        ${isNew ? "" : `
+        <!-- Hidden on a New record. Braden, 27 September. This dropdown offers "We saved it"
+             and "We called, and we lost it" - neither can be true before anybody has dialled.
+             A New record closes through the no-call triage row above, or it gets an attempt
+             logged and becomes a Working record, where this belongs. -->
         <div style="border-top:1px solid var(--line);padding-top:12px">
           <div class="tsub" style="font-weight:600;margin-bottom:6px">Anything else</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -7755,13 +7760,18 @@ function retDetail(){
           <!-- Says what the chosen reason will record BEFORE the button is pressed. The old
                panel only ever explained itself by refusing. -->
           <div id="retWhatHint" class="tsub" style="margin-top:7px;min-height:17px"></div>
-        </div>
+        </div>`}
 
 `}
 
         <!-- Deliberately below the closing block and deliberately labelled as not a close:
              a handed-off record is not finished, it has moved. The hand-off does NOT depend
-             on the disposition list, so it stays available even when that list failed. -->
+             on the disposition list, so it stays available even when that list failed.
+
+             Hidden from a licensed worker entirely - there is nobody to hand it to that they
+             are not already. Braden, 27 September: to a licensed agent it is noise. Gated,
+             not deleted: an unlicensed worker still sees it. -->
+        ${retLicensed() ? "" : `
         <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
           <div class="tsub" style="font-weight:600;margin-bottom:6px">
             Not finished &mdash; send it to a licensed producer</div>
@@ -7776,7 +7786,7 @@ function retDetail(){
             </select>
             <button class="btn line sm" id="retEsc">Hand off</button>
           </div>
-        </div>
+        </div>`}
       </div>` : `<div class="tsub" style="margin-top:12px">Closed${
         it.disposition?` — ${esc((RET.dispositions||[]).find(d=>d.code===it.disposition)?.label||it.disposition)}`:""}${
         it.amount_collected?` · ${retMoney(it.amount_collected)} collected`:""}.</div>`}
