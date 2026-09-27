@@ -11222,11 +11222,18 @@ function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
           + (pgNum(f.reversals) ? `<div class="pg-s">${pgInt(f.reversals)} reversal${
               pgNum(f.reversals)===1?"":"s"}</div>` : "")},
 
+    // Call type comes from the call monitor's taxonomy. Coverage is partial -- a call
+    // is typed only once its evaluation completes -- so the chip states how many of
+    // the agent's calls were classified rather than letting three numbers imply a whole.
     {metric:"calls", label:"Calls", state: pgNum(c.total)===null ? null : (cov.calls||{}).state,
      value: pgInt(c.total),
      sub: pgNum(c.total) === null ? "no recorded calls this month"
         : `${pgInt(c.inbound)} in · ${pgInt(c.outbound)} out · ${pgInt(c.over_30s)} over 30s`
-          + `<div class="pg-s">${pgMin(c.talk_minutes)} talking</div>`},
+          + `<div class="pg-s">${pgMin(c.talk_minutes)} talking</div>`
+          + (c.top_types
+             ? `<div class="pg-s">${esc(c.top_types)}</div>`
+               + `<div class="pg-s">${pgInt(c.classified)} of ${pgInt(c.total)} classified</div>`
+             : `<div class="pg-s">none classified yet</div>`)},
 
     {metric:"quotes", label:"Quotes", state: pgNum(q.quoted)===null ? null : (cov.quotes||{}).state,
      value: pct1(q.close_rate_pct),
