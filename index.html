@@ -11186,7 +11186,25 @@ function mgrProgress(){
       </div>
     </div>
 
-    ${agents.map(a => pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy)).join("")}`;
+    ${(() => {
+      /* Managers carry a book alongside a management role. Braden, 27 September:
+         Betty Jane comes off the scorecard entirely; Belinda stays but is not
+         ranked against the agents, because she is not doing the same job. */
+      const card = a => pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy);
+      const prod = agents.filter(a => a.role !== "manager");
+      const mgrs = agents.filter(a => a.role === "manager");
+      let out = prod.map(card).join("");
+      if(mgrs.length){
+        out += `<div class="card fin-pad" style="margin-bottom:16px">
+            <p class="fin-h">${mgrs.length === 1 ? "Manager" : "Managers"}</p>
+            <p class="fin-sub2">${mgrs.length === 1 ? "Belinda runs" : "These run"} a book alongside a
+              management role, so the numbers below are shown on their own rather than ranked
+              against the agents above.</p>
+          </div>`;
+        out += mgrs.map(card).join("");
+      }
+      return out;
+    })()}`;
 
   body.querySelectorAll("[data-pgm]").forEach(el =>
     el.addEventListener("click", () => pgToggle(el.dataset.pgp, el.dataset.pgm)));
