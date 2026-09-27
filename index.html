@@ -7584,7 +7584,7 @@ function retCloseHint(code){
   const d = (RET.dispositions||[]).find(x => x.code === code);
   if(!d) return "";
   if(d.takes_amount)
-    return "Counts as a save. Needs the amount you took at our counter.";
+    return "Counts as a save. Needs the amount you took in the office.";
   if(d.is_save)
     return "Counts as a save. No money came through the agency, so there is no amount to enter.";
   if(code === "declined_other")
@@ -7826,7 +7826,7 @@ function retDetail(){
     if(needs && (!amt || amt<=0)){
       // Names the way out. The old message said only "A payment needs an amount", which is
       // true and useless when the answer is that no payment came through the agency.
-      retMsg="That reason records money taken at our counter, so it needs an amount. "+
+      retMsg="That reason records money taken in the office, so it needs an amount. "+
              "If the customer paid the carrier direct and nothing came through us, "+
              "choose Saved - customer paid the carrier direct instead.";
       mgrRet(); return; }
@@ -11026,7 +11026,7 @@ function previewModule(slug){
      none    nothing logged at all
 
    THE RETENTION WARNING IS COMPUTED, NOT WRITTEN. A save closed on a
-   disposition claiming money crossed our counter should have a matching line
+   disposition claiming money was taken in the office should have a matching line
    in the Fee Detail. The server checks that correspondence per agent. When the
    disputed September closes are re-closed as paid_carrier_direct the warning
    disappears on its own - nobody has to remember to delete a footnote naming a
@@ -11189,7 +11189,10 @@ function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
           + (pgNum(f.reversals) ? `<div class="pg-s">${pgInt(f.reversals)} reversal${
               pgNum(f.reversals)===1?"":"s"}</div>` : "")},
 
-    {metric:null, label:"Fee mix", value: money0(f.new_business),
+    // Two views of one thing: this is the headline split, "By fee type" in the
+    // detail is the same money broken out fee by fee. It opens the same panel
+    // rather than sitting there looking like a button that does nothing.
+    {metric:"fees", label:"Fee mix", value: money0(f.new_business),
      sub:`new business${pgNum(f.reinstatement) ? ` · ${money0(f.reinstatement)} reinstatement` : ""}${
           pgNum(f.payment) ? ` · ${money0(f.payment)} payment` : ""}`},
 
@@ -11272,11 +11275,11 @@ function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
     ${claims && found === 0 ? `<div class="pg-warn">
       <b>${pgInt(claims)} save${claims===1?"":"s"} above ${claims===1?"is":"are"} unverified.</b>
       ${claims===1?"It was":"They were"} closed on a reason that says the customer paid
-      <b>at our counter</b>, and ${money0(unver)} ${claims===1?"was":"were"} recorded as collected —
-      but the Fee Detail shows no counter transaction for ${claims===1?"that customer":"those customers"}
+      <b>in the office</b>, and ${money0(unver)} ${claims===1?"was":"were"} recorded as collected —
+      but the Fee Detail shows no in-office transaction for ${claims===1?"that customer":"those customers"}
       within three days either side. Open the Retention tile to see the records themselves.
       This notice clears itself once they are closed on a reason that does not claim
-      counter money.</div>` : ""}
+      money taken in the office.</div>` : ""}
     `}
   </div>`;
 }
@@ -11308,9 +11311,10 @@ function pgCell(v, col){
     return `<button class="pg-call" data-rec="${esc(String(v))}">&#9654; Listen</button>`;
   }
   if(col.a === "chan"){
-    return v === "phone" ? `<span class="pg-ch ph">Phone</span>`
-         : v === "office" ? `<span class="pg-ch of">Counter</span>`
-         : `<span class="pg-ch of">—</span>`;
+    // Labels only. The stored values stay phone/office/unknown.
+    return v === "phone"  ? `<span class="pg-ch ph">Taken by Phone</span>`
+         : v === "office" ? `<span class="pg-ch of">Taken in Office</span>`
+         : `<span class="pg-ch of">Not known</span>`;
   }
   if(v === null || v === undefined || v === "") return "—";
   if(col.a === "n"){
