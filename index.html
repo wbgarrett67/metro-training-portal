@@ -11180,21 +11180,31 @@ function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
   const pct1 = v => (v === null || v === undefined) ? "—" : (+v).toFixed(1) + "%";
 
   const tiles = [
+    // The chip summarises the panel it opens. Line for line: the Fee detail block
+    // splits by fee type and by where it was taken, so the chip carries the same
+    // two axes collapsed to totals. in office + by phone ties to lines, because
+    // both are net of reversals.
+    //
+    // The old "Fee mix" tile is gone. It showed this same new-business /
+    // reinstatement / payment split, and once it opened the Fees panel there were
+    // two buttons onto one thing.
     {metric:"fees", label:"Fees", state:(cov.fees||{}).state,
      value: money0(total),
      sub: `${money0(perDay)} a day · ${pgInt(f.lines)} lines${
             pgNum(f.offices_worked) > 1 ? " · " + pgInt(f.offices_worked) + " offices" : ""}`
+          + (pgNum(f.in_office) !== null || pgNum(f.by_phone) !== null
+             ? `<div class="pg-s">${pgInt(f.in_office)} in office · ${
+                  pgInt(f.by_phone)} by phone</div>` : "")
+          + ((pgNum(f.new_business) || pgNum(f.reinstatement) || pgNum(f.payment))
+             ? `<div class="pg-s">${[
+                  pgNum(f.new_business)  ? money0(f.new_business)  + " new business"  : null,
+                  pgNum(f.reinstatement) ? money0(f.reinstatement) + " reinstatement" : null,
+                  pgNum(f.payment)       ? money0(f.payment)       + " payment"       : null
+                ].filter(Boolean).join(" · ")}</div>` : "")
           + pgPace(total, dEl, f.prior_month, dPrev, "their last month")
           + pgPace(total, dEl, f.year_ago, dYoy, "their last year")
           + (pgNum(f.reversals) ? `<div class="pg-s">${pgInt(f.reversals)} reversal${
               pgNum(f.reversals)===1?"":"s"}</div>` : "")},
-
-    // Two views of one thing: this is the headline split, "By fee type" in the
-    // detail is the same money broken out fee by fee. It opens the same panel
-    // rather than sitting there looking like a button that does nothing.
-    {metric:"fees", label:"Fee mix", value: money0(f.new_business),
-     sub:`new business${pgNum(f.reinstatement) ? ` · ${money0(f.reinstatement)} reinstatement` : ""}${
-          pgNum(f.payment) ? ` · ${money0(f.payment)} payment` : ""}`},
 
     {metric:"calls", label:"Calls", state: pgNum(c.total)===null ? null : (cov.calls||{}).state,
      value: pgInt(c.total),
