@@ -364,6 +364,15 @@ tbody tr.clk:hover{background:#f8f9fc}
 .pg-loc{font-size:12px;color:var(--ink-3);margin-top:3px}
 .pg-rk{font-size:11px;font-weight:700;color:var(--gold-deep);background:var(--gold-soft);
   padding:3px 9px;border-radius:99px;white-space:nowrap}
+.pg-loc{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.pg-loc h6{margin:0 0 4px;font-size:12px;font-weight:800;color:var(--ink-2);
+  text-transform:uppercase;letter-spacing:.04em}
+.pg-loc p{margin:0 0 9px;font-size:12px;color:var(--ink-3);line-height:1.45}
+.pg-loc table{width:100%;border-collapse:collapse;font-size:13px}
+.pg-loc th{text-align:left;font-size:11px;font-weight:700;color:var(--ink-3);
+  text-transform:uppercase;letter-spacing:.03em;padding:0 8px 5px 0;white-space:nowrap}
+.pg-loc td{padding:5px 8px 5px 0;border-top:1px solid var(--line)}
+.pg-loc th.n,.pg-loc td.n{text-align:right}
 .pg-warn{background:var(--bad-bg);border:1px solid #f3c9c5;border-radius:9px;padding:10px 12px;
   margin-top:12px;font-size:12.5px;color:#7d1b16;line-height:1.5}
 .pg-cov{display:flex;flex-wrap:wrap;gap:9px}
@@ -11352,6 +11361,31 @@ function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
       within three days either side. Open the Retention tile to see the records themselves.
       This notice clears itself once they are closed on a reason that does not claim
       money taken in the office.</div>` : ""}
+
+    ${(a.locations && a.locations.length) ? `<div class="pg-loc">
+      <h6>What these locations did &mdash; same ${dEl} days last year</h6>
+      <p>Office totals for every agent who worked there, not ${esc((a.name || "").split(" ")[0])}'s
+         own numbers. People move between offices, so a prior year belongs to the location
+         rather than to whoever happens to sit there now.</p>
+      <table>
+        <thead><tr>
+          <th>Office</th><th class="n">Their lines</th><th class="n">Office now</th>
+          <th class="n">Office last year</th><th class="n">Change</th>
+        </tr></thead>
+        <tbody>${a.locations.map(L => {
+          const now = pgNum(L.office_now), was = pgNum(L.office_year_ago);
+          return `<tr>
+            <td>${esc(L.office || "\u2014")}</td>
+            <td class="n">${pgInt(L.agent_lines)}</td>
+            <td class="n">${money0(now)}</td>
+            <td class="n">${was === null ? "\u2014" : money0(was)}</td>
+            <td class="n">${(was === null || +was === 0 || now === null)
+                ? `<span class="pg-s">no prior year</span>`
+                : pctSpan((now - was) / Math.abs(was) * 100)}</td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table>
+    </div>` : ""}
     `}
   </div>`;
 }
