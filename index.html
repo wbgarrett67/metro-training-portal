@@ -11071,6 +11071,22 @@ const pgInt = v => { const n = pgNum(v); return n === null ? "—" : Math.round(
 const pgMin = v => { const n = pgNum(v); return n === null ? "—" : Math.round(n).toLocaleString("en-US") + " min"; };
 
 /* A per-day comparison, rendered only when both sides exist. */
+// Like-for-like. The agent chip compares the same calendar days rather than a
+// per-day rate: month-to-date against the same days of the prior month, and of the
+// month a year back. Directly comparable totals, so no rate has to be explained.
+// pgPace below is still used by the agency strip at the top of the page.
+function pgVs(nowTotal, thenTotal, days, daysInMonth, what){
+  const a = pgNum(nowTotal), b = pgNum(thenTotal);
+  if(a === null) return "";
+  const d = pgNum(days);
+  const label = (!d || (daysInMonth && d >= daysInMonth))
+    ? `${what}` : `same ${d} days ${what}`;
+  if(b === null || +b === 0)
+    return `<div class="pg-s">${esc(label)} — nothing recorded</div>`;
+  return `<div class="pg-s">${esc(label)} ${money0(b)} ${
+    pctSpan((a - +b) / Math.abs(+b) * 100)}</div>`;
+}
+
 function pgPace(nowTotal, nowDays, thenTotal, thenDays, label){
   const a = pgNum(nowTotal), b = pgNum(thenTotal);
   if(a === null || b === null || !nowDays || !thenDays || b === 0) return "";
@@ -11190,7 +11206,7 @@ function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
     // two buttons onto one thing.
     {metric:"fees", label:"Fees", state:(cov.fees||{}).state,
      value: money0(total),
-     sub: `${money0(perDay)} a day · ${pgInt(f.lines)} lines${
+     sub: `${pgInt(f.lines)} lines${
             pgNum(f.offices_worked) > 1 ? " · " + pgInt(f.offices_worked) + " offices" : ""}`
           + (pgNum(f.in_office) !== null || pgNum(f.by_phone) !== null
              ? `<div class="pg-s">${pgInt(f.in_office)} in office · ${
@@ -11201,8 +11217,8 @@ function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
                   pgNum(f.reinstatement) ? money0(f.reinstatement) + " reinstatement" : null,
                   pgNum(f.payment)       ? money0(f.payment)       + " payment"       : null
                 ].filter(Boolean).join(" · ")}</div>` : "")
-          + pgPace(total, dEl, f.prior_month, dPrev, "their last month")
-          + pgPace(total, dEl, f.year_ago, dYoy, "their last year")
+          + pgVs(total, f.prior_month_td, f.days_compared, dIn, "last month")
+          + pgVs(total, f.year_ago_td,    f.days_compared, dIn, "last year")
           + (pgNum(f.reversals) ? `<div class="pg-s">${pgInt(f.reversals)} reversal${
               pgNum(f.reversals)===1?"":"s"}</div>` : "")},
 
