@@ -7641,6 +7641,10 @@ function retDetail(){
   const phc = it.phone && typeof it.phone === "object" ? it.phone.confidence : null;
   const alts = (it.phone_alternates||[]).map(a => typeof a === "object" ? a.number : a).filter(Boolean);
   const closed = it.status === "closed";
+  /* A New record has never been touched, so an attempt log and a cross-sell box are
+     both noise there. Braden, 27 September: attempts belong in Working, and "what else
+     do they have" only applies once we have made contact. */
+  const isNew  = (it.status || "new") === "new";
   const list = retFocusList(), at = list.findIndex(r=>r.id===retSel);
 
   host.innerHTML = `
@@ -7684,39 +7688,6 @@ function retDetail(){
           it.days_left!==null&&it.days_left!==undefined?`<small> · ${it.days_left}d</small>`:""}</div></div>
         <div class="stat"><div class="k">To cure</div><div class="v" style="font-size:15px">${retMoney(it.amount_to_cure)}</div></div>
       </div></div>
-
-      <div class="rsec rsec-fact">
-        <span class="rsh">Who to call</span>
-        <div class="tsub">${ph
-          ? `${esc(ph)}${phc?` · ${esc(phc)} confidence, recovered from our own call recordings`:""}`
-          : "No number on the carrier notice, and none recovered from call recordings. Look this customer up in Agency Matrix."}</div>
-        ${alts.length?`<div class="tsub">Also seen: ${alts.map(a=>esc(a)).join(" · ")}</div>`:""}
-      </div>
-
-      ${!closed ? `
-      <div class="rsec rsec-do">
-        <span class="rsh">Log an attempt</span>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
-          ${RET_OUTCOME.map(([code,label])=>`
-            <button class="btn line sm" data-out="${code}" data-ch="phone">${esc(label)}</button>`).join("")}
-          <button class="btn line sm" data-out="texted" data-ch="text"
-                  title="Logs a contact attempt on the text channel">Texted</button>
-        </div>
-        <input id="retNote" placeholder="Anything worth remembering (optional)"
-               style="width:100%;margin-top:8px;padding:6px 9px;font-size:13px">
-      </div>` : ""}
-
-      <div class="rsec rsec-fact">
-        <span class="rsh">Attempts so far</span>
-        ${touches.length ? `<div>${touches.map(t=>`
-          <div class="ovw-feed"><div style="font-size:13.5px">${esc(RET_CHANNEL[t.channel]||t.channel||"")} · ${
-            esc(retOutcomeLabel(t.outcome))}${
-            t.notes?` — ${esc(t.notes)}`:""}</div>
-          <div class="tsub">${when(t.at)}</div></div>`).join("")}</div>`
-          : `<div class="tsub">Nothing logged yet.</div>`}
-      </div>
-
-      ${retXdatePanel(it, closed)}
 
       ${!closed ? `
       <div class="rsec rsec-end" style="margin-top:14px">
@@ -7809,6 +7780,41 @@ function retDetail(){
       </div>` : `<div class="tsub" style="margin-top:12px">Closed${
         it.disposition?` — ${esc((RET.dispositions||[]).find(d=>d.code===it.disposition)?.label||it.disposition)}`:""}${
         it.amount_collected?` · ${retMoney(it.amount_collected)} collected`:""}.</div>`}
+
+      <div class="rsec rsec-fact">
+        <span class="rsh">Who to call</span>
+        <div class="tsub">${ph
+          ? `${esc(ph)}${phc?` · ${esc(phc)} confidence, recovered from our own call recordings`:""}`
+          : "No number on the carrier notice, and none recovered from call recordings. Look this customer up in Agency Matrix."}</div>
+        ${alts.length?`<div class="tsub">Also seen: ${alts.map(a=>esc(a)).join(" · ")}</div>`:""}
+      </div>
+
+      ${!closed ? `
+      <div class="rsec rsec-do">
+        <span class="rsh">Log an attempt</span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${RET_OUTCOME.map(([code,label])=>`
+            <button class="btn line sm" data-out="${code}" data-ch="phone">${esc(label)}</button>`).join("")}
+          <button class="btn line sm" data-out="texted" data-ch="text"
+                  title="Logs a contact attempt on the text channel">Texted</button>
+        </div>
+        <input id="retNote" placeholder="Anything worth remembering (optional)"
+               style="width:100%;margin-top:8px;padding:6px 9px;font-size:13px">
+      </div>` : ""}
+
+      ${isNew ? "" : `
+      <div class="rsec rsec-fact">
+        <span class="rsh">Attempts so far</span>
+        ${touches.length ? `<div>${touches.map(t=>`
+          <div class="ovw-feed"><div style="font-size:13.5px">${esc(RET_CHANNEL[t.channel]||t.channel||"")} · ${
+            esc(retOutcomeLabel(t.outcome))}${
+            t.notes?` — ${esc(t.notes)}`:""}</div>
+          <div class="tsub">${when(t.at)}</div></div>`).join("")}</div>`
+          : `<div class="tsub">Nothing logged yet.</div>`}
+      </div>`}
+
+      ${isNew ? "" : retXdatePanel(it, closed)}
+
     </div>`;
 
   // The panel is a child of the table row on the list views. Without this, every click
