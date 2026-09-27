@@ -155,11 +155,16 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--navy-3);outline-
   border-radius:8px;border:1px solid transparent;background:transparent;color:var(--ink-3)}
 .subnav button:hover{background:var(--info-bg);color:var(--navy)}
 .subnav button.on{background:var(--info-bg);border-color:var(--line-2);color:var(--navy)}
+/* stretch, not start: every home tile in a row matches the tallest, so the Agent
+   Scorecard (which carries extra rows) no longer stands 94px proud of the others. */
 .htiles{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
-  align-items:start;margin-top:18px}
+  align-items:stretch;grid-auto-rows:1fr;margin-top:18px}
+/* flex column for the same reason as the agent tiles: a stretched <button> centres
+   its own content vertically, which would push a short tile's heading down the card. */
 .htile{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
   box-shadow:var(--shadow);overflow:hidden;text-align:left;width:100%;font:inherit;color:inherit;
-  cursor:pointer;padding:0;display:block}
+  cursor:pointer;padding:0;display:flex;flex-direction:column;align-items:stretch}
+.htile .hb{flex:1}
 .htile:hover{border-color:var(--navy-3)}
 .htile .hstripe{height:4px;background:var(--line-2)}
 .htile.s-bad .hstripe{background:var(--bad)}
