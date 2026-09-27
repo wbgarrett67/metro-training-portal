@@ -1006,7 +1006,7 @@ function forgetCode(){
 $("#signOut").addEventListener("click", ()=>{
   if(PREVIEW){ exitPreview(); return; }
   CODE=ME=STATE=MGR=null; selTrainee=null; lastAdded=null; MODE=null;
-  RET=null; retSel=null; retItem=null; retRes=null; retSub="today";
+  RET=null; retSel=null; retItem=null; retRes=null; retSub="new";
   retXd=null; retScore=null; retClosedLoaded=false; retFocus=false; retMsg=null; retSearch="";
   OVW=null; $("#ovwBtn").classList.add("hidden");
   CM=CMA=null; selCallAgent=null; cmSub="patterns"; cmScope="current"; cmDays=90; cmReturn=null; cmLens="all";
@@ -7076,12 +7076,16 @@ function renderManager(){
    5. ret_queue returns 'phone' as a STRING; ret_item returns 'phone' as an OBJECT
       {number, confidence, ...}. Same key, different shape, two different functions. */
 
-let RET=null, retSub="today", retSel=null, retItem=null, retRes=null,
+let RET=null, retSub="new", retSel=null, retItem=null, retRes=null,
     retView="all", retSearch="", retBusy=false, retXd=null, retScore=null,
     retClosedLoaded=false, retFocus=false, retMsg=null;
 
 function retHasAccess(){ return !!(RET && RET.scope && RET.scope.tab_visible); }
 function retManages(){ return !!(RET && RET.scope && RET.scope.access === "manage"); }
+/* Escalation is a handoff from an unlicensed worker to a licensed producer. To a licensed
+   worker it is noise, so the tab and the button are hidden rather than removed - hire an
+   unlicensed worker and the feature returns by itself. Braden, 27 September. */
+function retLicensed(){ return !!(RET && RET.scope && RET.scope.licensed); }
 const retMoney = v => (v===null||v===undefined) ? "—"
   : "$" + Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 const retPct = v => (v===null||v===undefined) ? "—" : `${Math.round(v*1000)/10}%`;
@@ -7089,13 +7093,15 @@ const retPct = v => (v===null||v===undefined) ? "—" : `${Math.round(v*1000)/10
 /* The five states this screen is built around. 'escalated' is a real status the server sets;
    it is separated out because a handed-off record is somebody else's work and leaving it in
    the working list makes the specialist's own number look worse than it is. */
-const RET_STATE = [
-  ["today",     "Today"],
+const RET_STATE_ALL = [
   ["new",       "New"],
   ["working",   "Working"],
   ["escalated", "Escalated"],
   ["closed",    "Closed"]
 ];
+/* Three categories, not five. "Today" was every open record in urgency order, which is
+   what New now is on its own, and Escalated only exists for an unlicensed worker. */
+const retStates = () => RET_STATE_ALL.filter(([k]) => k !== "escalated" || !retLicensed());
 
 /* Bound to ret_touch_log. 'right_party' is the string ret_dashboard and ret_scoreboard both
    count to compute the contact rate — the number the whole business case turns on. The first
@@ -7379,14 +7385,15 @@ function mgrRet(){
       Retention data could not be loaded: ${esc(RET.error)}</div></div>`;
     return;
   }
-  if(retSub==="report" && !retManages()) retSub = "today";
+  if(retSub==="report" && !retManages()) retSub = "new";
   // ret_xdate_pipeline is manage-only, so a worker landing here on leftover state would
   // throw rather than render. Capturing an x-date on a single record is still available
   // to them inside the detail panel; it is only the pipeline VIEW that is management.
-  if(retSub==="xdate" && !retManages()) retSub = "today";
+  if(retSub==="xdate" && !retManages()) retSub = "new";
+  // Leftover state from the five-tab version, or from before a licence was recorded.
+  if(retSub==="today" || (retSub==="escalated" && retLicensed())) retSub = "new";
 
   const counts = {
-    today:     (RET.open||[]).length,
     new:       retBucket("new").length,
     working:   retBucket("working").length,
     escalated: retBucket("escalated").length,
@@ -7398,7 +7405,7 @@ function mgrRet(){
     ${retMsg ? `<div class="card" style="border-left:3px solid var(--warn)">
       <b>That did not go through.</b><div class="tsub">${esc(retMsg)}</div></div>` : ""}
     <div class="tabs">
-      ${RET_STATE.map(([k,label])=>`<button class="tab ${retSub===k?"on":""}" data-retsub="${k}">${
+      ${retStates().map(([k,label])=>`<button class="tab ${retSub===k?"on":""}" data-retsub="${k}">${
         label}${counts[k] ? ` (${counts[k]})` : ""}</button>`).join("")}
       ${retManages()?`<button class="tab ${retSub==="xdate"?"on":""}" data-retsub="xdate">Cross-sell${
         retXd && retXd.totals && retXd.totals.due_in_window ? ` (${retXd.totals.due_in_window})` : ""}</button>`:""}
@@ -7414,7 +7421,7 @@ function mgrRet(){
     mgrRet();
   }));
 
-  ({today:retToday, new:retList, working:retList, escalated:retList,
+  ({new:retList, working:retList, escalated:retList,
     closed:retList, xdate:retXdates, report:retReport})[retSub]();
 }
 
@@ -7594,14 +7601,14 @@ function retList(){
    paid the carrier direct" was unreachable from the button people actually pressed.
    Ten reasons read as three decisions once they are grouped.
 
-   A record flagged licensed_required offers no save at all. Whether that policy was
-   rescued is not a call this person is licensed to make, and the hand-off row is the
-   honest route. */
+   A record flagged licensed_required offers no save to an UNLICENSED worker: whether that
+   policy was rescued is not a call they are licensed to make, and the hand-off row is the
+   honest route. A licensed worker rewrites it themselves, so they get the full list. */
 function retCloseGroups(it){
   const ds = RET.dispositions || [];
   return [
     {label:"We saved it",
-     items: (it && it.licensed_required) ? [] : ds.filter(d => d.is_save)},
+     items: (it && it.licensed_required && !retLicensed()) ? [] : ds.filter(d => d.is_save)},
     {label:"We called, and we lost it",
      items: ds.filter(d => !d.is_save && d.no_call !== true)}
   ];
@@ -7664,8 +7671,9 @@ function retDetail(){
       ${it.licensed_required ? `<div class="card" style="border-left:3px solid var(--warn);margin:10px 0">
         <b>No payment path on this record.</b>
         <div class="tsub">The carrier's own notice says payment will not reinstate this policy — it can
-        only be rewritten, which requires a licensed producer. An unlicensed specialist may research it
-        and hand it off, and nothing else.</div></div>` : ""}
+        only be rewritten, which requires a licensed producer.${retLicensed()
+          ? " You are licensed, so this is yours to rewrite."
+          : " An unlicensed specialist may research it and hand it off, and nothing else."}</div></div>` : ""}
 
       <div class="rsec rsec-fact">
         <span class="rsh">Dates and the amount to cure</span>
