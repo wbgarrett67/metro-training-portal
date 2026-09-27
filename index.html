@@ -694,8 +694,9 @@ button.pg-m > .pg-more{margin-top:auto;padding-top:7px}
    record ends. The alert cards keep their coloured left borders -- they are meant to
    interrupt, and would be lost if everything were tinted. */
 .rsec{border-radius:10px;padding:12px 14px;margin:10px 0;border:1px solid var(--line)}
-.rsec .rsh{display:block;font-size:11.5px;font-weight:700;letter-spacing:.06em;
-  text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+.rsec .rsh{display:block;font-size:14px;font-weight:800;letter-spacing:.04em;
+  text-transform:uppercase;color:var(--ink-2);margin-bottom:10px;
+  text-decoration:underline;text-decoration-thickness:1.5px;text-underline-offset:3px}
 /* Read-only context: recedes. */
 .rsec-fact{background:#fafbfd}
 /* Live work, done while the customer is on the line. */
@@ -7107,12 +7108,17 @@ const retStates = () => RET_STATE_ALL.filter(([k]) => k !== "escalated" || !retL
    count to compute the contact rate — the number the whole business case turns on. The first
    version offered "reached" through a prompt, which stores fine and counts as nothing. */
 const RET_OUTCOME = [
-  ["right_party",  "Spoke to them",  "done"],
-  ["voicemail",    "Voicemail",      "prog"],
-  ["no_answer",    "No answer",      "todo"],
-  ["callback_set", "Callback set",   "prog"],
-  ["wrong_number", "Wrong number",   "fail"]
+  ["right_party",  "Spoke with them",   "done"],
+  ["voicemail",    "Left a Voice Mail", "prog"],
+  ["wrong_number", "Wrong number",      "fail"]
 ];
+/* Every outcome that has ever been logged, so history still reads properly after
+   "No answer" and "Callback set" came off the buttons. Braden, 27 September. */
+const RET_OUTCOME_LABEL = {
+  right_party:"Spoke with them", voicemail:"Left a Voice Mail", wrong_number:"Wrong number",
+  no_answer:"No answer", callback_set:"Callback set", texted:"Texted",
+  promised_pay:"Will come in or pay later", contact_found:"Contact details found"
+};
 
 /* Bound to ret_escalate, which rejects anything outside this list. 'other_product' is the
    cross-sell handoff: the customer wants something we do not have on this record. */
@@ -7121,8 +7127,7 @@ const RET_OUTCOME = [
    already accepts the 'text' channel, so nothing changed server-side. */
 const RET_CHANNEL = {phone:"Call", text:"Text", email:"Email", walk_in:"Walk-in", system:"System"};
 
-const retOutcomeLabel = code =>
-  (RET_OUTCOME.find(o => o[0] === code) || [])[1] || (code === "texted" ? "Texted" : code) || "";
+const retOutcomeLabel = code => RET_OUTCOME_LABEL[code] || code || "";
 
 const RET_ESC_REASON = [
   ["rewrite_required",  "Needs a rewrite — licensed producer only"],
@@ -7651,8 +7656,9 @@ function retDetail(){
     <div class="card">
       <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
         <div>
-          <div class="tname" style="font-size:17px">${esc(it.insured_name||"—")}</div>
-          <div class="tsub">${esc(it.carrier_code||"")} · ${esc(it.policy_number||"")} · ${esc(it.location_key||"")}</div>
+          <div class="tname" style="font-size:22px;font-weight:800;line-height:1.2">${esc(it.insured_name||"—")}</div>
+          <div class="tsub" style="font-size:14px;font-weight:600;color:var(--ink-2);margin-top:2px">${
+            esc(it.carrier_code||"")} · ${esc(it.policy_number||"")} · ${esc(it.location_key||"")}</div>
           ${retFocus && at>=0 ? `<div class="tsub">Record ${at+1} of ${list.length}</div>` : ""}
         </div>
         <button class="btn line sm" id="retCloseP">${retFocus?"Back to the list":"Close panel"}</button>
@@ -7691,8 +7697,7 @@ function retDetail(){
 
       ${!closed ? `
       <div class="rsec rsec-end" style="margin-top:14px">
-        <span class="rsh">Finish this record</span>
-        <div class="tsub" style="margin-bottom:10px">A record only leaves the queue with a reason on it.</div>
+        <span class="rsh">After Matrix and Carrier Research</span>
 
         ${!(RET.dispositions||[]).length ? `
         <!-- Every closing option on this panel is built from ret_dispositions. If that list
@@ -7727,12 +7732,24 @@ function retDetail(){
              submitted by accident. -->
 
         <div style="margin-bottom:12px">
-          <div class="tsub" style="font-weight:600;margin-bottom:6px">
-            No call needed &mdash; Matrix already answered it</div>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             ${(RET.dispositions||[]).filter(d=>!d.is_save && d.no_call===true).map(d=>`
               <button class="btn line sm" data-shut="${esc(d.code)}"
                       title="Close this record: ${esc(d.label)}">${esc(d.label)}</button>`).join("")}
+          </div>
+          <!-- Too Old to Work is the one triage reason that books a win-back. The date is
+               pre-filled from the cancel date plus 5 1/2 months and the agent can change it
+               before the record closes. Braden, 27 September. -->
+          <div id="retOldWrap" style="display:none;margin-top:10px;padding:10px 12px;
+               border:1px solid var(--line);border-radius:8px;background:var(--card)">
+            <div class="tsub" style="margin-bottom:7px">Book the win-back for when their
+              policy elsewhere comes up for renewal.</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <input id="retOldDate" type="date" value="${esc(it.xdate_suggested||"")}"
+                     style="width:auto;padding:6px 9px;font-size:13px">
+              <button class="btn sm" id="retOldGo">Close and book it</button>
+              <button class="btn line sm" id="retOldNo">Cancel</button>
+            </div>
           </div>
         </div>
 
@@ -7791,22 +7808,57 @@ function retDetail(){
         it.disposition?` — ${esc((RET.dispositions||[]).find(d=>d.code===it.disposition)?.label||it.disposition)}`:""}${
         it.amount_collected?` · ${retMoney(it.amount_collected)} collected`:""}.</div>`}
 
+      ${(ph || it.found_phone || it.found_email) ? `
       <div class="rsec rsec-fact">
         <span class="rsh">Who to call</span>
-        <div class="tsub">${ph
-          ? `${esc(ph)}${phc?` · ${esc(phc)} confidence, recovered from our own call recordings`:""}`
-          : "No number on the carrier notice, and none recovered from call recordings. Look this customer up in Agency Matrix."}</div>
+        <div class="tsub">${(it.found_phone || ph)
+          ? `${esc(it.found_phone || ph)}${it.found_phone ? " · found during research"
+              : (phc?` · ${esc(phc)} confidence, recovered from our own call recordings`:"")}`
+          : ""}</div>
+        ${it.found_email?`<div class="tsub">${esc(it.found_email)}</div>`:""}
         ${alts.length?`<div class="tsub">Also seen: ${alts.map(a=>esc(a)).join(" · ")}</div>`:""}
-      </div>
+      </div>` : `
+      <!-- Nothing to call. The carrier notice carried no number and none was recovered from
+           our own recordings, so the section stops being a read-out and becomes the place to
+           put what the agent found in Matrix or at the carrier. Braden, 27 September. -->
+      <div class="rsec rsec-do">
+        <span class="rsh">No contact details</span>
+        <div class="tsub" style="margin-bottom:8px">Nothing on the carrier notice and nothing
+          in our call recordings. If you found a number or an email in Agency Matrix or at the
+          carrier, put it here and it stays with the customer.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input id="retFoundPhone" placeholder="Phone number"
+                 style="width:170px;padding:6px 9px;font-size:13px">
+          <input id="retFoundEmail" placeholder="Email address"
+                 style="width:230px;padding:6px 9px;font-size:13px">
+          <button class="btn sm" id="retFoundSave">Save</button>
+        </div>
+      </div>`}
 
       ${!closed ? `
       <div class="rsec rsec-do">
-        <span class="rsh">Log an attempt</span>
+        <span class="rsh">What Happened</span>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
-          ${RET_OUTCOME.map(([code,label])=>`
+          <!-- Spoke with them does not log on its own: reaching the customer is the moment
+               that decides the record, so it asks which of the two things happened. -->
+          <button class="btn line sm" id="retSpoke">Spoke with them</button>
+          ${RET_OUTCOME.filter(([c])=>c!=="right_party").map(([code,label])=>`
             <button class="btn line sm" data-out="${code}" data-ch="phone">${esc(label)}</button>`).join("")}
           <button class="btn line sm" data-out="texted" data-ch="text"
                   title="Logs a contact attempt on the text channel">Texted</button>
+        </div>
+
+        <div id="retSpokeWrap" style="display:none;margin-top:10px;padding:10px 12px;
+             border:1px solid var(--line);border-radius:8px;background:var(--card)">
+          <div class="tsub" style="margin-bottom:8px">What did they say?</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input id="retSaveAmt" type="number" step="0.01" min="0" placeholder="Amount taken"
+                   style="width:150px;padding:6px 9px;font-size:13px">
+            <button class="btn sm" id="retSavedIt">I saved it with a payment</button>
+            <button class="btn line sm" id="retPayLater">Client will come in or pay later</button>
+          </div>
+          <div class="tsub" style="margin-top:7px">A promise is not a payment &mdash; the second
+            one keeps the record in Working so somebody checks the money arrived.</div>
         </div>
         <input id="retNote" placeholder="Anything worth remembering (optional)"
                style="width:100%;margin-top:8px;padding:6px 9px;font-size:13px">
@@ -7901,8 +7953,46 @@ function retDetail(){
   });
 
   // One click, reason recorded, straight to the next record.
-  host.querySelectorAll("[data-shut]").forEach(btn=>btn.addEventListener("click", ()=>
-    retCloseAdvance({p_item:it.id, p_disposition:btn.dataset.shut, p_note:note()})));
+  host.querySelectorAll("[data-shut]").forEach(btn=>btn.addEventListener("click", ()=>{
+    // Too Old to Work is the one triage reason that books a win-back date, so it opens
+    // the date box instead of closing straight away.
+    if(btn.dataset.shut === "no_call_expired"){
+      const w = q("#retOldWrap"); if(w) w.style.display = "block";
+      return;
+    }
+    retCloseAdvance({p_item:it.id, p_disposition:btn.dataset.shut, p_note:note()});
+  }));
+
+  on("#retOldNo", ()=>{ const w=q("#retOldWrap"); if(w) w.style.display="none"; });
+  on("#retOldGo", ()=>{
+    const d = (q("#retOldDate")||{}).value;
+    if(!d){ retMsg="Pick the date to come back to them."; mgrRet(); return; }
+    retCloseAdvance({p_item:it.id, p_disposition:"no_call_expired", p_note:note(), p_xdate:d});
+  });
+
+  // Contact details found in Matrix or at the carrier.
+  on("#retFoundSave", ()=>{
+    const ph = (q("#retFoundPhone")||{}).value, em = (q("#retFoundEmail")||{}).value;
+    if(!(ph||"").trim() && !(em||"").trim()){
+      retMsg="Put in a phone number or an email address."; mgrRet(); return;
+    }
+    retDo("ret_contact_save", {p_item:it.id, p_phone:ph||null, p_email:em||null}, true);
+  });
+
+  // Spoke with them: two outcomes, and only one of them closes the record.
+  on("#retSpoke", ()=>{ const w=q("#retSpokeWrap"); if(w) w.style.display="block"; });
+  on("#retSavedIt", ()=>{
+    const amt = Number((q("#retSaveAmt")||{}).value);
+    if(!(amt > 0)){ retMsg="Put in the amount you took."; mgrRet(); return; }
+    // Already past its cancel date means the policy comes back rather than never leaving.
+    const gone = it.cancel_date && new Date(it.cancel_date) < new Date();
+    retCloseAdvance({p_item:it.id,
+      p_disposition: gone ? "paid_reinstated" : "paid_in_grace",
+      p_amount: amt, p_reinstated: !!gone, p_note: note()});
+  });
+  on("#retPayLater", ()=>
+    retDo("ret_touch_log", {p_item:it.id, p_channel:"phone", p_outcome:"promised_pay",
+                            p_notes: note() || "Will come in or pay later"}, true));
 
   retXdateWire(host, it);
 }
