@@ -340,8 +340,16 @@ tbody tr.clk:hover{background:#f8f9fc}
 .pg-b.none{background:#eef0f6;color:var(--ink-3)}
 .pg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:11px}
 .pg-m{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fff;min-width:0}
-.pg-m h5{margin:0 0 7px;font-size:10.5px;font-weight:700;color:var(--ink-3);text-transform:uppercase;
-  letter-spacing:.04em;display:flex;justify-content:space-between;align-items:center;gap:6px}
+/* The tile title. The underline goes on the LABEL, not the h5 -- text-decoration
+   propagates to descendants and a child cannot switch it off, so underlining the
+   h5 struck a rule under the confidence badge too.
+   The label does not wrap; if it and the badge cannot share a line the h5 wraps and
+   the badge drops beneath, which reads better than breaking CROSS-SELL in half. */
+.pg-m h5{margin:0 0 9px;font-size:13px;font-weight:800;color:var(--ink-2);text-transform:uppercase;
+  letter-spacing:.04em;display:flex;flex-wrap:wrap;justify-content:space-between;
+  align-items:center;gap:4px 6px}
+.pg-m h5 .pg-h{white-space:nowrap;text-decoration:underline;
+  text-decoration-thickness:1.5px;text-underline-offset:3px}
 .pg-v{font-size:19px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;line-height:1.15}
 .pg-s{font-size:11.5px;color:var(--ink-3);margin-top:4px;line-height:1.4}
 .pg-ag{margin-bottom:14px}
@@ -11303,7 +11311,7 @@ function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
           ? ` class="pg-m clk${on?" on":""}" data-pgm="${esc(t.metric)}" data-pgp="${esc(a.person_id)}"`
           : ` class="pg-m"`;
         return `<${tag}${attrs}>
-          <h5>${esc(t.label)} ${t.state ? pgBadge(t.state, "") : ""}</h5>
+          <h5><span class="pg-h">${esc(t.label)}</span>${t.state ? pgBadge(t.state, "") : ""}</h5>
           <div class="pg-v">${t.value}</div>
           <div class="pg-s">${t.sub}</div>
           ${t.metric ? `<div class="pg-more">${on ? "Hide detail ↑" : "See detail ↓"}</div>` : ""}
