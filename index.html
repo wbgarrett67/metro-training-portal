@@ -7521,11 +7521,24 @@ function retFilterHtml(blurb){
     </div>`;
 }
 
-function retTableHtml(rows, empty){
+/* A finished record and a live one do not want the same columns. Deadline, to-cure and
+   phone number are the whole point while an item is open and mean nothing once it is shut;
+   what was decided and how much was taken are the only things worth seeing afterwards, and
+   until now neither appeared anywhere except inside the record. Braden: "I cannot see the
+   detail on that unless I work one." */
+function retTableHtml(rows, empty, closedView){
   if(!rows.length) return `<div class="card"><div class="empty">${esc(empty)}</div></div>`;
+  const saves = closedView ? rows.filter(r=>r.is_save) : [];
+  const took  = saves.reduce((t,r)=> t + (+r.amount_collected || 0), 0);
   return `<div class="card" style="overflow-x:auto">
+      ${closedView ? `<div style="padding:10px 12px;border-bottom:1px solid var(--line-2)">
+        <span class="tsub">${rows.length} closed · <b>${saves.length}</b> save${
+          saves.length===1?"":"s"}${retManages() && took
+            ? ` · <b>${retMoney(took)}</b> collected` : ""}</span></div>` : ""}
       <table><thead><tr>
-        <th>Customer</th><th>Why</th><th>Deadline</th><th>To cure</th>
+        <th>Customer</th><th>Why</th>
+        ${closedView ? `<th>Outcome</th><th>Collected</th>`
+                     : `<th>Deadline</th><th>To cure</th>`}
         <th class="hide-sm">Contact</th><th class="hide-sm">Office</th><th>Attempts</th>
       </tr></thead><tbody>${rows.map(r=>{
         const d = r.days_left;
@@ -7540,8 +7553,16 @@ function retTableHtml(rows, empty){
               ${r.licensed_required
                 ? `<div class="tsub" style="color:var(--warn);font-weight:600">Licensed rewrite only</div>`
                 : `<div class="tsub">Payment cures it</div>`}</td>
+          ${closedView ? `
+          <td><div>${esc(r.disposition_label || "—")}</div>
+              ${r.closed_at ? `<div class="tsub">${sdate(String(r.closed_at).slice(0,10))}${
+                r.worked_by_name ? ` · ${esc(r.worked_by_name)}` : ""}</div>` : ""}</td>
+          <td>${r.is_save
+                ? `<b>${retMoney(r.amount_collected)}</b>`
+                : `<span class="tsub">not a save</span>`}</td>`
+          : `
           <td>${r.deadline_date?`<div>${sdate(r.deadline_date)}</div>`:"<div class='tsub'>—</div>"}<div>${urg}</div></td>
-          <td>${retMoney(r.amount_to_cure)}</td>
+          <td>${retMoney(r.amount_to_cure)}</td>`}
           <td class="hide-sm">${r.reachable
                 ? `<div style="font-size:15px;font-weight:600;white-space:nowrap">${
                     esc(retTel(r.phone))}</div><div class="tsub">${esc(r.phone_confidence||"")} confidence</div>`
@@ -7644,7 +7665,7 @@ function retList(){
 
   b.innerHTML = `
     ${retFilterHtml(blurb)}
-    ${retTableHtml(rows, empty)}
+    ${retTableHtml(rows, empty, retSub==="closed")}
     ${retSel && !rows.some(r=>r.id===retSel) ? `<div id="retDetail"></div>` : ""}`;
 
   retWireList(b);
