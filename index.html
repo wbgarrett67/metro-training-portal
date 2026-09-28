@@ -1008,7 +1008,7 @@ $("#signOut").addEventListener("click", ()=>{
   if(PREVIEW){ exitPreview(); return; }
   CODE=ME=STATE=MGR=null; selTrainee=null; lastAdded=null; MODE=null;
   RET=null; retSel=null; retItem=null; retRes=null; retSub="new";
-  retXd=null; retScore=null; retClosedLoaded=false; retFocus=false; retMsg=null; retSearch="";
+  retXd=null; retScore=null; retIncr=null; retClosedLoaded=false; retFocus=false; retMsg=null; retSearch="";
   OVW=null; $("#ovwBtn").classList.add("hidden");
   CM=CMA=null; selCallAgent=null; cmSub="patterns"; cmScope="current"; cmDays=90; cmReturn=null; cmLens="all";
   openMods.clear(); openTracks=null; location.hash=""; forgetCode();
@@ -7125,7 +7125,7 @@ function renderManager(){
       {number, confidence, ...}. Same key, different shape, two different functions. */
 
 let RET=null, retSub="new", retSel=null, retItem=null, retRes=null,
-    retView="all", retSearch="", retBusy=false, retXd=null, retScore=null,
+    retView="all", retSearch="", retBusy=false, retXd=null, retScore=null, retIncr=null,
     retClosedLoaded=false, retFocus=false, retMsg=null;
 
 function retHasAccess(){ return !!(RET && RET.scope && RET.scope.tab_visible); }
@@ -7264,6 +7264,10 @@ async function retReload(){
   if(retManages()){
     RET.dash = await rpc("ret_dashboard",{p_code:CODE, p_from:null, p_to:null});
     if(retSub==="report" || retScore) retScore = await rpc("ret_scoreboard",{p_code:CODE});
+    if(retSub==="report" || retIncr){
+      try{ retIncr = await rpc("ret_incrementality",{p_code:CODE}); }
+      catch(e){ retIncr = {error:String(e.message||e)}; }
+    }
   }
 }
 
@@ -7479,7 +7483,7 @@ function mgrRet(){
     retSub=b.dataset.retsub; retSel=null; retItem=null; retRes=null; retFocus=false; retMsg=null;
     if(retSub==="closed" && !retClosedLoaded) await retReload();
     if(retSub==="xdate" && !retXd) await retReload();
-    if(retSub==="report" && !retScore) await retReload();
+    if(retSub==="report" && (!retScore || !retIncr)) await retReload();
     mgrRet();
   }));
 
@@ -8179,7 +8183,7 @@ function retReport(){
         : `<div class="empty">${esc(empty)}</div>`}
     </div>`;
 
-  b.innerHTML = retScoreboard(s) +
+  b.innerHTML = retScoreboard(s) + retCohorts() +
 
     // "Triaged" is screening work: the record was looked up in Agency Matrix and correctly
     // needed no call. It is shown beside Worked rather than folded into it, because the
@@ -8245,6 +8249,93 @@ function retReport(){
 /* The scoreboard exists because the queue view cannot answer the only question that matters
    before the hire: is this working. Every model figure is read from ret_setting, so when the
    first sixty days replace the estimates nothing here is rebuilt. */
+/* Braden's question, 28 September: are we paying staff to chase people who would have paid
+   anyway, and how much of the queue is too stale to say?
+
+   This panel deliberately REFUSES to answer it, and shows why. The tempting comparison --
+   33% save rate on worked items against 1.7% on untouched ones -- is invalid three times over,
+   and the three reasons are printed on the panel rather than left for someone to rediscover.
+   What it does show is the cohort structure, the one piece of real evidence for the theory
+   (37 customers nobody rang who paid regardless), and the date the verdict stops being
+   guesswork. */
+function retCohorts(){
+  const d = retIncr;
+  if(!d) return "";
+  if(d.error) return `<div class="card"><div class="empty">Cohort view unavailable: ${esc(d.error)}</div></div>`;
+  const worked = (d.cohorts||[]).find(c=>c.worked===true) || {};
+  const untouched = (d.cohorts||[]).find(c=>c.worked===false) || {};
+  const np = d.paid_with_no_contact || {};
+  const ot = d.outcome_tracking || {};
+  const pctSave = c => (c.closed ? (100*(c.saves||0)/c.closed).toFixed(1)+"%" : "—");
+
+  return `<div class="card" style="margin-bottom:16px">
+    <div style="font-weight:700;margin-bottom:4px">Would they have paid anyway?</div>
+    <div class="tsub" style="margin-bottom:10px">The question behind the whole business case.
+      It cannot be answered from the figures below, and the reasons matter more than the
+      figures do.</div>
+
+    <table class="fin-t"><thead><tr>
+      <th>Cohort</th><th class="n">Items</th><th class="n">Closed</th><th class="n">Saves</th>
+      <th class="n">Save rate</th><th class="n">Paid anyway</th>
+      <th class="n">No outcome</th><th class="n">Avg age at close</th>
+    </tr></thead><tbody>
+      <tr><td><b>Somebody worked it</b></td>
+        <td class="n">${worked.items??0}</td><td class="n">${worked.closed??0}</td>
+        <td class="n">${worked.saves??0}</td><td class="n"><b>${pctSave(worked)}</b></td>
+        <td class="n">${worked.already_paid??0}</td>
+        <td class="n">${worked.too_old_no_outcome??0}</td>
+        <td class="n">${worked.avg_age_at_close??"—"}d</td></tr>
+      <tr><td><b>Nobody ever touched it</b></td>
+        <td class="n">${untouched.items??0}</td><td class="n">${untouched.closed??0}</td>
+        <td class="n">${untouched.saves??0}</td><td class="n"><b>${pctSave(untouched)}</b></td>
+        <td class="n">${untouched.already_paid??0}</td>
+        <td class="n">${untouched.too_old_no_outcome??0}</td>
+        <td class="n">${untouched.avg_age_at_close??"—"}d</td></tr>
+    </tbody></table>
+
+    <div class="fin-note" style="margin-top:10px"><b>Do not read those two save rates as a
+      result.</b> Three faults, any one of which is fatal:
+      <b>(1) Selection</b> — agents chose the fresh, reachable, valuable records; the untouched
+      pile is what was left over.
+      <b>(2) Circularity</b> — "save" is a disposition only someone who worked the item can
+      apply, so an untouched item essentially cannot be recorded as one whatever the customer did.
+      <b>(3) No outcome</b> — ${untouched.too_old_no_outcome??0} untouched items were closed
+      "Too Old to Work" without anybody checking whether the policy survived.</div>
+
+    <div class="grid-stats" style="margin-top:12px">
+      <div class="stat"><div class="k">Paid with nobody chasing</div>
+        <div class="v">${np.items??0}</div>
+        <div class="tsub">closed ${np.avg_days_notice_to_close??"—"} days after notice,
+          ${retMoney(np.cure_at_stake)} at stake</div></div>
+      <div class="stat"><div class="k">Never touched by a person</div>
+        <div class="v">${untouched.items??0}<small> of ${(worked.items||0)+(untouched.items||0)}</small></div>
+        <div class="tsub">a bigger control group than any holdout would give</div></div>
+      <div class="stat"><div class="k">Outcome trackable</div>
+        <div class="v">${ot.matchable??0}<small> of ${ot.items??0}</small></div>
+        <div class="tsub">policies that match a commission statement line</div></div>
+      <div class="stat"><div class="k">Outcome observed</div>
+        <div class="v" style="color:var(--warn)">${ot.observed_after_notice??0}</div>
+        <div class="tsub">waiting on a statement after the notice</div></div>
+    </div>
+
+    <div class="fin-note" style="margin-top:10px"><b>The one honest piece of evidence here is
+      the ${np.items??0} customers nobody rang who paid anyway</b>, an average of
+      ${np.avg_days_notice_to_close??"—"} days after the notice. That is the theory made visible.
+      It is not proof — "already paid" is a judgement made from Agency Matrix, not an
+      observation of cause — but it is the group the theory predicts, and it is larger than the
+      entire worked cohort.</div>
+
+    <div class="fin-note" style="margin-top:8px"><b>When this stops being guesswork:</b>
+      ${esc(d.why_not_yet||"")} No experiment is needed and no customer is inconvenienced —
+      the control group already exists, it simply has never been looked up.
+      ${(d.carrier_trackability||[]).filter(c=>c.matchable===0).length
+        ? `<br><b>Blind carriers:</b> ${(d.carrier_trackability||[]).filter(c=>c.matchable===0)
+            .map(c=>`${esc(c.carrier_code)} (${c.items})`).join(", ")} publish no policy number
+            this can join to, so those items can never be followed. Worth fixing before the
+            October statements land.` : ""}</div>
+  </div>`;
+}
+
 function retScoreboard(s){
   if(!s) return "";
   const o = s.observed||{}, m = s.model||{}, vd = s.verdict||{}, x = s.xdates||{};
@@ -8282,14 +8373,46 @@ function retScoreboard(s){
         <div class="stat"><div class="k">Renewal dates captured</div>
           <div class="v">${x.captured??0}${x.per_close!=null?`<small> · ${x.per_close} per close</small>`:""}</div></div>
       </div>
+      ${retBreakevenRange(s)}
       <div class="tsub" style="margin-top:10px">
-        Breakeven is ${m.breakeven_saves} incremental saves a month at ${retMoney(m.value_per_save)} each,
-        after the ${retPct(m.incrementality)} incrementality discount for customers who would have
-        come back on their own. <b>Cross-sell is not in that arithmetic</b> — the feasibility model
-        listed it as upside it deliberately did not count. The ${x.captured??0} renewal date${
-        (x.captured??0)===1?"":"s"} captured so far ${(x.captured??0)===0?"are":"are"} the beginning of
-        the number that would let it be counted.</div>
+        Breakeven is ${m.breakeven_saves} incremental saves a month at ${retMoney(m.value_per_save)} each.
+        <b>Cross-sell is not in that arithmetic</b> — the feasibility model listed it as upside it
+        deliberately did not count. The ${x.captured??0} renewal date${
+        (x.captured??0)===1?"":"s"} captured so far are the beginning of the number that would let
+        it be counted. <b>Nor is there any term for the cost of being a nuisance</b> — nothing here
+        measures a customer who leaves BECAUSE we chased them. That is not zero; it is unmeasured.</div>
     </div>`;
+}
+
+/* The single most important thing this panel used to get wrong. It multiplied saves by an
+   incrementality of 0.75 -- "how many of these would not have come back on their own" -- and
+   presented the product as a finding. That figure has never been measured at Metro. It is the
+   question, asserted as an answer.
+
+   Showing the range instead makes the dependency visible: if the honest value is 0.20 rather
+   than 0.75, the verdict moves nearly fourfold. Today every row is far below breakeven, so the
+   assumption changes nothing that matters -- which is itself worth seeing plainly. */
+function retBreakevenRange(s){
+  const rows = (s && s.breakeven_range) || [], m = (s && s.model) || {};
+  if(!rows.length) return "";
+  return `<div style="margin-top:12px;padding:10px 12px;border:1px solid var(--line-2);border-radius:8px">
+    <div style="font-weight:600;margin-bottom:4px">How much of this rests on an assumption</div>
+    <div class="tsub" style="margin-bottom:8px">Incrementality is the share of saves that would
+      NOT have paid anyway. It has never been measured here — the model assumed
+      ${retPct(m.incrementality)}. Until it is measured, the honest reading is the whole row.</div>
+    <table class="fin-t"><thead><tr>
+      <th>If incrementality is…</th><th class="n">Incremental saves/mo</th>
+      <th class="n">Value/mo</th><th class="n">Of breakeven</th>
+    </tr></thead><tbody>${rows.map(r=>{
+      const assumed = Math.abs((+r.incrementality) - (+m.incrementality)) < 0.001;
+      const p = r.pct_of_breakeven;
+      return `<tr${assumed?` style="background:rgba(0,0,0,.04)"`:""}>
+        <td>${retPct(r.incrementality)}${assumed?` <span class="tsub">— what the model assumed</span>`:""}</td>
+        <td class="n">${r.incremental_saves_per_month}</td>
+        <td class="n">${retMoney(r.value_per_month)}</td>
+        <td class="n">${p==null?"—":`<span class="pill ${p>=100?"done":p>=60?"prog":"fail"}">${p}%</span>`}</td>
+      </tr>`;}).join("")}</tbody></table>
+  </div>`;
 }
 
 function mgrRoster(){
