@@ -3549,11 +3549,29 @@ function finTrust(){
   // Reported (what the engine said) against live (what actually loaded). These must agree
   // on amount. Counts can differ where batch carriers were deliberately aggregated, so a
   // count difference is annotated rather than flagged - only a money difference is a fault.
-  const checks = ["draft_no_receipt","receipt_no_draft","credit_card"].map(k=>{
-    const r = rep[k]||{}, l = live[k]||{};
-    const ra = Math.round((+r.amount||0)*100), la = Math.round((+l.amount||0)*100);
-    return {k, rc:+r.count||0, lc:+l.count||0, ra:ra/100, la:la/100, ok: ra===la};
-  });
+  //
+  // COMPARE BY SIDE FAMILY, NOT BY KEY NAME. The engine reports FOUR buckets: each side is
+  // split into carriers that have a lag rule and carriers that have none (draft_no_rule,
+  // receipt_no_rule). It emits no credit_card key at all - on the loaded side a card receipt
+  // is a subdivision of the receipt side, not a category of its own. Matching key-for-key
+  // therefore compared 4 engine buckets against 3 loaded ones and reported a permanent
+  // false "Off", including "engine says $0.00" against a key that never existed.
+  const eAmt = k => +((rep[k]||{}).amount)||0, eCnt = k => +((rep[k]||{}).count)||0;
+  const lAmt = k => +((live[k]||{}).amount)||0, lCnt = k => +((live[k]||{}).count)||0;
+  const cents = n => Math.round(n*100);
+  const cardAmt = lAmt("credit_card"), cardCnt = lCnt("credit_card");
+  const checks = [
+    { label: TRUST_SIDE.draft_no_receipt[0],
+      note:  "engine splits this by whether the carrier has a lag rule; both halves counted here",
+      rc: eCnt("draft_no_receipt") + eCnt("draft_no_rule"),
+      ra: eAmt("draft_no_receipt") + eAmt("draft_no_rule"),
+      lc: lCnt("draft_no_receipt"), la: lAmt("draft_no_receipt") },
+    { label: TRUST_SIDE.receipt_no_draft[0] + " (card receipts included)",
+      note:  "a card receipt is part of this side, not a separate engine bucket",
+      rc: eCnt("receipt_no_draft") + eCnt("receipt_no_rule"),
+      ra: eAmt("receipt_no_draft") + eAmt("receipt_no_rule"),
+      lc: lCnt("receipt_no_draft") + cardCnt, la: lAmt("receipt_no_draft") + cardAmt }
+  ].map(c => Object.assign(c, { ok: cents(c.ra) === cents(c.la) }));
   const allTie = checks.every(c=>c.ok);
 
   el.innerHTML = `
@@ -3583,7 +3601,7 @@ function finTrust(){
         <th>Category</th><th class="n">Engine</th><th class="n">Loaded</th>
         <th class="n">Amount</th><th></th></tr></thead><tbody>
         ${checks.map(c=>`<tr>
-          <td>${esc(TRUST_SIDE[c.k][0])}</td>
+          <td>${esc(c.label)}<div class="tsub">${esc(c.note)}</div></td>
           <td class="n">${c.rc}</td>
           <td class="n">${c.lc}${c.lc!==c.rc
             ? ` <span class="tsub">(${c.rc-c.lc} folded into carrier totals)</span>`:""}</td>
@@ -3592,6 +3610,11 @@ function finTrust(){
                    :`<span class="pill fail">engine says ${esc(tmoney(c.ra))}</span>`}</td>
         </tr>`).join("")}
       </tbody></table>
+      ${cardCnt?`<div class="fin-note" style="margin-top:12px">
+        <b>Of the receipt side, ${esc(tmoney(cardAmt))} is card receipts</b>
+        (${cardCnt}) — premium taken on a card and sitting in Clearing, not yet remitted.
+        The engine counts these inside the receipt side; they are broken out here because
+        they are chased differently.</div>`:""}
       <div class="fin-note" style="margin-top:12px">
         <b>Recorded on the run but not loaded as working items.</b>
         <b>Not yet due</b> ${esc(tmoney((rep.not_due_yet||{}).amount))}
