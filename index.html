@@ -8799,15 +8799,38 @@ const HLTH_WHO   = {auto:"Arrives on its own", braden:"You run it", belinda:"Bel
 function hlthRow(r){
   return `<tr>
     <td><b>${esc(r.label)}</b>${r.note ? `<div class="tsub">${esc(r.note)}</div>` : ""}</td>
-    <td class="hide-sm"><span class="tsub">${esc(r.source)}</span></td>
     <td class="hide-sm"><span class="tsub">${esc(HLTH_CAD[r.cadence] || r.cadence)}</span></td>
     <td class="n">${r.last_data ? esc(String(r.last_data).slice(5)) : "—"}</td>
     <td><span class="pill ${HLTH_PILL[r.status] || "todo"}">${
       esc(HLTH_LABEL[r.status] || r.status)}</span></td>
-    <td><button class="btn line sm" data-hlth="${esc(r.key)}">How</button></td>
+    <td><button class="btn line sm" data-hlth="${esc(r.key)}">Details</button></td>
   </tr>
-  ${hlthOpen.has(r.key) && r.how ? `<tr><td colspan="6" style="background:#f7f8fc">
-     <div class="fin-note" style="margin:6px 2px 10px">${esc(r.how)}</div></td></tr>` : ""}`;
+  ${hlthOpen.has(r.key) && (r.how || hlthNeeded(r.key)) ? `<tr><td colspan="5" style="background:#f7f8fc">
+     <div class="fin-note" style="margin:6px 2px 10px">${esc(r.how || "")}</div>
+     ${hlthNeeded(r.key)}</td></tr>` : ""}`;
+}
+
+/* A fan-in row cannot say what is owed in one date. Carrier Commission Reports stands for
+   fifteen carriers, so its expansion names the carrier and the month rather than repeating
+   the row's own "loaded through July" -- which tells you nothing about WHICH July. Returns ""
+   for every other feed, where the static how-to is the whole answer. */
+function hlthNeeded(key){
+  if(key !== "carrier_commission") return "";
+  const owed = ((HEALTH && HEALTH.carriers) || []).filter(c => c.kind === "routed" && c.needed);
+  if(!owed.length) return `<div class="fin-note" style="margin:0 2px 10px">Every carrier with
+    a statement route has filed for the expected month.</div>`;
+  return `<div style="margin:0 2px 12px">
+    <div class="tsub" style="margin-bottom:6px"><b>Still owed, carrier by carrier</b></div>
+    <table class="fin-t"><thead><tr>
+      <th>Carrier</th><th>Month needed</th><th class="n hide-sm">Last filed</th>
+    </tr></thead><tbody>${owed.map(c=>`<tr>
+      <td><b>${esc(c.name)}</b></td>
+      <td>${esc(c.needed)}</td>
+      <td class="n hide-sm">${c.last_cov ? esc(String(c.last_cov).slice(0,7)) : "never"}</td>
+    </tr>`).join("")}</tbody></table>
+    <div class="tsub" style="margin-top:6px">Drop each into OneDrive &gt; 2026 Commission
+      Reports &gt; the matching month folder.</div>
+  </div>`;
 }
 
 let hlthOpen = new Set();
@@ -8844,7 +8867,7 @@ function hlthCarriers(){
 
   return `<div class="card fin-pad" style="margin-bottom:16px">
     <b>Which carriers are missing</b>
-    <div class="tsub" style="margin-bottom:10px">Monthly commission statements is one row in
+    <div class="tsub" style="margin-bottom:10px">Carrier Commission Reports is one row in
       the list above, but it stands for ${all.length - unrouted.length} active carriers. That
       row now follows whichever of them is furthest behind — before, one carrier filing was
       enough to paint the whole row green.</div>
@@ -8918,7 +8941,7 @@ function mgrHealth(){
     ${todo.length ? `<div class="card fin-pad" style="margin-bottom:16px">
       <b>Run these</b>
       <table class="fin-t" style="margin-top:10px"><thead><tr>
-        <th>Report</th><th class="hide-sm">Source</th><th class="hide-sm">How often</th>
+        <th>Report</th><th class="hide-sm">How often</th>
         <th class="n">Loaded thru</th><th>Status</th><th></th></tr></thead>
         <tbody>${todo.map(hlthRow).join("")}</tbody></table>
       </div>` : `<div class="card fin-pad" style="margin-bottom:16px">
@@ -8933,7 +8956,7 @@ function mgrHealth(){
         quiet the Portal keeps showing the last thing it was told, which looks identical to
         a quiet week.</div>
       <table class="fin-t"><thead><tr>
-        <th>Report</th><th class="hide-sm">Source</th><th class="hide-sm">How often</th>
+        <th>Report</th><th class="hide-sm">How often</th>
         <th class="n">Loaded thru</th><th>Status</th><th></th></tr></thead>
         <tbody>${mine.map(hlthRow).join("")}</tbody></table>
     </div>
@@ -8944,7 +8967,7 @@ function mgrHealth(){
         without anyone acting. Worth watching anyway — a feed that stops arriving is
         silent by definition.</div>
       <table class="fin-t"><thead><tr>
-        <th>Report</th><th class="hide-sm">Source</th><th class="hide-sm">How often</th>
+        <th>Report</th><th class="hide-sm">How often</th>
         <th class="n">Loaded thru</th><th>Status</th><th></th></tr></thead>
         <tbody>${auto.map(hlthRow).join("")}</tbody></table>
     </div>
@@ -8954,7 +8977,7 @@ function mgrHealth(){
       <div class="tsub" style="margin-bottom:10px">These are not late. They have never
         existed, so running something will not produce them — each one is a piece of work.</div>
       <table class="fin-t"><thead><tr>
-        <th>Report</th><th class="hide-sm">Source</th><th class="hide-sm">How often</th>
+        <th>Report</th><th class="hide-sm">How often</th>
         <th class="n">Loaded thru</th><th>Status</th><th></th></tr></thead>
         <tbody>${missing.map(hlthRow).join("")}</tbody></table>
     </div>` : ""}
