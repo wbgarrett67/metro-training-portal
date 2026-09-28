@@ -1814,7 +1814,19 @@ const MGR_NAV = [
 
   {key:"marketing", label:"Marketing Programs", show:()=>finHasFin(), items:[
     {tab:"partners",            label:"Referral partners"},
-    {tab:"fin", sub:"programs", label:"Programs"}]}
+    {tab:"fin", sub:"programs", label:"Programs"}]},
+
+  /* Portal Health, added 28 September 2026. Every other category answers a question about
+     the BUSINESS. This one answers a question about the PORTAL: is what you are looking at
+     actually current, and if not, whose job is it to fix that. Braden asked for a punch list
+     of reports rather than a calendar reminder, on the grounds that a reminder fires whether
+     or not the report is needed, and this can tell the difference.
+     Gated on trust_access, not financial_access: the people who run the reports are Braden
+     and Belinda, and the list names bank accounts and carrier routes. */
+  {key:"health", label:"Portal Health", show:()=>finHasTrust(), items:[
+    {tab:"health", label:"Report punch list",
+     badge:()=>HEALTH && HEALTH.rows
+       ? HEALTH.rows.filter(r=>r.status==="late"||r.status==="due").length : 0}]}
 ];
 
 /* Data coverage is not a business category -- its only job is saying when a feed went
@@ -1837,6 +1849,7 @@ function navFind(tab, sub){
 /* Everything a destination needs loaded before it can draw. This used to live in two
    places -- the manager tab strip and the Revenue sub-tab strip -- and is now in one. */
 async function navLoad(it){
+  if(it.tab === "health"   && !HEALTH) await loadHealth();
   if(it.tab === "content"  && !CAT) await loadCatalog();
   if(it.tab === "ce"       && !CE)  await loadCE();
   if(it.tab === "calls"    && !CM)  await loadCallMonitor();
@@ -6159,7 +6172,8 @@ const FB_SUBJECTS = [
 ];
 const MGR_TAB_NAMES = {roster:"Roster", ce:"Licensing & CE", content:"Content editor",
   tracks:"Track catalog", calls:"Call monitoring", activity:"Activity",
-  add:"Add an agent", feedback:"Feedback", partners:"Referral partners", tips:"Tips"};
+  add:"Add an agent", feedback:"Feedback", partners:"Referral partners", tips:"Tips",
+  health:"Portal Health"};
 
 // Set whenever a module is opened, so the dialog can answer "where were you" without
 // the agent having to describe it. Pre-filled, and editable, because a guess that is
@@ -7069,7 +7083,7 @@ function renderManager(){
   ({home:mgrHome, roster:mgrRoster, ce:mgrCE, content:mgrContent, tracks:mgrTracks,
     activity:mgrActivity, add:mgrAdd, calls:mgrCall, feedback:mgrFeedback,
     partners:mgrPartners, tips:mgrTips, fin:mgrFin, ret:mgrRet,
-    progress:mgrProgress})[mgrTab]();
+    health:mgrHealth, progress:mgrProgress})[mgrTab]();
 }
 
 /* ================= Retention =================
@@ -8729,6 +8743,143 @@ function pnBase(){
 function pnList(){
   const ps = pnBase();
   return pnCat ? ps.filter(p=>p.category === pnCat) : ps;
+}
+
+/* ================= Portal Health =================
+   Added 28 September 2026 at Braden's request. He asked first for a spreadsheet of every
+   report and how often it has to be run, then for a calendar reminder. A reminder fires on
+   a schedule whether or not anything is actually needed, and a spreadsheet is stale the
+   moment it is saved. This asks the database instead: for every feed the Portal depends on,
+   what is the newest data actually loaded, and what SHOULD be loaded by now.
+
+   The cadence and the owner of each feed live in the health_feed table, not in this file,
+   so Braden can change "daily" to "weekly" without a deploy. health_feeds() computes the
+   expected-through date off the real calendar - Matrix reports are expected for every day
+   the offices trade (Mon-Sat), bank pulls only for banking days (Mon-Fri), because
+   BancFirst posts weekend items on the next business day. That distinction is the whole
+   reason a naive "it has been 2 days" check would cry wolf every Monday.
+
+   MISSING IS NOT LATE. Two feeds have never existed at all - the non-auto quoting report
+   and the missed-call log. They are shown apart from the punch list, because no amount of
+   running reports will fix them; they have to be built. */
+let HEALTH = null;
+
+async function loadHealth(){
+  try{ HEALTH = {rows: await rpc("health_feeds",{p_code:CODE})}; }
+  catch(e){ HEALTH = {error:e.message, rows:[]}; }
+}
+
+const HLTH_PILL  = {ok:"done", due:"prog", late:"fail", missing:"todo", ondemand:"done"};
+const HLTH_LABEL = {ok:"Current", due:"Due", late:"Late", missing:"Never built",
+                    ondemand:"On demand"};
+const HLTH_CAD   = {daily_msat:"Every trading day (Mon–Sat)", daily_mf:"Every banking day (Mon–Fri)",
+                    monthly:"Monthly, after month end", continuous:"Arrives continuously",
+                    on_demand:"No schedule"};
+const HLTH_WHO   = {auto:"Arrives on its own", braden:"You run it", belinda:"Belinda runs it"};
+
+function hlthRow(r){
+  return `<tr>
+    <td><b>${esc(r.label)}</b>${r.note ? `<div class="tsub">${esc(r.note)}</div>` : ""}</td>
+    <td class="hide-sm"><span class="tsub">${esc(r.source)}</span></td>
+    <td class="hide-sm"><span class="tsub">${esc(HLTH_CAD[r.cadence] || r.cadence)}</span></td>
+    <td class="n">${r.last_data ? esc(String(r.last_data).slice(5)) : "—"}</td>
+    <td><span class="pill ${HLTH_PILL[r.status] || "todo"}">${
+      esc(HLTH_LABEL[r.status] || r.status)}</span></td>
+    <td><button class="btn line sm" data-hlth="${esc(r.key)}">How</button></td>
+  </tr>
+  ${hlthOpen.has(r.key) && r.how ? `<tr><td colspan="6" style="background:#f7f8fc">
+     <div class="fin-note" style="margin:6px 2px 10px">${esc(r.how)}</div></td></tr>` : ""}`;
+}
+
+let hlthOpen = new Set();
+
+function mgrHealth(){
+  const body = $("#mgrBody");
+  if(!HEALTH){ body.innerHTML = `<div class="card fin-pad"><div class="empty">Loading…</div></div>`; return; }
+  if(HEALTH.error){
+    body.innerHTML = `<div class="card fin-pad"><div class="empty">${esc(HEALTH.error)}</div></div>`; return; }
+
+  const rows = HEALTH.rows || [];
+  const todo    = rows.filter(r=>r.status==="late" || r.status==="due");
+  const missing = rows.filter(r=>r.status==="missing");
+  const fine    = rows.filter(r=>r.status==="ok" || r.status==="ondemand");
+  const mine    = rows.filter(r=>r.who!=="auto" && r.status!=="missing");
+  const auto    = rows.filter(r=>r.who==="auto"  && r.status!=="missing");
+  const worst   = todo.slice().sort((a,b)=>(+b.days_behind||0)-(+a.days_behind||0))[0];
+
+  body.innerHTML = `
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">Portal Health</p>
+      <p class="fin-sub2">Every feed the Portal runs on, what is actually loaded, and what
+        should be by now. Cadences live in the database, not on this page — change one and
+        this answer changes with it. A Matrix report is expected for every day the offices
+        trade; a bank pull only for banking days, because BancFirst posts weekend items on
+        the next business day.</p>
+    </div>
+
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Needs running</div>
+        <div class="v" style="color:${todo.length?"var(--bad)":"var(--ok)"}">${todo.length}</div>
+        <div class="tsub">${todo.length ? esc(worst.label) + " is furthest behind"
+                                        : "nothing is behind"}</div></div>
+      <div class="stat"><div class="k">Current</div>
+        <div class="v" style="color:var(--ok)">${fine.length}</div>
+        <div class="tsub">of ${rows.length} feeds</div></div>
+      <div class="stat"><div class="k">Never built</div>
+        <div class="v" style="${missing.length?"color:var(--warn)":""}">${missing.length}</div>
+        <div class="tsub">no report will fix these</div></div>
+      <div class="stat"><div class="k">Checked</div>
+        <div class="v" style="font-size:22px">just now</div>
+        <div class="tsub">read live, never cached</div></div>
+    </div>
+
+    ${todo.length ? `<div class="card fin-pad" style="margin-bottom:16px">
+      <b>Run these</b>
+      <table class="fin-t" style="margin-top:10px"><thead><tr>
+        <th>Report</th><th class="hide-sm">Source</th><th class="hide-sm">How often</th>
+        <th class="n">Loaded thru</th><th>Status</th><th></th></tr></thead>
+        <tbody>${todo.map(hlthRow).join("")}</tbody></table>
+      </div>` : `<div class="card fin-pad" style="margin-bottom:16px">
+      <div class="empty">Nothing is behind. Every feed with a schedule is loaded through the
+        day it should be.</div></div>`}
+
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <b>You run these</b>
+      <div class="tsub" style="margin-bottom:10px">Nobody else will. If one of these goes
+        quiet the Portal keeps showing the last thing it was told, which looks identical to
+        a quiet week.</div>
+      <table class="fin-t"><thead><tr>
+        <th>Report</th><th class="hide-sm">Source</th><th class="hide-sm">How often</th>
+        <th class="n">Loaded thru</th><th>Status</th><th></th></tr></thead>
+        <tbody>${mine.map(hlthRow).join("")}</tbody></table>
+    </div>
+
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <b>These arrive on their own</b>
+      <div class="tsub" style="margin-bottom:10px">Swept from the mailbox or the vendor
+        without anyone acting. Worth watching anyway — a feed that stops arriving is
+        silent by definition.</div>
+      <table class="fin-t"><thead><tr>
+        <th>Report</th><th class="hide-sm">Source</th><th class="hide-sm">How often</th>
+        <th class="n">Loaded thru</th><th>Status</th><th></th></tr></thead>
+        <tbody>${auto.map(hlthRow).join("")}</tbody></table>
+    </div>
+
+    ${missing.length ? `<div class="card fin-pad">
+      <b>Never built</b>
+      <div class="tsub" style="margin-bottom:10px">These are not late. They have never
+        existed, so running something will not produce them — each one is a piece of work.</div>
+      <table class="fin-t"><thead><tr>
+        <th>Report</th><th class="hide-sm">Source</th><th class="hide-sm">How often</th>
+        <th class="n">Loaded thru</th><th>Status</th><th></th></tr></thead>
+        <tbody>${missing.map(hlthRow).join("")}</tbody></table>
+    </div>` : ""}
+  `;
+  body.querySelectorAll("[data-hlth]").forEach(el=>el.addEventListener("click",()=>{
+    const k = el.dataset.hlth;
+    hlthOpen.has(k) ? hlthOpen.delete(k) : hlthOpen.add(k);
+    mgrHealth();
+  }));
 }
 
 function mgrPartners(){
