@@ -1922,7 +1922,11 @@ const HOME_COPY = {
   scorecard:{sub:"Agent by agent, how the month is going"},
   coaching: {sub:"The people, and the work that shows how they are doing"},
   financial:{sub:"What came in, where it is, and whether it ties"},
-  marketing:{sub:"Where the business comes from"}
+  marketing:{sub:"Where the business comes from"},
+  /* The only tile about the Portal rather than about the business. Its subtitle says so,
+     because a chip called "Portal Health" sitting beside four business areas otherwise
+     reads as another measure of how the agency is doing. */
+  health:   {sub:"Whether what you are looking at is actually current"}
 };
 
 function mgrHome(){
@@ -8771,8 +8775,17 @@ function pnList(){
 let HEALTH = null;
 
 async function loadHealth(){
-  try{ HEALTH = {rows: await rpc("health_feeds",{p_code:CODE})}; }
-  catch(e){ HEALTH = {error:e.message, rows:[]}; }
+  /* Two calls, in parallel. The commission row is a FAN-IN: fifteen carriers behind one
+     line, so the row alone cannot answer "which carrier is missing". Braden asked exactly
+     that, and the honest answer needs the per-carrier breakdown beside the feed list. */
+  try{
+    const [rows, carriers] = await Promise.all([
+      rpc("health_feeds",{p_code:CODE}),
+      rpc("health_carrier_statements",{p_code:CODE})
+    ]);
+    HEALTH = {rows, carriers};
+  }
+  catch(e){ HEALTH = {error:e.message, rows:[], carriers:[]}; }
 }
 
 const HLTH_PILL  = {ok:"done", due:"prog", late:"fail", missing:"todo", ondemand:"done"};
@@ -8798,6 +8811,69 @@ function hlthRow(r){
 }
 
 let hlthOpen = new Set();
+let hlthAllUnrouted = false;
+
+/* The commission feed broken out carrier by carrier. Three groups, and the split matters:
+   BEHIND is chaseable (a route exists, the document has not come), UNROUTED is not (no
+   statement has ever been identified, so there is nothing to chase until somebody finds
+   the route). Mixing them would make the list look like 30 phone calls when it is 4. */
+function hlthCarriers(){
+  const all = (HEALTH && HEALTH.carriers) || [];
+  if(!all.length) return "";
+  const behind   = all.filter(c => c.status === "behind" || c.status === "late" || c.status === "never");
+  const current  = all.filter(c => c.status === "ok");
+  const unrouted = all.filter(c => c.status === "unrouted");
+  const unAmt    = unrouted.reduce((t,c)=> t + (+c.amount || 0), 0);
+  const shown    = hlthAllUnrouted ? unrouted : unrouted.slice(0, 10);
+
+  const behindRow = c => `<tr>
+    <td><b>${esc(c.name)}</b></td>
+    <td class="n">${c.last_cov ? esc(String(c.last_cov).slice(0,7)) : "never"}</td>
+    <td class="n hide-sm">${c.months_behind == null ? "—"
+        : esc(c.months_behind + (c.months_behind === 1 ? " month" : " months"))}</td>
+    <td class="hide-sm"><span class="tsub">${c.tolerance == null ? "—"
+        : esc("usually files within " + c.tolerance + (c.tolerance === 1 ? " month" : " months"))}</span></td>
+    <td><span class="pill ${c.status === "never" ? "todo" : c.status === "late" ? "fail" : "prog"}">${
+        esc(c.status === "never" ? "Never filed" : c.status === "late" ? "Late" : "Behind")}</span></td>
+  </tr>`;
+
+  const unRow = c => `<tr>
+    <td><b>${esc(c.name)}</b>${c.hint ? `<div class="tsub">${esc(c.hint)}</div>` : ""}</td>
+    <td class="n">${c.amount == null ? "—" : esc(money(c.amount))}</td>
+  </tr>`;
+
+  return `<div class="card fin-pad" style="margin-bottom:16px">
+    <b>Which carriers are missing</b>
+    <div class="tsub" style="margin-bottom:10px">Monthly commission statements is one row in
+      the list above, but it stands for ${all.length - unrouted.length} active carriers. That
+      row now follows whichever of them is furthest behind — before, one carrier filing was
+      enough to paint the whole row green.</div>
+
+    ${behind.length ? `<table class="fin-t"><thead><tr>
+        <th>Carrier</th><th class="n">Statement thru</th><th class="n hide-sm">Behind</th>
+        <th class="hide-sm">Normal gap</th><th>Status</th></tr></thead>
+        <tbody>${behind.map(behindRow).join("")}</tbody></table>`
+      : `<div class="empty">Every carrier with a statement route has filed for the expected
+          month.</div>`}
+
+    <div class="fin-note" style="margin-top:10px">${current.length} carrier${
+      current.length === 1 ? " is" : "s are"} current.</div>
+
+    ${unrouted.length ? `<div style="margin-top:18px">
+      <b>No statement route at all</b>
+      <div class="tsub" style="margin-bottom:10px">These are not late. No commission document
+        has ever been identified for them, so running or chasing something will not produce
+        one — each needs a route found first. ${esc(money(unAmt))} of 2026 commission sits
+        behind these ${unrouted.length} sources.</div>
+      <table class="fin-t"><thead><tr>
+        <th>Source</th><th class="n">2026 YTD</th></tr></thead>
+        <tbody>${shown.map(unRow).join("")}</tbody></table>
+      ${unrouted.length > 10 ? `<button class="btn line sm" data-hlthall="1"
+         style="margin-top:10px">${hlthAllUnrouted ? "Show fewer"
+           : "Show all " + unrouted.length}</button>` : ""}
+    </div>` : ""}
+  </div>`;
+}
 
 function mgrHealth(){
   const body = $("#mgrBody");
@@ -8849,6 +8925,8 @@ function mgrHealth(){
       <div class="empty">Nothing is behind. Every feed with a schedule is loaded through the
         day it should be.</div></div>`}
 
+    ${hlthCarriers()}
+
     <div class="card fin-pad" style="margin-bottom:16px">
       <b>You run these</b>
       <div class="tsub" style="margin-bottom:10px">Nobody else will. If one of these goes
@@ -8886,6 +8964,8 @@ function mgrHealth(){
     hlthOpen.has(k) ? hlthOpen.delete(k) : hlthOpen.add(k);
     mgrHealth();
   }));
+  const allBtn = body.querySelector("[data-hlthall]");
+  if(allBtn) allBtn.addEventListener("click", ()=>{ hlthAllUnrouted = !hlthAllUnrouted; mgrHealth(); });
 }
 
 function mgrPartners(){
