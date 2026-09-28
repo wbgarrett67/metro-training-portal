@@ -1821,9 +1821,14 @@ const MGR_NAV = [
      actually current, and if not, whose job is it to fix that. Braden asked for a punch list
      of reports rather than a calendar reminder, on the grounds that a reminder fires whether
      or not the report is needed, and this can tell the difference.
-     Gated on trust_access, not financial_access: the people who run the reports are Braden
-     and Belinda, and the list names bank accounts and carrier routes. */
-  {key:"health", label:"Portal Health", show:()=>finHasTrust(), items:[
+     Visibility, set by Braden 28 September 2026: Belinda, Betty Jane and him, nobody else.
+     That is financial_access = 'full', NOT trust_access. Those two look interchangeable and
+     are not -- trust_access is a named capability held by Braden and Belinda but deliberately
+     withheld from Betty Jane, so the first build of this chip was invisible to her. Premium
+     Trust keeps the trust gate for exactly that reason; this one must not copy it.
+     Drawing the strip is all this decides -- the real gate is training_fin_gate(p_code,'full')
+     inside health_feeds(). */
+  {key:"health", label:"Portal Health", show:()=>finHasPL(), items:[
     {tab:"health", label:"Report punch list",
      badge:()=>HEALTH && HEALTH.rows
        ? HEALTH.rows.filter(r=>r.status==="late"||r.status==="due").length : 0}]}
@@ -7074,6 +7079,7 @@ function renderManager(){
   if(mgrTab === "fin"   && !finHasFin()) mgrTab = "home";
   if(mgrTab === "ret"   && !retHasAccess()) mgrTab = "home";
   if(mgrTab === "progress" && !finHasFin()) mgrTab = "home";
+  if(mgrTab === "health" && !finHasPL()) mgrTab = "home";
   if(mgrTab === "fin" && (finSub === "trust" || finSub === "audit") && !finHasTrust()) finSub = "revenue";
   if(mgrTab === "fin" && finSub === "pl" && !finHasPL()) finSub = "revenue";
   if(mgrTab === "home") mgrCat = null;
