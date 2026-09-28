@@ -7173,6 +7173,7 @@ const RET_OUTCOME = [
 const RET_OUTCOME_LABEL = {
   right_party:"Spoke with them", voicemail:"Left a Voice Mail", wrong_number:"Wrong number",
   no_answer:"No answer", callback_set:"Callback set", texted:"Texted",
+  text_reply:"They texted back",
   promised_pay:"Will come in or pay later", contact_found:"Contact details found"
 };
 
@@ -7920,6 +7921,14 @@ function retDetail(){
             <button class="btn line sm" data-out="${code}" data-ch="phone">${esc(label)}</button>`).join("")}
           <button class="btn line sm" data-out="texted" data-ch="text"
                   title="Logs a contact attempt on the text channel">Texted</button>
+          <!-- Added 28 September. Without this, texting could only ever LOWER the contact
+               rate: a text counts as an attempt, and before today no text outcome counted as
+               contact, so the channel that gets the best response had no route to the
+               numerator. "They texted back" is scored exactly like reaching someone by
+               phone, because it is the same thing. -->
+          <button class="btn line sm" data-out="text_reply" data-ch="text"
+                  title="They answered the text - counts as reaching the customer"
+                  >They texted back</button>
         </div>
 
         <div id="retSpokeWrap" style="display:none;margin-top:10px;padding:10px 12px;
