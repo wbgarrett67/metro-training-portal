@@ -11841,6 +11841,38 @@ function pgPace(nowTotal, nowDays, thenTotal, thenDays, label){
   return `<div class="pg-s">${pctSpan(p)} a day vs ${esc(label)}</div>`;
 }
 
+/* Month selector for the scorecard. Braden, 29 September: "Since this is generally a
+   monthly scorecard... we may want to look back on the scorecard as of a selected month."
+
+   The months offered come from the fee spine, which is the only feed with real history
+   (January 2023). Every other feed starts later -- calls December 2025, quotes August
+   2026, retention and Matrix September 2026 -- so picking an older month leaves those
+   tiles empty. That is handled server-side: each coverage badge is computed for the
+   month asked for and reads "No feed for this month" rather than implying the agent did
+   nothing. The caption below spells the start dates out so the gap is visible before
+   the month is chosen, not after. */
+function pgMonthCtl(){
+  const ms = (PROG && PROG.months) || [];
+  if(!ms.length) return "";
+  const cur = (PROG && PROG.month) || ms[0];
+  const fr  = (PROG && PROG.feed_ranges) || {};
+  const from = k => (fr[k] && fr[k].from)
+    ? mLong(String(fr[k].from).slice(0,7) + "-01") : null;
+  const starts = [["Fees","fees"], ["Calls","calls"], ["Quotes","quotes"],
+                  ["Retention","retention"], ["Matrix","matrix"]]
+    .map(([lab,k]) => { const f = from(k); return f ? lab + " from " + f : null; })
+    .filter(Boolean).join(" \u00b7 ");
+  return `<div class="fin-ctl">
+    <label>Scorecard month
+      <select id="pgMonthSel">${ms.map(m =>
+        `<option value="${esc(m)}"${m===cur?" selected":""}>${esc(mLong(m))}</option>`
+      ).join("")}
+      </select></label>
+    ${starts ? `<span class="cmp">Feeds begin at different dates — ${esc(starts)}. A tile
+      with no feed for the month chosen says so rather than showing a zero.</span>` : ""}
+  </div>`;
+}
+
 function mgrProgress(){
   const body = $("#mgrBody");
   if(!PROG){ body.innerHTML = `<div class="card fin-pad"><div class="empty">Loading…</div></div>`; return; }
@@ -11866,6 +11898,7 @@ function mgrProgress(){
   ];
 
   body.innerHTML = `
+    ${pgMonthCtl()}
     <div class="card fin-pad" style="margin-bottom:16px">
       <p class="fin-h">${esc(PROG.month_label || "")} — agency</p>
       <p class="fin-sub2">Fees recorded through ${ag.fee_through ? esc(sdate(ag.fee_through)) : "—"}. Day ${dEl} of ${dIn}.
@@ -11930,6 +11963,18 @@ function mgrProgress(){
       }
       return out;
     })()}`;
+
+  const pgMs = body.querySelector("#pgMonthSel");
+  if(pgMs) pgMs.addEventListener("change", async () => {
+    progMonth = pgMs.value;
+    // PROGD is keyed person|metric with no month in the key, so a month change has to
+    // drop it -- otherwise an open tile would show last month's detail under this
+    // month's heading. progOpen goes too, so nothing reopens stale.
+    PROG = null; PROGD = {}; progOpen = null;
+    pgMs.disabled = true;
+    await loadProgress();
+    mgrProgress();
+  });
 
   body.querySelectorAll("[data-pgm]").forEach(el =>
     el.addEventListener("click", () => pgToggle(el.dataset.pgp, el.dataset.pgm)));
