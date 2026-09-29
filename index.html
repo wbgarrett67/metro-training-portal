@@ -12035,7 +12035,14 @@ function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
        and cost nothing; they appear in the sub-line as context and are never added in. A
        tile that counted views would reward opening records, which is the opposite of the
        point. Policy actions are called out because they are the ones that can be checked
-       against a carrier. */
+       against a carrier.
+
+       THE TIMES ARE EXTREMES OVER THE MONTH, NOT A TYPICAL DAY. earliest_start and
+       latest_finish are the earliest and latest clock times seen across every active day,
+       so a single late night sets the finish for the whole month. "N days past 7pm" is
+       shown alongside precisely so one outlier is not read as a working pattern. Until
+       29 September these two figures were wrong -- they reported the clock time of the
+       month's first and last event rather than the earliest and latest times of day. */
     {metric:null, label:"Matrix activity", state:(cov.matrix||{}).state,
      value: pgInt(mx.actions),
      sub: (pgNum(mx.actions) === null || pgNum(mx.actions) === 0
@@ -12044,7 +12051,9 @@ function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
           + (pgNum(mx.customers) ? `<div class="pg-s">${pgInt(mx.customers)} customers · ${
                pgInt(mx.days_active)} day${pgNum(mx.days_active)===1?"":"s"} active</div>` : "")
           + (mx.earliest_start ? `<div class="pg-s">${esc(mx.earliest_start)} to ${
-               esc(mx.latest_finish || "—")} in Matrix</div>` : "")
+               esc(mx.latest_finish || "—")} in Matrix${
+               pgNum(mx.late_days) ? ` · ${pgInt(mx.late_days)} day${
+                 pgNum(mx.late_days)===1?"":"s"} past 7pm` : ""}</div>` : "")
           + (pgNum(mx.views) ? `<div class="pg-s">${pgInt(mx.views)} record views — not counted
                as activity</div>` : "")},
 
