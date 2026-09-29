@@ -1788,6 +1788,10 @@ const MGR_NAV = [
      badge:()=>RET && RET.dash && RET.dash.totals && RET.dash.totals.past_deadline},
     {tab:"fin", sub:"quotes",label:"TurboRater Quotes",    show:()=>finHasFin()},
     {tab:"calls",            label:"Call monitoring",      show:()=>cmHasCall()},
+    /* Added 29 September. The Agency Matrix audit trail -- what each person actually did in
+       Matrix, and when. Sits in Coaching because it measures the people, not the book.
+       Gated finHasPL(): the underlying function requires training_fin_gate(p_code,'full'). */
+    {tab:"mxact",            label:"Matrix activity",      show:()=>finHasPL()},
     {tab:"roster",           label:"Roster"},
     {tab:"ce",               label:"Licensing & CE"},
     {tab:"activity",         label:"Activity",  badge:()=>unreadCount()},
@@ -1855,6 +1859,7 @@ function navFind(tab, sub){
    places -- the manager tab strip and the Revenue sub-tab strip -- and is now in one. */
 async function navLoad(it){
   if(it.tab === "health"   && !HEALTH) await loadHealth();
+  if(it.tab === "mxact"    && !MXACT)  await loadMxact();
   if(it.tab === "content"  && !CAT) await loadCatalog();
   if(it.tab === "ce"       && !CE)  await loadCE();
   if(it.tab === "calls"    && !CM)  await loadCallMonitor();
@@ -6182,7 +6187,7 @@ const FB_SUBJECTS = [
 const MGR_TAB_NAMES = {roster:"Roster", ce:"Licensing & CE", content:"Content editor",
   tracks:"Track catalog", calls:"Call monitoring", activity:"Activity",
   add:"Add an agent", feedback:"Feedback", partners:"Referral partners", tips:"Tips",
-  health:"Portal Health"};
+  health:"Portal Health", mxact:"Matrix activity"};
 
 // Set whenever a module is opened, so the dialog can answer "where were you" without
 // the agent having to describe it. Pre-filled, and editable, because a guess that is
@@ -7084,6 +7089,7 @@ function renderManager(){
   if(mgrTab === "ret"   && !retHasAccess()) mgrTab = "home";
   if(mgrTab === "progress" && !finHasFin()) mgrTab = "home";
   if(mgrTab === "health" && !finHasPL()) mgrTab = "home";
+  if(mgrTab === "mxact"  && !finHasPL()) mgrTab = "home";
   if(mgrTab === "fin" && (finSub === "trust" || finSub === "audit") && !finHasTrust()) finSub = "revenue";
   if(mgrTab === "fin" && finSub === "pl" && !finHasPL()) finSub = "revenue";
   if(mgrTab === "home") mgrCat = null;
@@ -7093,7 +7099,7 @@ function renderManager(){
   ({home:mgrHome, roster:mgrRoster, ce:mgrCE, content:mgrContent, tracks:mgrTracks,
     activity:mgrActivity, add:mgrAdd, calls:mgrCall, feedback:mgrFeedback,
     partners:mgrPartners, tips:mgrTips, fin:mgrFin, ret:mgrRet,
-    health:mgrHealth, progress:mgrProgress})[mgrTab]();
+    health:mgrHealth, mxact:mgrMxact, progress:mgrProgress})[mgrTab]();
 }
 
 /* ================= Retention =================
@@ -8325,6 +8331,8 @@ function retCohorts(){
       observation of cause — but it is the group the theory predicts, and it is larger than the
       entire worked cohort.</div>
 
+    ${retSurvival(d)}
+
     <div class="fin-note" style="margin-top:8px"><b>When this stops being guesswork:</b>
       ${esc(d.why_not_yet||"")} No experiment is needed and no customer is inconvenienced —
       the control group already exists, it simply has never been looked up.
@@ -8333,6 +8341,46 @@ function retCohorts(){
             .map(c=>`${esc(c.carrier_code)} (${c.items})`).join(", ")} publish no policy number
             this can join to, so those items can never be followed. Worth fixing before the
             October statements land.` : ""}</div>
+  </div>`;
+}
+
+/* The first observation-based figure in the whole business case. Everything else on this page
+   derives from DISPOSITIONS -- judgements made by whoever closed the record. This is the
+   carrier saying whether the policy was still paying a month later.
+
+   An item is observable only when its carrier has a statement covering a month AFTER the
+   notice. Without that test, "no later line" would conflate a cancelled policy with a
+   statement we simply have not received yet, and every September notice would read as a death. */
+function retSurvival(d){
+  const rows = (d && d.observed_survival) || [];
+  if(!rows.length) return "";
+  const untouched = rows.find(r=>r.worked===false) || {};
+  const worked    = rows.find(r=>r.worked===true) || {};
+  const thin      = (untouched.observable||0) < 30 || (worked.observable||0) < 30;
+  return `<div style="margin-top:12px;padding:10px 12px;border:1px solid var(--line-2);border-radius:8px">
+    <div style="font-weight:600;margin-bottom:4px">Did the policy actually survive?</div>
+    <div class="tsub" style="margin-bottom:8px">Not a disposition somebody chose — the carrier
+      still paying commission on that policy a month after the notice. Only counted where a
+      statement covering a later month has been loaded for that carrier.</div>
+    <table class="fin-t"><thead><tr>
+      <th>Cohort</th><th class="n">Observable</th><th class="n">Still paying</th><th class="n">Survived</th>
+    </tr></thead><tbody>
+      <tr><td>Somebody worked it</td>
+        <td class="n">${worked.observable??0}</td><td class="n">${worked.survived??0}</td>
+        <td class="n">${worked.pct_survived==null?"—":worked.pct_survived+"%"}</td></tr>
+      <tr><td>Nobody ever touched it</td>
+        <td class="n">${untouched.observable??0}</td><td class="n">${untouched.survived??0}</td>
+        <td class="n"><b>${untouched.pct_survived==null?"—":untouched.pct_survived+"%"}</b></td></tr>
+    </tbody></table>
+    ${thin ? `<div class="fin-note" style="margin-top:8px"><b>Too thin to compare the two rows.</b>
+      Both arms need roughly thirty observable items before the difference between them means
+      anything, and the worked arm is far below that. What the untouched row already shows is
+      worth having on its own: <b>a baseline survival rate with no contact of any kind</b>. The
+      business case never had that number — it assumed only 25% would come back unaided. Judge
+      every save against this figure, not against zero.</div>`
+      : `<div class="fin-note" style="margin-top:8px">The difference between these two rows,
+      less any difference in who got picked, is the incrementality the model has been
+      assuming.</div>`}
   </div>`;
 }
 
@@ -8925,6 +8973,118 @@ function pnList(){
    MISSING IS NOT LATE. Two feeds have never existed at all - the non-auto quoting report
    and the missed-call log. They are shown apart from the punch list, because no amount of
    running reports will fix them; they have to be built. */
+/* ---------- Agency Matrix activity ----------
+   The "Notes System Added By Employee" report: Matrix's own audit trail of every action taken
+   in it. Braden brought it on 29 September as a way to evaluate agents and confirm policy
+   activity, and it does both -- but the two must not be conflated.
+
+   A VIEW IS NOT WORK. Opening a customer record is the single most common line in the feed
+   (111 of the first 178) and costs nothing. Views are shown in their own column, never folded
+   into an activity count, because a productivity measure built on them would be gamed inside
+   a week and would reward the wrong behaviour in the meantime. What counts is attachments,
+   payments, and policy actions. */
+let MXACT = null;
+
+async function loadMxact(){
+  try{
+    const [days, saves] = await Promise.all([
+      rpc("matrix_activity_day",{p_code:CODE, p_from:null, p_to:null}),
+      rpc("matrix_save_check",{p_code:CODE, p_days:30})
+    ]);
+    MXACT = {days, saves};
+  }catch(e){ MXACT = {error:String(e.message||e), days:[], saves:null}; }
+}
+
+const MXV_PILL = {corroborated:"done", "touched, no policy action":"prog",
+                  "nothing in Matrix":"fail"};
+
+function mgrMxact(){
+  const b = $("#mgrBody");
+  if(!MXACT){ b.innerHTML = `<div class="card fin-pad"><div class="empty">Loading…</div></div>`; return; }
+  if(MXACT.error){
+    b.innerHTML = `<div class="card fin-pad"><div class="empty">${esc(MXACT.error)}</div></div>`; return; }
+
+  const days = MXACT.days || [], sv = MXACT.saves || {};
+  const cov = sv.coverage || {};
+  const items = sv.items || [];
+
+  b.innerHTML = `
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <p class="fin-h">Matrix activity</p>
+      <p class="fin-sub2">Agency Matrix logs every action taken in it — who, which customer,
+        what, when. Nothing here is self-reported, which makes it the only place a claim about
+        policy activity can be checked against something nobody typed into the Portal.
+        <b>Opening a record is not work</b>, so views are counted separately and never added
+        to the action count.</p>
+    </div>
+
+    ${items.length ? `<div class="card fin-pad" style="margin-bottom:16px">
+      <b>Retention saves, checked against Matrix</b>
+      <div class="tsub" style="margin-bottom:10px">Every save closed in the last 30 days that
+        the loaded audit trail covers (${cov.from ? esc(cov.from) : "—"} to ${
+        cov.to ? esc(cov.to) : "—"}). A save asserts a lapsing policy was rescued; Matrix
+        records whether a policy action actually happened.</div>
+      <div class="grid-stats" style="margin-bottom:10px">
+        <div class="stat"><div class="k">Corroborated</div>
+          <div class="v" style="color:var(--ok)">${sv.corroborated ?? 0}</div>
+          <div class="tsub">a real policy action</div></div>
+        <div class="stat"><div class="k">Touched, no action</div>
+          <div class="v" style="${(sv.matrix_touch_only||0)?"color:var(--warn)":""}">${
+            sv.matrix_touch_only ?? 0}</div>
+          <div class="tsub">record opened, nothing done</div></div>
+        <div class="stat"><div class="k">Nothing in Matrix</div>
+          <div class="v" style="${(sv.nothing_in_matrix||0)?"color:var(--bad)":""}">${
+            sv.nothing_in_matrix ?? 0}</div>
+          <div class="tsub">no trace at all</div></div>
+        <div class="stat"><div class="k">Checked</div>
+          <div class="v">${sv.checked ?? 0}</div>
+          <div class="tsub">of the saves in range</div></div>
+      </div>
+      <table class="fin-t"><thead><tr>
+        <th>Closed</th><th>Who</th><th>Recorded as</th><th class="n">Amount</th>
+        <th class="hide-sm">Matrix says</th><th>Verdict</th>
+      </tr></thead><tbody>${items.map(i=>`<tr>
+        <td class="n">${esc(String(i.closed_at||"").slice(5))}</td>
+        <td>${esc(i.worked_by||"—")}</td>
+        <td>${esc(i.outcome||"—")}</td>
+        <td class="n">${i.amount==null?"—":retMoney(i.amount)}</td>
+        <td class="hide-sm"><span class="tsub">${esc(i.policy_events
+             || (i.matrix_touches ? i.matrix_touches+" touch"+(i.matrix_touches===1?"":"es") : "nothing"))}</span></td>
+        <td><span class="pill ${MXV_PILL[i.verdict]||"todo"}">${esc(i.verdict||"")}</span></td>
+      </tr>`).join("")}</tbody></table>
+      <div class="fin-note" style="margin-top:10px"><b>An absent match is not proof of a false
+        claim.</b> A payment taken through a carrier portal never touches Matrix, and this only
+        sees the days that have been loaded. Treat "no policy action" as a question to ask, not
+        an answer.</div>
+    </div>` : ""}
+
+    <div class="card fin-pad">
+      <b>Who did what, by day</b>
+      <div class="tsub" style="margin-bottom:10px">First and last system action is a far wider
+        attendance signal than the alarm panel feed, which has never once recorded N Penn. It
+        shows when someone was <i>in Matrix</i> — not when they arrived, and not time spent on
+        the phone or at the counter.</div>
+      ${days.length ? `<table class="fin-t"><thead><tr>
+        <th>Day</th><th>Person</th><th class="hide-sm">Office</th>
+        <th class="n">First</th><th class="n">Last</th><th class="n hide-sm">Span</th>
+        <th class="n">Customers</th><th class="n">Actions</th><th class="n hide-sm">Views</th>
+        <th class="n">Policy</th>
+      </tr></thead><tbody>${days.map(d=>`<tr>
+        <td class="n">${esc(String(d.day||"").slice(5))}</td>
+        <td><b>${esc(d.employee||"—")}</b></td>
+        <td class="hide-sm"><span class="tsub">${esc(d.office||"—")}</span></td>
+        <td class="n">${esc(d.first_action||"—")}</td>
+        <td class="n">${esc(d.last_action||"—")}</td>
+        <td class="n hide-sm"><span class="tsub">${d.span_hours ?? "—"}h</span></td>
+        <td class="n">${d.customers ?? 0}</td>
+        <td class="n"><b>${d.actions ?? 0}</b></td>
+        <td class="n hide-sm"><span class="tsub">${d.views ?? 0}</span></td>
+        <td class="n">${d.policy_actions ?? 0}</td>
+      </tr>`).join("")}</tbody></table>`
+      : `<div class="empty">No activity loaded yet.</div>`}
+    </div>`;
+}
+
 let HEALTH = null;
 
 async function loadHealth(){
@@ -11702,7 +11862,7 @@ function mgrProgress(){
     ["retention","Retention"], ["marketing","Marketing program"],
     ["audit","Daily Log Audit errors"], ["crosssell","Cross-sell"],
     ["quotes","Quoted not sold & close rate"], ["calls","Calls"],
-    ["attendance","Office open / close"]
+    ["attendance","Office open / close"], ["matrix","Matrix activity"]
   ];
 
   body.innerHTML = `
@@ -11785,12 +11945,14 @@ function mgrProgress(){
    is uniform and a new metric is one entry, not a new branch. */
 function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
   const f = a.fees || {}, c = a.calls || {}, q = a.quotes || {},
-        r = a.retention || {}, m = a.marketing || {}, at = a.attendance || {};
+        r = a.retention || {}, m = a.marketing || {}, at = a.attendance || {},
+        mx = a.matrix || {};
   const total = pgNum(f.total);
   const perDay = (total !== null && dEl) ? total / dEl : null;
 
   // Nobody with nothing recorded gets a wall of em-dashes pretending to be a report.
-  const hasAny = [total, pgNum(c.total), pgNum(q.quoted), pgNum(r.records_closed)]
+  const hasAny = [total, pgNum(c.total), pgNum(q.quoted), pgNum(r.records_closed),
+                  pgNum(mx.actions)]
     .some(v => v !== null && v !== 0);
 
   const claims = pgNum(r.claims_counter_money);
@@ -11863,6 +12025,28 @@ function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
      sub: (at.days_seen ? `${pgInt(at.on_time)} on time · ${pgInt(at.flagged)} flagged`
                         : "no panel feed for this office")
           + `<div class="pg-s">office level, not this person</div>`},
+
+    /* Agency Matrix activity, added 29 September. Its own measure rather than folded into
+       one of the others: it is not fees, not calls and not attendance, but what the person
+       did inside Matrix -- and unlike everything else on this card, none of it is
+       self-reported.
+
+       THE HEADLINE IS ACTIONS, NOT EVENTS. Views are 111 of the first 178 lines in the feed
+       and cost nothing; they appear in the sub-line as context and are never added in. A
+       tile that counted views would reward opening records, which is the opposite of the
+       point. Policy actions are called out because they are the ones that can be checked
+       against a carrier. */
+    {metric:null, label:"Matrix activity", state:(cov.matrix||{}).state,
+     value: pgInt(mx.actions),
+     sub: (pgNum(mx.actions) === null || pgNum(mx.actions) === 0
+             ? "nothing recorded in Matrix"
+             : `${pgInt(mx.policy_actions)} policy · ${pgInt(mx.attachments)} attachments`)
+          + (pgNum(mx.customers) ? `<div class="pg-s">${pgInt(mx.customers)} customers · ${
+               pgInt(mx.days_active)} day${pgNum(mx.days_active)===1?"":"s"} active</div>` : "")
+          + (mx.earliest_start ? `<div class="pg-s">${esc(mx.earliest_start)} to ${
+               esc(mx.latest_finish || "—")} in Matrix</div>` : "")
+          + (pgNum(mx.views) ? `<div class="pg-s">${pgInt(mx.views)} record views — not counted
+               as activity</div>` : "")},
 
     {metric:"audit", label:"Audit errors", state:(cov.audit||{}).state,
      value: "—", sub:"office level — open for the exception list"},
