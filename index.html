@@ -12043,7 +12043,7 @@ function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
        shown alongside precisely so one outlier is not read as a working pattern. Until
        29 September these two figures were wrong -- they reported the clock time of the
        month's first and last event rather than the earliest and latest times of day. */
-    {metric:null, label:"Matrix activity", state:(cov.matrix||{}).state,
+    {metric:"matrix", label:"Matrix activity", state:(cov.matrix||{}).state,
      value: pgInt(mx.actions),
      sub: (pgNum(mx.actions) === null || pgNum(mx.actions) === 0
              ? "nothing recorded in Matrix"
