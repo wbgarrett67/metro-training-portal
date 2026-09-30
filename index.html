@@ -9092,13 +9092,14 @@ async function loadHealth(){
      line, so the row alone cannot answer "which carrier is missing". Braden asked exactly
      that, and the honest answer needs the per-carrier breakdown beside the feed list. */
   try{
-    const [rows, carriers] = await Promise.all([
+    const [rows, carriers, diary] = await Promise.all([
       rpc("health_feeds",{p_code:CODE}),
-      rpc("health_carrier_statements",{p_code:CODE})
+      rpc("health_carrier_statements",{p_code:CODE}),
+      rpc("health_arrival_diary",{p_code:CODE, p_days:21})
     ]);
-    HEALTH = {rows, carriers};
+    HEALTH = {rows, carriers, diary};
   }
-  catch(e){ HEALTH = {error:e.message, rows:[], carriers:[]}; }
+  catch(e){ HEALTH = {error:e.message, rows:[], carriers:[], diary:[]}; }
 }
 
 const HLTH_PILL  = {ok:"done", due:"prog", late:"fail", missing:"todo", ondemand:"done"};
@@ -9108,6 +9109,95 @@ const HLTH_CAD   = {daily_msat:"Every trading day (Mon–Sat)", daily_mf:"Every 
                     monthly:"Monthly, after month end", continuous:"Arrives continuously",
                     on_demand:"No schedule"};
 const HLTH_WHO   = {auto:"Arrives on its own", braden:"You run it", belinda:"Belinda runs it"};
+
+/* ---------- Arrival diary ----------
+   Added 30 September 2026. Portal Health above asks "what is the newest data loaded", which
+   is the right question right up until a report arrives EMPTY. Then the newest data does not
+   move, and a feed that turned up on time looks identical to one that never came -- while a
+   manual backfill of old rows makes a dead feed look alive. health_feeds() already carries two
+   hand-written workarounds for exactly that: the IVANS comment about quiet days, and the
+   origin filter that stops a ledger backfill from refreshing the sweep. Both are patches on a
+   measure that cannot see arrivals. This records the ARRIVAL itself, separate from the content.
+
+   A GREY CELL IS NOT A BAD DAY. It means nothing was ever recorded for that day, and for most
+   feeds that is simply because the diary starts now -- reconstructing it from loaded rows can
+   only ever prove the days that DID produce data, which is the very thing already known. Only
+   refused, header-only and failed are faults, and they are faults the old view could not see. */
+const DIARY_CELL = {
+  loaded:      ["var(--ok)",  "loaded"],
+  empty:       ["var(--warn)","arrived empty"],
+  header_only: ["var(--warn)","header only"],
+  refused:     ["var(--bad)", "refused - arrived but unusable"],
+  failed:      ["var(--bad)", "load failed"],
+  missing:     ["var(--bad)", "did not arrive"]
+};
+
+function hlthDiary(){
+  const d = (HEALTH && HEALTH.diary) || [];
+  if(!d.length) return "";
+
+  const byFeed = new Map();
+  d.forEach(r=>{
+    if(!byFeed.has(r.feed_key)) byFeed.set(r.feed_key, {label:r.label, days:[]});
+    byFeed.get(r.feed_key).days.push(r);
+  });
+
+  /* A feed with nothing recorded at all is not a failing feed, it is a feed the diary does
+     not cover yet. Mixing the two would turn the first screen into a wall of false red. */
+  const tracked = [], untracked = [];
+  byFeed.forEach((v,k)=>{
+    (v.days.some(x=>x.outcome!=="no record") ? tracked : untracked).push([k,v]);
+  });
+
+  const faults = d.filter(r=>["refused","header_only","failed","missing"].includes(r.outcome));
+
+  const strip = days => days.slice().sort((a,b)=>
+      String(a.business_date).localeCompare(String(b.business_date))).map(x=>{
+    const c = DIARY_CELL[x.outcome];
+    const t = `${String(x.business_date).slice(5)} — ${c ? c[1] : "no record"}`
+            + (x.rows_loaded!=null ? ` (${x.rows_loaded} rows)` : "");
+    return `<span title="${esc(t)}" style="display:inline-block;width:11px;height:16px;
+      margin-right:2px;border-radius:2px;background:${c ? c[0] : "#dfe3ec"}"></span>`;
+  }).join("");
+
+  return `<div class="card fin-pad" style="margin-bottom:16px">
+    <b>Arrival diary</b>
+    <div class="tsub" style="margin-bottom:10px">Whether each report <i>turned up</i>, day by
+      day, recorded separately from whether it had anything in it. The table above cannot tell
+      an empty report from a missing one; this can. Last 21 days, oldest on the left.</div>
+
+    ${faults.length ? `<div class="fin-note" style="margin:0 2px 12px">
+      <b>${faults.length} day${faults.length===1?"":"s"} where a report arrived and could not be
+      used.</b> ${esc(faults.slice(0,1).map(f=>f.label+" on "+String(f.business_date).slice(5)
+        +" — "+(DIARY_CELL[f.outcome]||["","?"])[1]).join(""))}${faults.length>1
+        ? ` and ${faults.length-1} more.` : "."} These are invisible to a freshness check,
+        because a report that arrives frozen leaves the newest-data date exactly where it was.
+      </div>` : ""}
+
+    <table class="fin-t"><thead><tr>
+      <th>Report</th><th>Last 21 days</th></tr></thead><tbody>
+      ${tracked.map(([k,v])=>`<tr>
+        <td><b>${esc(v.label)}</b></td>
+        <td style="white-space:nowrap">${strip(v.days)}</td></tr>`).join("")}
+    </tbody></table>
+
+    <div class="tsub" style="margin-top:10px">
+      <span style="display:inline-block;width:11px;height:11px;border-radius:2px;
+        background:var(--ok);margin-right:4px"></span>loaded
+      <span style="display:inline-block;width:11px;height:11px;border-radius:2px;
+        background:var(--warn);margin:0 4px 0 12px"></span>arrived empty
+      <span style="display:inline-block;width:11px;height:11px;border-radius:2px;
+        background:var(--bad);margin:0 4px 0 12px"></span>arrived unusable
+      <span style="display:inline-block;width:11px;height:11px;border-radius:2px;
+        background:#dfe3ec;margin:0 4px 0 12px"></span>nothing recorded
+    </div>
+
+    ${untracked.length ? `<div class="fin-note" style="margin:12px 2px 0">
+      <b>Not in the diary yet:</b> ${esc(untracked.map(([k,v])=>v.label).join(", "))}.
+      Nothing has recorded an arrival for these, so the diary says nothing about them rather
+      than guessing. They are not necessarily broken — check the table above for those.</div>` : ""}
+  </div>`;
+}
 
 function hlthRow(r){
   return `<tr>
@@ -9262,6 +9352,8 @@ function mgrHealth(){
         day it should be.</div></div>`}
 
     ${hlthCarriers()}
+
+    ${hlthDiary()}
 
     <div class="card fin-pad" style="margin-bottom:16px">
       <b>You run these</b>
