@@ -12114,6 +12114,14 @@ function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
           + (pgNum(f.in_office) !== null || pgNum(f.by_phone) !== null
              ? `<div class="pg-s">${pgInt(f.in_office)} in office · ${
                   pgInt(f.by_phone)} by phone</div>` : "")
+          // POLICIES SOLD. Added 30 September 2026. The card carried new-business
+          // DOLLARS but never a count, so the only integer on this screen that looked
+          // like production was the quote count -- which is quotes entered in
+          // TurboRater, not policies sold, and the two differ a lot. One new-business
+          // fee is charged per policy, so this is the same number Agency Matrix reports.
+          + (pgNum(f.new_business_count)
+             ? `<div class="pg-s"><b>${pgInt(f.new_business_count)} new business polic${
+                  pgNum(f.new_business_count) === 1 ? "y" : "ies"} sold</b></div>` : "")
           + ((pgNum(f.new_business) || pgNum(f.reinstatement) || pgNum(f.payment))
              ? `<div class="pg-s">${[
                   pgNum(f.new_business)  ? money0(f.new_business)  + " new business"  : null,
