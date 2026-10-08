@@ -12455,11 +12455,18 @@ async function pgToggle(person, metric){
   document.addEventListener("click", function (e) {
     var btn = e.target && e.target.closest && e.target.closest("button,.btn");
     if (!btn || btn.tagName !== "BUTTON" || btn.disabled) return;
-    btn.disabled = true;
-    pending.add(btn);
+    // Disable on the NEXT tick, never inside this handler. A submit button that is
+    // already disabled when the browser performs the click's default action does not
+    // submit its form - which silently killed the login form on 8 Oct 2026. One tick is
+    // far shorter than any human double-click, so the guard still does its job.
     setTimeout(function () {
-      if (inflight === 0 && pending.has(btn)) { pending.delete(btn); release(btn); }
-    }, NO_CALL_AFTER);
+      if (btn.disabled) return;
+      btn.disabled = true;
+      pending.add(btn);
+      setTimeout(function () {
+        if (inflight === 0 && pending.has(btn)) { pending.delete(btn); release(btn); }
+      }, NO_CALL_AFTER);
+    }, 0);
   }, true);
 
   function start() {
