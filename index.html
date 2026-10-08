@@ -12121,7 +12121,11 @@ function pgAgentCard(a, cov, dEl, dIn, dPrev, dYoy){
           // fee is charged per policy, so this is the same number Agency Matrix reports.
           + (pgNum(f.new_business_count)
              ? `<div class="pg-s"><b>${pgInt(f.new_business_count)} new business polic${
-                  pgNum(f.new_business_count) === 1 ? "y" : "ies"} sold</b></div>` : "")
+                  pgNum(f.new_business_count) === 1 ? "y" : "ies"} sold</b>${
+                  pgNum(f.new_business_new) === null && pgNum(f.new_business_existing) === null ? ""
+                  : ` — ${pgInt(f.new_business_new)} new customer${
+                        pgNum(f.new_business_new) === 1 ? "" : "s"} · ${
+                        pgInt(f.new_business_existing)} existing`}</div>` : "")
           + ((pgNum(f.new_business) || pgNum(f.reinstatement) || pgNum(f.payment))
              ? `<div class="pg-s">${[
                   pgNum(f.new_business)  ? money0(f.new_business)  + " new business"  : null,
@@ -12384,5 +12388,108 @@ async function pgToggle(person, metric){
   }catch(e){ forgetCode(); }
 })();
 </script>
+<!-- ===== Loading indicator — added 7 Oct 2026. Covers every rpc() call; no handler changes. ===== -->
+<style>
+  #mip-bar{position:fixed;top:0;left:0;height:3px;width:0;background:#c9a227;z-index:99999;
+           opacity:0;transition:width .25s ease,opacity .3s ease;pointer-events:none}
+  #mip-bar.on{opacity:1}
+  body.mip-wait,body.mip-wait *{cursor:progress!important}
+  button[data-mip-busy]{opacity:.75}
+</style>
+<script>
+(function () {
+  "use strict";
+  var SHOW_AFTER = 200, NO_CALL_AFTER = 500, SAFETY = 25000, BUSY_LABEL = "Working…";
+  var inflight = 0, pending = new Set(), showTimer = null, safetyTimer = null, shown = false;
+
+  var bar = document.createElement("div");
+  bar.id = "mip-bar";
+  (document.body || document.documentElement).appendChild(bar);
+
+  // Tabs and tiny icon buttons keep their label; everything else says "Working…".
+  function relabels(btn) {
+    if (btn.classList.contains("tab")) return false;
+    if (btn.classList.contains("x")) return false;
+    return (btn.textContent || "").trim().length > 2;
+  }
+
+  function label(btn) {
+    if (btn.dataset.mipBusy || !relabels(btn)) return;
+    btn.dataset.mipBusy = "1";
+    btn.dataset.mipLabel = btn.textContent;
+    btn.style.minWidth = btn.offsetWidth + "px";
+    btn.textContent = BUSY_LABEL;
+  }
+
+  function show() {
+    shown = true;
+    bar.classList.add("on");
+    bar.style.width = "70%";
+    document.body.classList.add("mip-wait");
+    pending.forEach(label);
+  }
+
+  function release(btn) {
+    btn.disabled = false;
+    if (btn.dataset.mipBusy) {
+      btn.textContent = btn.dataset.mipLabel;
+      btn.style.minWidth = "";
+      delete btn.dataset.mipBusy;
+      delete btn.dataset.mipLabel;
+    }
+  }
+
+  function done() {
+    clearTimeout(showTimer); clearTimeout(safetyTimer);
+    showTimer = safetyTimer = null;
+    pending.forEach(release);
+    pending.clear();
+    if (shown) {
+      bar.style.width = "100%";
+      setTimeout(function () { bar.classList.remove("on"); bar.style.width = "0"; }, 250);
+    }
+    document.body.classList.remove("mip-wait");
+    shown = false;
+  }
+
+  document.addEventListener("click", function (e) {
+    var btn = e.target && e.target.closest && e.target.closest("button,.btn");
+    if (!btn || btn.tagName !== "BUTTON" || btn.disabled) return;
+    btn.disabled = true;
+    pending.add(btn);
+    setTimeout(function () {
+      if (inflight === 0 && pending.has(btn)) { pending.delete(btn); release(btn); }
+    }, NO_CALL_AFTER);
+  }, true);
+
+  function start() {
+    if (inflight++ === 0) {
+      showTimer = setTimeout(show, SHOW_AFTER);
+      safetyTimer = setTimeout(function () { inflight = 0; done(); }, SAFETY);
+    }
+  }
+  function stop() {
+    if (inflight > 0 && --inflight === 0) setTimeout(function () { if (inflight === 0) done(); }, 0);
+  }
+
+  var _fetch = window.fetch;
+  if (_fetch) {
+    window.fetch = function () {
+      start();
+      return _fetch.apply(this, arguments).then(
+        function (r) { stop(); return r; },
+        function (e) { stop(); throw e; }
+      );
+    };
+  }
+  var _open = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function () {
+    this.addEventListener("loadstart", start);
+    ["load","error","abort","timeout"].forEach(function (ev) { this.addEventListener(ev, stop); }, this);
+    return _open.apply(this, arguments);
+  };
+})();
+</script>
+<!-- ===== end loading indicator ===== -->
 </body>
 </html>
