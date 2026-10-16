@@ -12388,6 +12388,282 @@ async function pgToggle(person, metric){
   }catch(e){ forgetCode(); }
 })();
 </script>
+<!-- ===== session timeout + build freshness ===== -->
+<!--
+  Added 16 October 2026.
+
+  Two jobs, one block:
+
+    1. IDLE SIGN-OUT. sessionStorage already forgets the code when the tab closes. The gap
+       is a tab left open on an office machine with call transcripts and licence numbers on
+       screen. After 60 minutes with no interaction the code is dropped and the page reloads
+       to the sign-in screen. A 60-second warning with a "Stay signed in" button comes first,
+       so nobody is surprised. There is also a 12-hour absolute cap, for the tab nobody
+       touched overnight but that woke up to a stray event.
+
+    2. BUILD FRESHNESS. A new index.html has never reached anyone already signed in until
+       they press Ctrl+Shift+R, and nobody is told. This HEADs the page periodically and
+       compares the ETag against the one it loaded with. When it changes, a bar offers a
+       reload. Both the idle sign-out and the reload go through a cache-busting navigation,
+       so the fresh view is genuinely fresh code, not the cached copy re-rendered.
+
+  PLACEMENT MATTERS. This block must stay ABOVE the loading-indicator block, because it
+  captures window.fetch at parse time to get the UNWRAPPED fetch. Below the indicator it
+  would capture the wrapped one and every silent version check would flash the gold bar.
+
+  It touches no existing handler and no existing variable. The only app internal it knows
+  is the sessionStorage key "mia_code", which is the sign-in state.
+
+  It deliberately does NOT disable a button inside a click handler -- see the 8 October 2026
+  fix in the indicator block, where doing that stopped the login form submitting.
+-->
+<script>
+(function () {
+  "use strict";
+
+  var IDLE_MS     = 60 * 60 * 1000;   // sign out after this much inactivity
+  var WARN_MS     = 60 * 1000;        // warn this long before signing out
+  var ABSOLUTE_MS = 12 * 60 * 60 * 1000;
+  var POLL_MS     = 5 * 60 * 1000;    // how often to ask whether the build changed
+  var SNOOZE_MS   = 30 * 60 * 1000;   // how long "Not now" holds the reload offer off
+  var TICK_MS     = 15 * 1000;
+  var QUIET_MS    = 2 * 60 * 1000;    // idle this long => safe to reload without asking
+
+  var CODE_KEY  = "mia_code";
+  var SINCE_KEY = "mia_signed_at";
+  var FLAG_KEY  = "mia_signed_out_idle";
+
+  // Captured now, before the loading indicator wraps it. Version checks must stay silent.
+  var rawFetch = window.fetch ? window.fetch.bind(window) : null;
+
+  function ss(fn, dflt) { try { return fn(); } catch (e) { return dflt; } }
+  function signedIn() { return !!ss(function () { return sessionStorage.getItem(CODE_KEY); }, null); }
+
+  // ---------- the bar ----------
+
+  var offered = false;       // a version reload has been offered and not yet acted on
+  var snoozeUntil = 0;       // set by "Not now"
+  var bar = null;
+  var barKind = null;
+
+  function closeBar() {
+    if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
+    bar = null; barKind = null;
+  }
+
+  // One bar, so the two messages can collide. The sign-out warning is time-critical and
+  // wins. A version offer it displaces is re-armed so the next poll puts it back.
+  function showBar(kind, message, actionLabel, onAction, dismissable) {
+    if (kind === "idle" && barKind === "version") offered = false;
+    closeBar();
+    barKind = kind;
+    bar = document.createElement("div");
+    bar.setAttribute("role", "status");
+    bar.style.cssText = [
+      "position:fixed", "left:0", "right:0", "top:0", "z-index:2147483646",
+      "background:#1b1b1b", "color:#f4f1e8", "border-bottom:2px solid #c9a227",
+      "font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif",
+      "padding:10px 14px", "display:flex", "gap:12px", "align-items:center",
+      "justify-content:center", "flex-wrap:wrap", "box-shadow:0 2px 8px rgba(0,0,0,.25)"
+    ].join(";");
+
+    var text = document.createElement("span");
+    text.textContent = message;
+    bar.appendChild(text);
+
+    var act = document.createElement("button");
+    act.type = "button";
+    act.textContent = actionLabel;
+    act.style.cssText = [
+      "background:#c9a227", "color:#1b1b1b", "border:0", "border-radius:4px",
+      "padding:5px 14px", "font:inherit", "font-weight:600", "cursor:pointer"
+    ].join(";");
+    act.addEventListener("click", function (e) { e.preventDefault(); onAction(); });
+    bar.appendChild(act);
+
+    if (dismissable) {
+      var no = document.createElement("button");
+      no.type = "button";
+      no.textContent = "Not now";
+      no.style.cssText = [
+        "background:transparent", "color:#f4f1e8", "border:1px solid #6a6a6a",
+        "border-radius:4px", "padding:5px 12px", "font:inherit", "cursor:pointer"
+      ].join(";");
+      // "Not now" snoozes rather than silences -- staying on stale code indefinitely is
+      // the thing this whole block exists to stop.
+      no.addEventListener("click", function (e) {
+        e.preventDefault();
+        snoozeUntil = Date.now() + SNOOZE_MS;
+        offered = false;
+        closeBar();
+      });
+      bar.appendChild(no);
+    }
+
+    document.body.appendChild(bar);
+    return bar;
+  }
+
+  // ---------- reloading ----------
+
+  // A plain reload can be served the cached index.html, which is the whole problem we are
+  // trying to solve. A one-off query string guarantees a fresh document.
+  function hardReload() {
+    var base = location.pathname.replace(/[?#].*$/, "");
+    location.replace(base + "?v=" + Date.now());
+  }
+
+  // ---------- idle ----------
+
+  var last = Date.now();
+  var warned = false;
+
+  function poke() {
+    last = Date.now();
+    if (warned) { warned = false; closeBar(); }
+  }
+
+  ["pointerdown", "keydown", "wheel", "touchstart", "focusin"].forEach(function (ev) {
+    document.addEventListener(ev, poke, { capture: true, passive: true });
+  });
+
+  function signedAt() {
+    var v = ss(function () { return sessionStorage.getItem(SINCE_KEY); }, null);
+    if (!v) {
+      v = String(Date.now());
+      ss(function () { sessionStorage.setItem(SINCE_KEY, v); });
+    }
+    return parseInt(v, 10) || Date.now();
+  }
+
+  function signOutIdle() {
+    ss(function () {
+      sessionStorage.removeItem(CODE_KEY);
+      sessionStorage.removeItem(SINCE_KEY);
+      sessionStorage.setItem(FLAG_KEY, "1");
+    });
+    hardReload();
+  }
+
+  function idleTick() {
+    if (!signedIn()) { warned = false; signedAtReset(); return; }
+
+    if (Date.now() - signedAt() > ABSOLUTE_MS) { signOutIdle(); return; }
+
+    var quiet = Date.now() - last;
+    if (quiet >= IDLE_MS) { signOutIdle(); return; }
+
+    if (quiet >= IDLE_MS - WARN_MS && !warned) {
+      warned = true;
+      showBar("idle", "You will be signed out shortly for inactivity.", "Stay signed in", poke, false);
+    }
+  }
+
+  function signedAtReset() {
+    ss(function () { sessionStorage.removeItem(SINCE_KEY); });
+  }
+
+  // ---------- build freshness ----------
+
+  var baseline = null;
+  var lastPoll = 0;
+
+  function signature(res) {
+    var h = res.headers;
+    return h.get("etag") || h.get("last-modified") || h.get("content-length") || null;
+  }
+
+  function probe(then) {
+    if (!rawFetch) return;
+    var base = location.pathname.replace(/[?#].*$/, "");
+    rawFetch(base, { method: "HEAD", cache: "no-store" })
+      .then(function (res) { if (res && res.ok) then(signature(res)); })
+      .catch(function () { /* offline or blocked: try again next time, say nothing */ });
+  }
+
+  // offsetParent is null for every position:fixed element, so it is NOT a visibility test --
+  // using it here meant a half-written note in a fixed modal looked empty and the page
+  // reloaded out from under it. getClientRects() is the honest check.
+  function visible(el) {
+    return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+  }
+
+  function safeToReloadSilently() {
+    if (Date.now() - last < QUIET_MS) return false;
+
+    var fields = document.querySelectorAll("input, textarea");
+    for (var i = 0; i < fields.length; i++) {
+      var f = fields[i];
+      if (f.type === "hidden" || f.type === "checkbox" || f.type === "radio") continue;
+      if (f.disabled || f.readOnly) continue;
+      if (!visible(f)) continue;
+      if (f.value && String(f.value).trim() !== "") return false;  // somebody is mid-something
+    }
+
+    var edits = document.querySelectorAll("[contenteditable='true'],[contenteditable='']");
+    for (var j = 0; j < edits.length; j++) {
+      if (visible(edits[j]) && edits[j].textContent.trim() !== "") return false;
+    }
+
+    var ae = document.activeElement;
+    if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return false;
+    if (document.querySelector("dialog[open]")) return false;
+
+    return true;
+  }
+
+  function offerReload() {
+    if (offered || Date.now() < snoozeUntil) return;
+    offered = true;
+    if (safeToReloadSilently()) { hardReload(); return; }
+    showBar("version", "A newer version of the Portal is available.", "Reload", hardReload, true);
+  }
+
+  function versionTick() {
+    if (document.hidden) return;
+    if (Date.now() - lastPoll < POLL_MS) return;
+    lastPoll = Date.now();
+    probe(function (sig) {
+      if (!sig) return;
+      if (baseline === null) { baseline = sig; return; }
+      if (sig !== baseline) offerReload();
+    });
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) { lastPoll = 0; versionTick(); }
+  });
+
+  // ---------- start ----------
+
+  function start() {
+    // Tell somebody why they are looking at the sign-in screen.
+    if (ss(function () { return sessionStorage.getItem(FLAG_KEY); }, null)) {
+      ss(function () { sessionStorage.removeItem(FLAG_KEY); });
+      showBar("idle", "You were signed out after 60 minutes of inactivity.", "Dismiss", closeBar, false);
+    }
+    // Tidy the cache-busting parameter out of the address bar. The app has already done
+    // its own replaceState by now, so this cannot race it.
+    try {
+      if (/[?&]v=\d+/.test(location.search)) {
+        var clean = location.search.replace(/([?&])v=\d+&?/, "$1").replace(/[?&]$/, "");
+        history.replaceState(null, "", location.pathname + clean + location.hash);
+      }
+    } catch (e) {}
+
+    lastPoll = Date.now();
+    probe(function (sig) { baseline = sig; });
+    setInterval(function () { idleTick(); versionTick(); }, TICK_MS);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", start);
+  } else {
+    start();
+  }
+})();
+</script>
+<!-- ===== end session timeout + build freshness ===== -->
 <!-- ===== Loading indicator — added 7 Oct 2026. Covers every rpc() call; no handler changes. ===== -->
 <style>
   #mip-bar{position:fixed;top:0;left:0;height:3px;width:0;background:#c9a227;z-index:99999;
