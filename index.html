@@ -7133,6 +7133,10 @@ function renderManager(){
 let ESIGN = null, ESIGNH = {};
 let esignScope = "open", esignSev = "all", esignOffice = "all";
 const esignOpenRows = new Set();
+/* One object URL at a time. Revoked before the next one is made, because a blob URL that is
+   never revoked keeps the whole PDF in memory for as long as the tab is open, and these run
+   to a couple of megabytes each. */
+let esignDocUrl = null, esignDocFor = null, esignDocErr = null, esignDocBusy = null;
 
 const esignHasAccess = () => !!(ME && ME.esign_access);
 
@@ -7179,6 +7183,39 @@ async function esignReload(){
   }
 }
 
+/* The signed PDF is not stored anywhere. esign-document pulls it live out of the Adobe Sign
+   mail folder and streams it back, so the only copy stays in the mailbox. We send the
+   agreement id and never a message id, which is what keeps that function a document viewer
+   rather than a mail reader; it looks the message up itself behind the esign_access gate and
+   records who opened what in esign_document_access.
+
+   Not rpc(): this returns a PDF, not JSON, and lives under /functions/v1 rather than /rest/v1.
+   The access code travels in the body, never in the URL. */
+async function esignLoadDoc(id){
+  if(esignDocUrl){ try{ URL.revokeObjectURL(esignDocUrl); }catch(e){} }
+  esignDocUrl = null; esignDocErr = null; esignDocFor = id; esignDocBusy = id;
+  mgrEsign();
+  try{
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/esign-document`, {
+      method:"POST",
+      headers:{ "apikey":SUPABASE_KEY, "Authorization":`Bearer ${SUPABASE_KEY}`,
+                "Content-Type":"application/json" },
+      body: JSON.stringify({ code:CODE, id:id })
+    });
+    if(!r.ok){
+      let m = "The document could not be opened.";
+      try{ const j = await r.json(); if(j && j.error) m = j.error; }catch(e){}
+      esignDocErr = m;
+    }else{
+      esignDocUrl = URL.createObjectURL(await r.blob());
+    }
+  }catch(e){
+    esignDocErr = "The document could not be reached. " + (e.message || "");
+  }
+  esignDocBusy = null;
+  mgrEsign();
+}
+
 function esignHistoryHtml(id){
   const h = ESIGNH[id];
   if(!h) return `<div class="tsub">Loading history…</div>`;
@@ -7189,6 +7226,33 @@ function esignHistoryHtml(id){
         x.note?` — ${esc(x.note)}`:""}</div>
       <div class="tsub">${esc(x.by_name||"—")} · ${esc(when(x.created_at))}</div>
     </div>`).join("")}`;
+}
+
+/* The document itself, under the history. Keyed by exception id, which is what the row
+   already carries; esign_document_lookup resolves it to the agreement behind the gate. Two
+   exceptions on one packet therefore fetch it twice, which is a megabyte of waste and not
+   worth a cache that could go stale against a document being re-sent. */
+function esignDocHtml(r){
+  const id = r.id;
+  const mine = esignDocFor === id;
+  if(esignDocBusy === id) return `<div class="tsub" style="margin-top:14px">Fetching the document…</div>`;
+  if(mine && esignDocErr) return `<div style="margin-top:14px">
+    <div class="fin-note" style="margin-bottom:8px"><b>${esc(esignDocErr)}</b></div>
+    <button class="btn line sm" data-edoc="${esc(id)}">Try again</button></div>`;
+  if(mine && esignDocUrl) return `<div style="margin-top:14px">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+      <b style="font-size:13px">${esc(r.document || "Signed document")}</b>
+      <span class="tsub">pulled from the mailbox, not stored</span>
+      <span style="flex:1"></span>
+      <a class="btn line sm" href="${esc(esignDocUrl)}" target="_blank" rel="noopener">Open in a tab</a>
+      <button class="btn line sm" data-edochide="1">Close</button>
+    </div>
+    <iframe src="${esc(esignDocUrl)}" title="Signed document" style="width:100%;height:620px;
+      border:1px solid var(--line-2);border-radius:6px;background:#fff"></iframe></div>`;
+  return `<div style="margin-top:14px">
+    <button class="btn line sm" data-edoc="${esc(id)}">View document</button>
+    <span class="tsub" style="margin-left:8px">Opens the signed PDF from the mail folder. Each view is recorded.</span>
+  </div>`;
 }
 
 function mgrEsign(){
@@ -7304,6 +7368,7 @@ function mgrEsign(){
               <button class="btn sm" data-esave="${esc(r.id)}">Save</button>
             </div>
             <div data-ehist="${esc(r.id)}">${esignHistoryHtml(r.id)}</div>
+            ${esignDocHtml(r)}
           </div></td></tr>` : ""}`;
       }).join("")}
       </tbody></table></div>`}
@@ -7321,13 +7386,31 @@ function mgrEsign(){
   }));
   el.querySelectorAll("[data-eexp]").forEach(b=>b.addEventListener("click", async ()=>{
     const id = b.dataset.eexp;
-    if(esignOpenRows.has(id)){ esignOpenRows.delete(id); mgrEsign(); return; }
+    if(esignOpenRows.has(id)){
+      esignOpenRows.delete(id);
+      // Collapsing the row drops the PDF with it, rather than leaving a couple of
+      // megabytes of someone's card details alive in memory behind a closed panel.
+      if(esignDocUrl){ try{ URL.revokeObjectURL(esignDocUrl); }catch(e){} }
+      esignDocUrl = null; esignDocFor = null; esignDocErr = null;
+      mgrEsign(); return;
+    }
     esignOpenRows.add(id);
+    // Draw the panel first and let the history fill in. esignHistoryHtml already has a
+    // loading state; before this the await came first, so the whole panel - including the
+    // status box and the document button - waited on a round trip that is not needed to
+    // start reading the item.
+    mgrEsign();
     if(!ESIGNH[id]){
       try{ ESIGNH[id] = await rpc("esign_history",{p_code:CODE, p_exception_id:id}); }
       catch(e){ ESIGNH[id] = []; }
+      mgrEsign();
     }
-    mgrEsign();
+  }));
+  el.querySelectorAll("[data-edoc]").forEach(b=>b.addEventListener("click",
+    ()=>esignLoadDoc(b.dataset.edoc)));
+  el.querySelectorAll("[data-edochide]").forEach(b=>b.addEventListener("click", ()=>{
+    if(esignDocUrl){ try{ URL.revokeObjectURL(esignDocUrl); }catch(e){} }
+    esignDocUrl = null; esignDocFor = null; esignDocErr = null; mgrEsign();
   }));
   el.querySelectorAll("[data-esave]").forEach(b=>b.addEventListener("click", async ()=>{
     const id = b.dataset.esave;
