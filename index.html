@@ -1784,6 +1784,11 @@ const MGR_NAV = [
     {tab:"progress",         label:"By agent"}]},
 
   {key:"coaching",  label:"Agent Coaching", show:()=>true, items:[
+    /* Leads the strip, ahead of Retention. Braden, 17 October: a missing UM form is a
+       statutory defect and E&O exposure, a retention call is an opportunity. If both are
+       red the compliance one gets opened first. */
+    {tab:"esign",            label:"Document compliance", show:()=>esignHasAccess(),
+     badge:()=>esignBadge()},
     {tab:"ret",              label:"Retention work queue", show:()=>retHasAccess(),
      badge:()=>RET && RET.dash && RET.dash.totals && RET.dash.totals.past_deadline},
     {tab:"fin", sub:"quotes",label:"TurboRater Quotes",    show:()=>finHasFin()},
@@ -1867,6 +1872,7 @@ async function navLoad(it){
   if(it.tab === "partners")         await loadPartners();
   if(it.tab === "tips")             await loadTipsManage();
   if(it.tab === "ret")              await retReload();
+  if(it.tab === "esign")            await esignReload();
   if(it.tab === "progress" && !PROG) await loadProgress();
   if(it.tab === "fin"){
     if(!REV) await loadFin();
@@ -6751,6 +6757,7 @@ const OVW_MAP = [
   {tab:"feedback", need:"mgr",   t:"Feedback",        d:()=>`What agents have told us, and where you answer them.`},
   {tab:"activity", need:"mgr",   t:"Activity",        d:()=>`Who completed what, lately, across the agency.`},
   {tab:"partners", need:"mgr",   t:"Referral partners", d:s=>`${s.partners} car lots, apartment complexes and dealers. Built and loaded, switched off.`},
+  {tab:"esign",    need:"esign", t:"Document compliance", d:()=>`Every signed Adobe Sign agreement read against the rubric: UM forms, signature and initial spots, agent certifications, and whether it reached Agency Matrix.`},
   {tab:"ret",      need:"ret",   t:"Retention",       d:()=>`At-risk and lapsed policies, who is working them, and what was recovered. Built and loaded; waiting on a Retention Specialist.`},
   {tab:"add",      need:"mgr",   t:"Add an agent",    d:()=>`Creates them, assigns tracks, links their calls, and emails their code.`},
   {tab:"market",   need:"any",   t:"Find a market",   d:s=>`Which of our ${s.carriers} markets writes this risk. The search box at the top of every screen.`},
@@ -6947,6 +6954,7 @@ function ovwCan(need){
   if(need === "fin") return !!OVW.has_fin;
   if(need === "trust") return !!OVW.has_trust;
   if(need === "ret")   return retHasAccess();
+  if(need === "esign") return esignHasAccess();
   return false;
 }
 
@@ -7087,6 +7095,7 @@ function renderManager(){
   if(mgrTab === "calls" && !cmHasCall()) mgrTab = "home";
   if(mgrTab === "fin"   && !finHasFin()) mgrTab = "home";
   if(mgrTab === "ret"   && !retHasAccess()) mgrTab = "home";
+  if(mgrTab === "esign" && !esignHasAccess()) mgrTab = "home";
   if(mgrTab === "progress" && !finHasFin()) mgrTab = "home";
   if(mgrTab === "health" && !finHasPL()) mgrTab = "home";
   if(mgrTab === "mxact"  && !finHasPL()) mgrTab = "home";
@@ -7098,8 +7107,244 @@ function renderManager(){
   if(mgrCat && !navCat(mgrCat)) mgrCat = (navFind(mgrTab, mgrTab === "fin" ? finSub : null) || {cat:{}}).cat.key || null;
   ({home:mgrHome, roster:mgrRoster, ce:mgrCE, content:mgrContent, tracks:mgrTracks,
     activity:mgrActivity, add:mgrAdd, calls:mgrCall, feedback:mgrFeedback,
-    partners:mgrPartners, tips:mgrTips, fin:mgrFin, ret:mgrRet,
+    partners:mgrPartners, tips:mgrTips, fin:mgrFin, ret:mgrRet, esign:mgrEsign,
     health:mgrHealth, mxact:mgrMxact, progress:mgrProgress})[mgrTab]();
+}
+
+/* ================= Document compliance =====================================
+   Added 17 October 2026. Belinda's queue for the Adobe Sign review pipeline:
+   every completed agreement is read against the rubric in esign_rule, and what
+   fails lands here.
+
+   It sits in Agent Coaching rather than Financial Management because it measures
+   how the people are doing rather than what the book earned — the same reason
+   Call monitoring and the Retention work queue sit there — and it leads the strip
+   because a missing UM form is a statutory defect while a retention call is an
+   opportunity. Named "Document compliance", not "Adobe Sign": the source system
+   should not name the destination, and the scope is every application and
+   endorsement rather than one vendor's signatures.
+
+   Braden, 17 October: Belinda and him only. Several of these items are about a
+   named person's own conduct — who signed the agent line, who certified an
+   in-person execution that happened by phone — so offices do not see their own.
+   ME.esign_access decides whether the tab is drawn. The real gate is the
+   esign_access check inside esign_exceptions, esign_resolve and esign_summary. */
+
+let ESIGN = null, ESIGNH = {};
+let esignScope = "open", esignSev = "all", esignOffice = "all";
+const esignOpenRows = new Set();
+
+const esignHasAccess = () => !!(ME && ME.esign_access);
+
+/* Order is the one in the CHECK constraint on esign_exception.severity, and it is
+   the order Braden set on 17 October: review means the data cannot settle it and
+   the document has to be opened, which outranks a process nit but not a known defect. */
+const ESIGN_SEV = ["critical","major","review","minor"];
+const esignSevRank = s => { const i = ESIGN_SEV.indexOf(s); return i < 0 ? 99 : i; };
+const esignSevPill = s => s === "critical" ? "fail" : s === "major" ? "prog"
+                        : s === "review"   ? "score" : "todo";
+
+const ESIGN_STATUS = [
+  ["open","Open"],["in_progress","Working it"],
+  ["resolved","Resolved"],["no_action_needed","No action needed"]];
+const ESIGN_LABEL  = Object.fromEntries(ESIGN_STATUS);
+const ESIGN_CLOSED = new Set(["resolved","no_action_needed"]);
+const esignPill = s => ESIGN_CLOSED.has(s) ? "done" : s === "open" ? "todo" : "prog";
+
+/* The badge counts open critical and major only. Review items say "go and look" and
+   minor items are process nits; letting either inflate the number on the home screen
+   is how a badge stops meaning anything. Same reasoning as the Portal Health chip
+   counting only late and due. */
+function esignBadge(){
+  if(!ESIGN || !ESIGN.rows) return 0;
+  return ESIGN.rows.filter(r => !ESIGN_CLOSED.has(r.current_status) &&
+    (r.severity === "critical" || r.severity === "major")).length;
+}
+
+/* Always the full set, filtered below. Two reasons. esign_exceptions already counts
+   in_progress as open, so a client asking separately for "open" was a second, stricter
+   definition of the same word - an item marked "Working it" disappeared out of the view
+   of the person working it. And the severity counts on the card are then derived from the
+   same rows the table draws, so the headline and the list can never disagree. The set is
+   small; scope and severity now cost nothing to switch. */
+async function esignReload(){
+  try{
+    const [s, rows] = await Promise.all([
+      rpc("esign_summary",{p_code:CODE}),
+      rpc("esign_exceptions",{p_code:CODE, p_scope:"all"})
+    ]);
+    ESIGN = {summary:s, rows:rows||[]};
+  }catch(e){
+    ESIGN = {error:e.message, rows:[]};
+  }
+}
+
+function esignHistoryHtml(id){
+  const h = ESIGNH[id];
+  if(!h) return `<div class="tsub">Loading history…</div>`;
+  if(!h.length) return `<div class="tsub">No work recorded against this item yet.</div>`;
+  return `<div class="tsub" style="margin-bottom:6px"><b>History</b></div>
+    ${h.map(x=>`<div style="border-left:2px solid var(--line-2);padding:2px 0 8px 10px;margin-bottom:2px">
+      <div style="font-size:13px">${esc(ESIGN_LABEL[x.status]||x.status)}${
+        x.note?` — ${esc(x.note)}`:""}</div>
+      <div class="tsub">${esc(x.by_name||"—")} · ${esc(when(x.created_at))}</div>
+    </div>`).join("")}`;
+}
+
+function mgrEsign(){
+  const body = $("#mgrBody");
+  if(!esignHasAccess()){
+    body.innerHTML = `<div class="card"><div class="empty">
+      This tab is not switched on for your access code.</div></div>`;
+    return;
+  }
+  if(!ESIGN){
+    body.innerHTML = `<div class="card"><div class="empty">Loading…</div></div>`;
+    return;
+  }
+  if(ESIGN.error){
+    body.innerHTML = `<div class="card"><div class="empty">
+      Document compliance data could not be loaded: ${esc(ESIGN.error)}</div></div>`;
+    return;
+  }
+
+  const all = ESIGN.rows || [];
+  const sum = ESIGN.summary || {};
+
+  // Offices come from the rows rather than from a list, so an office with nothing
+  // open does not sit in the filter strip inviting a click that shows an empty table.
+  const offices = [...new Set(all.map(r => r.office).filter(Boolean))].sort();
+
+  const rows = all
+    .filter(r => esignScope === "open"   ? !ESIGN_CLOSED.has(r.current_status)
+               : esignScope === "closed" ?  ESIGN_CLOSED.has(r.current_status) : true)
+    .filter(r => esignSev    === "all" || r.severity === esignSev)
+    .filter(r => esignOffice === "all" || (r.office || "(no office)") === esignOffice)
+    .sort((a,b) => esignSevRank(a.severity) - esignSevRank(b.severity) ||
+                   String(b.signed_on||"").localeCompare(String(a.signed_on||"")));
+
+  // Counted off the same rows the table draws, so the card cannot say four while the
+  // list shows three. Open means not closed, matching the scope strip and the badge.
+  const openCount = s => all.filter(r => r.severity === s &&
+    !ESIGN_CLOSED.has(r.current_status)).length;
+
+  body.innerHTML = `
+    <div class="card fin-pad">
+      <b>What the rubric found</b>
+      <div class="tsub" style="margin:4px 0 12px">
+        ${sum.agreements||0} completed agreements read against the rubric. Every exception
+        below is something a person has to act on, or decide not to.
+      </div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap">
+        ${ESIGN_SEV.map(s=>`<div>
+          <div style="font-size:22px;font-weight:700">${openCount(s)}</div>
+          <div class="tsub">${s === "review" ? "To review" : s[0].toUpperCase()+s.slice(1)} open</div>
+        </div>`).join("")}
+      </div>
+      <div class="fin-note" style="margin-top:12px">
+        <b>Review</b> means the reading could not settle it and the document itself has to be
+        opened — an unreadable packet, or a UM form where which line is marked is not legible.
+        It is not a defect until somebody looks.
+      </div>
+    </div>
+
+    <div class="fin-sub" style="margin:12px 0">
+      ${[["open","Open"],["closed","Closed"],["all","Everything"]].map(([k,l])=>
+        `<button data-escope="${k}" class="${esignScope===k?"on":""}">${l}</button>`).join("")}
+      <span style="flex:1"></span>
+      ${[["all","All"]].concat(ESIGN_SEV.map(s=>[s, s[0].toUpperCase()+s.slice(1)])).map(([k,l])=>
+        `<button data-esev="${k}" class="${esignSev===k?"on":""}">${esc(l)}</button>`).join("")}
+    </div>
+
+    ${offices.length > 1 ? `<div class="fin-sub" style="margin:0 0 12px">
+      ${[["all","Every office"]].concat(offices.map(o=>[o,o])).map(([k,l])=>
+        `<button data-eoff="${esc(k)}" class="${esignOffice===k?"on":""}">${esc(l)}</button>`
+      ).join("")}</div>` : ""}
+
+    ${!rows.length ? `<div class="card fin-pad"><div class="empty">
+      Nothing here${esignScope==="open"?" — every item in this view has been worked":""}.</div></div>`
+    : `<div class="card" style="overflow-x:auto"><table class="fin-t"><thead><tr>
+        <th>Severity</th><th>Signed</th><th>Customer</th><th class="hide-sm">Carrier</th>
+        <th class="hide-sm">Office</th><th class="hide-sm">Agent</th><th>Issue</th>
+        <th>Status</th><th></th>
+      </tr></thead><tbody>
+      ${rows.map(r=>{
+        const isOpen = esignOpenRows.has(r.id);
+        return `<tr class="${isOpen?"tr-open":""}">
+          <td><span class="pill ${esignSevPill(r.severity)}">${esc(r.severity||"—")}</span></td>
+          <td><span class="tsub">${esc(r.signed_on||"—")}</span></td>
+          <td>${esc(r.customer||"—")}${r.policy_number
+            ? `<div class="tsub">${esc(r.policy_number)}</div>` : ""}</td>
+          <td class="hide-sm"><span class="tsub">${esc(r.carrier||"—")}</span></td>
+          <td class="hide-sm"><span class="tsub">${esc(r.office||"—")}</span></td>
+          <td class="hide-sm"><span class="tsub">${esc(r.staff_name||"—")}</span></td>
+          <td>${esc(r.issue||"—")}<div class="tsub" style="margin-top:3px">${
+            esc(r.rule_id||"")}${r.ref_code?` · ${esc(r.ref_code)}`:""}</div></td>
+          <td><span class="pill ${esignPill(r.current_status)}">${
+            esc(ESIGN_LABEL[r.current_status]||r.current_status)}</span></td>
+          <td><button class="btn line sm" data-eexp="${esc(r.id)}">${isOpen?"Hide":"Details"}</button></td>
+        </tr>
+        ${isOpen ? `<tr><td colspan="9" style="background:#f7f8fc">
+          <div style="padding:4px 2px 10px">
+            ${r.action_needed?`<div class="fin-note" style="margin-bottom:12px">
+              <b>What it needs.</b> ${esc(r.action_needed)}</div>`:""}
+            <div class="tsub" style="margin-bottom:12px">
+              ${esc(r.document||"—")}${r.category?` · ${esc(r.category)}`:""}${
+              r.detected_at?` · found ${esc(when(r.detected_at))}`:""}
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+              <label style="flex:0 0 200px">
+                <span class="tsub">Status</span>
+                <select data-estatus="${esc(r.id)}">${ESIGN_STATUS.map(([k,l])=>
+                  `<option value="${k}" ${r.current_status===k?"selected":""}>${esc(l)}</option>`
+                ).join("")}</select></label>
+              <label style="flex:1 1 320px">
+                <span class="tsub">What did you find?</span>
+                <input type="text" data-enote="${esc(r.id)}" placeholder="Optional, but this is the part that survives the next rebuild"></label>
+              <button class="btn sm" data-esave="${esc(r.id)}">Save</button>
+            </div>
+            <div data-ehist="${esc(r.id)}">${esignHistoryHtml(r.id)}</div>
+          </div></td></tr>` : ""}`;
+      }).join("")}
+      </tbody></table></div>`}
+  `;
+
+  const el = body;
+  el.querySelectorAll("[data-escope]").forEach(b=>b.addEventListener("click", ()=>{
+    esignScope = b.dataset.escope; esignOpenRows.clear(); mgrEsign();
+  }));
+  el.querySelectorAll("[data-esev]").forEach(b=>b.addEventListener("click", ()=>{
+    esignSev = b.dataset.esev; mgrEsign();
+  }));
+  el.querySelectorAll("[data-eoff]").forEach(b=>b.addEventListener("click", ()=>{
+    esignOffice = b.dataset.eoff; mgrEsign();
+  }));
+  el.querySelectorAll("[data-eexp]").forEach(b=>b.addEventListener("click", async ()=>{
+    const id = b.dataset.eexp;
+    if(esignOpenRows.has(id)){ esignOpenRows.delete(id); mgrEsign(); return; }
+    esignOpenRows.add(id);
+    if(!ESIGNH[id]){
+      try{ ESIGNH[id] = await rpc("esign_history",{p_code:CODE, p_exception_id:id}); }
+      catch(e){ ESIGNH[id] = []; }
+    }
+    mgrEsign();
+  }));
+  el.querySelectorAll("[data-esave]").forEach(b=>b.addEventListener("click", async ()=>{
+    const id = b.dataset.esave;
+    const st = el.querySelector(`[data-estatus="${id}"]`).value;
+    const nt = el.querySelector(`[data-enote="${id}"]`).value;
+    b.disabled = true;
+    try{
+      await rpc("esign_resolve",{p_code:CODE, p_exception_id:id, p_status:st,
+                                 p_note:nt, p_assigned_to:null});
+      delete ESIGNH[id];
+      ESIGNH[id] = await rpc("esign_history",{p_code:CODE, p_exception_id:id});
+      await esignReload();
+      toast("Saved. The trail is append-only, so this survives the next rebuild.");
+    }catch(e){ toast(e.message); }
+    b.disabled = false;
+    mgrEsign();
+  }));
 }
 
 /* ================= Retention =================
