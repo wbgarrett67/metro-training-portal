@@ -829,7 +829,7 @@ let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, l
     PER=null, perPreset="all", perFrom="", perTo="",
     BANK=null, carrBasis="banked",
     OVW=null, GUIDE=null,
-    TRUST=null, TRUSTT=null, trustScope="open", trustSide="all", trustDone=false,
+    TRUST=null, TRUSTT=null, TRUSTRS=null, trustScope="open", trustSide="all", trustDone=false,
     AUDIT=null, auditOpen=new Set(), QUOTES=null,
     HOME=null, mgrCat=null,
     trustOpen=new Set(), TRUSTH={},
@@ -1525,6 +1525,12 @@ async function loadTrust(){
   }catch(err){
     TRUST = {error:err.message, rows:[]}; TRUSTT = [];
   }
+  // Separate try: the status strip must still draw if the heavier calls above fail,
+  // because "is the reconciliation current" is the one question worth answering even
+  // when the detail will not load.
+  try{ TRUSTRS = await rpc("trust_recon_state",{p_code:CODE}); }
+  catch(err){ TRUSTRS = {state:"unknown", colour:"amber", can_press:false,
+                         reason:"Could not read the reconciliation status: "+err.message}; }
 }
 
 // Same gate as Premium Trust. Details carries the insured name and policy number, which
@@ -3607,7 +3613,50 @@ function finTrust(){
   ].map(c => Object.assign(c, { ok: cents(c.ra) === cents(c.la) }));
   const allTie = checks.every(c=>c.ok);
 
-  el.innerHTML = `
+  // ---- Reconciliation status strip ----------------------------------------
+  // Green only when the reconciliation has reached as far as the loaded data allows.
+  // Amber when it is as current as it CAN be but the bank feed itself has stalled --
+  // that is a different problem with a different fix, and a red button nobody can
+  // usefully press is worse than no button. The button only ever ASKS for a run: it
+  // cannot close an exception or move money.
+  const RS = TRUSTRS || {};
+  const rsTone = {green:"done", red:"fail", amber:"prog", blue:"prog"}[RS.colour] || "prog";
+  const rsWord = {current:"Current", behind:"Reconciliation needed",
+                  blocked:"Waiting on bank statements", queued:"Requested",
+                  running:"Running now"}[RS.state] || "Status unknown";
+  const rsStrip = `
+    <div class="card fin-pad" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;
+                  gap:12px;align-items:center">
+        <div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="pill ${rsTone}">${esc(rsWord)}</span>
+            <b>Premium Trust reconciliation</b>
+          </div>
+          <div class="tsub" style="margin-top:6px">${esc(RS.reason||"")}</div>
+          <div class="tsub" style="margin-top:2px">
+            Reconciled through ${esc(String(RS.last_reconciled||"—"))}
+            · bank loaded through ${esc(String(RS.bank_through||"—"))}
+            · receipts through ${esc(String(RS.receipts_through||"—"))}
+          </div>
+        </div>
+        <div style="text-align:right">
+          <button class="btn${RS.can_press?"":" line"}" id="trustReconBtn"
+                  ${RS.can_press?"":"disabled"}>Run reconciliation</button>
+          <div class="tsub" style="margin-top:6px;max-width:240px">
+            ${RS.can_press
+              ? "Runs within the hour. This strip turns green when it finishes."
+              : RS.state==="blocked"
+                ? "Load the BancFirst statements to go further."
+                : RS.state==="queued" || RS.state==="running"
+                  ? "Already requested — nothing more to do."
+                  : "Nothing to reconcile."}
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  el.innerHTML = rsStrip + `
     <div class="grid-stats">
       <div class="stat"><div class="k">Open items</div>
         <div class="v">${openRows.length}</div>
@@ -3769,6 +3818,16 @@ function finTrust(){
     }
     finTrust();
   }));
+  const reconBtn = el.querySelector("#trustReconBtn");
+  if(reconBtn) reconBtn.addEventListener("click", async ()=>{
+    reconBtn.disabled = true;
+    try{
+      const r = await rpc("trust_recon_enqueue",{p_code:CODE});
+      toast(r && r.reason ? r.reason : "Requested.");
+      await loadTrust();
+    }catch(e){ toast(e.message); }
+    finTrust();
+  });
   el.querySelectorAll("[data-tsave]").forEach(b=>b.addEventListener("click", async ()=>{
     const id = b.dataset.tsave;
     const st = el.querySelector(`[data-tstatus="${id}"]`).value;
