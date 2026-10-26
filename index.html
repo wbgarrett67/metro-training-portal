@@ -9538,6 +9538,19 @@ function hlthDiary(){
 
   const faults = d.filter(r=>["refused","header_only","failed","missing"].includes(r.outcome));
 
+  /* Last success (added 26 October 2026, Braden's request): the newest business day in the
+     window whose report arrived AND loaded. The blips show the pattern; this gives the date
+     without hovering. The diary only carries 21 days, so a feed with no success inside the
+     window says so rather than inventing an older date. */
+  const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const lastOk = days => {
+    const ok = days.filter(x=>x.outcome==="loaded").map(x=>String(x.business_date).slice(0,10)).sort();
+    if(!ok.length) return `<span class="tsub">none in 21 days</span>`;
+    const iso = ok[ok.length-1], dt = new Date(iso+"T12:00:00");
+    return `<b>${DOW[dt.getDay()]} ${MON[dt.getMonth()]} ${dt.getDate()}</b>`;
+  };
+
   const strip = days => days.slice().sort((a,b)=>
       String(a.business_date).localeCompare(String(b.business_date))).map(x=>{
     const c = DIARY_CELL[x.outcome];
@@ -9562,10 +9575,11 @@ function hlthDiary(){
       </div>` : ""}
 
     <table class="fin-t"><thead><tr>
-      <th>Report</th><th>Last 21 days</th></tr></thead><tbody>
+      <th>Report</th><th>Last 21 days</th><th>Last success</th></tr></thead><tbody>
       ${tracked.map(([k,v])=>`<tr>
         <td><b>${esc(v.label)}</b></td>
-        <td style="white-space:nowrap">${strip(v.days)}</td></tr>`).join("")}
+        <td style="white-space:nowrap">${strip(v.days)}</td>
+        <td style="white-space:nowrap">${lastOk(v.days)}</td></tr>`).join("")}
     </tbody></table>
 
     <div class="tsub" style="margin-top:10px">
