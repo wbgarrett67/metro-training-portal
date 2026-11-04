@@ -161,6 +161,23 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--navy-3);outline-
   align-items:stretch;grid-auto-rows:1fr;margin-top:18px}
 /* flex column for the same reason as the agent tiles: a stretched <button> centres
    its own content vertically, which would push a short tile's heading down the card. */
+.ap-tbl{width:100%;border-collapse:collapse;font-size:13.5px}
+.ap-tbl th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);
+  padding:9px 12px;border-bottom:1px solid var(--line);font-weight:650}
+.ap-tbl td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+.ap-tbl tr:last-child td{border-bottom:0}
+.ap-tbl .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ap-pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:650}
+.ap-pill.ok{background:var(--ok-bg);color:var(--ok)} .ap-pill.warn{background:var(--warn-bg);color:var(--warn)}
+.ap-pill.bad{background:var(--bad-bg);color:var(--bad)} .ap-pill.info{background:var(--info-bg);color:var(--info)}
+.ap-bar{height:12px;border-radius:99px;background:var(--line);overflow:hidden;position:relative}
+.ap-bar > i{display:block;height:100%;background:var(--navy-3);border-radius:99px}
+.ap-bar > b{position:absolute;top:-3px;width:2px;height:18px;background:var(--gold)}
+.ap-note{font-size:12.5px;color:var(--ink-3);margin:8px 0 0}
+.ap-call{padding:14px 16px;border-bottom:1px solid var(--line)}
+.ap-call:last-child{border-bottom:0}
+.ap-call ul{margin:6px 0 0 18px;padding:0;font-size:13.5px;color:var(--ink-2)}
+.ap-call h4{margin:10px 0 0;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3)}
 .htile{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
   box-shadow:var(--shadow);overflow:hidden;text-align:left;width:100%;font:inherit;color:inherit;
   cursor:pointer;padding:0;display:flex;flex-direction:column;align-items:stretch}
@@ -783,6 +800,7 @@ button.pg-m > .pg-more{margin-top:auto;padding-top:7px}
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4
           a8.9 8.9 0 0 1-3.8-.8L3 21l1.9-4.1A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z"/></svg>
         <span class="lbl">Feedback</span></button>
+      <button class="btn-ghost hidden" id="apViewBtn" title="See the Agent Portal exactly as a pilot agent sees it">Agent Portal view</button>
       <button class="btn-ghost hidden" id="modeToggle"></button>
       <button class="btn-ghost" id="signOut">Sign out</button>
     </div>
@@ -809,7 +827,7 @@ const SUPABASE_KEY = "sb_publishable_NoJmcZHNCtjjkrBlHNJL3w__X_lSAPv";
 
 /* ================= state ================= */
 let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, lastAdded=null,
-    PREVIEW=null, MODE=null,
+    PREVIEW=null, MODE=null, AP=null, AP_PEOPLE=[], apTab="day", apViewAs=null,
     selCE=null,
     openMods=new Set(), openTracks=null, mgrTab="home", selTrainee=null,
     PARTNERS=null, pnFilter="all", pnOffice="", pnCat="", pnSel=null, pnSweep=false, pnHelp=null,
@@ -1006,6 +1024,10 @@ function forgetCode(){
 }
 $("#signOut").addEventListener("click", ()=>{
   if(PREVIEW){ exitPreview(); return; }
+  AP=null; apViewAs=null; apTab="day"; AP_PEOPLE=[];
+  $("#apViewBtn").classList.add("hidden");
+  document.title = "Metro Insurance \u2014 Training Portal";
+  { const pg = document.querySelector("#view-app .prog"); if(pg) pg.textContent = "Training Portal"; }
   CODE=ME=STATE=MGR=null; selTrainee=null; lastAdded=null; MODE=null;
   RET=null; retSel=null; retItem=null; retRes=null; retSub="new";
   retXd=null; retScore=null; retIncr=null; retClosedLoaded=false; retFocus=false; retMsg=null; retSearch="";
@@ -1051,8 +1073,12 @@ const agentAreas = () => [
 // grants therefore gets a home screen of chips, and the toggle becomes the way back to it.
 // Anyone with a single grant keeps the toggle they already know.
 const agentMulti = () => !!(ME && !isStaff(ME.role) && agentAreas().length > 2);
+// Agent Portal pilot (4 November 2026). training_login returns agent_portal as a routing hint
+// only; agent_portal_me checks it again and returns nothing but the caller's own data.
+const agentPortal = () => !!(ME && !isStaff(ME.role) && ME.agent_portal);
 // Where the toggle sends somebody who is currently looking at their own training.
 const homeMode = () => isStaff(ME.role) ? "manager"
+                     : agentPortal() ? "agent"
                      : agentMulti() ? "home"
                      : retWorkerOnly() ? "retention" : "training";
 
@@ -1068,7 +1094,17 @@ async function boot(){
   // so opening this to agents is a one-line change once Braden decides.
   if(staff) loadOverview(); else $("#ovwBtn").classList.add("hidden");
   // Everybody lands on the job they signed in to do; the other half is one click away.
-  await setMode(staff ? "manager" : agentMulti() ? "home"
+  if(agentPortal()){
+    document.title = "Metro Insurance \u2014 Agent Portal";
+    const pg = document.querySelector("#view-app .prog"); if(pg) pg.textContent = "Agent Portal";
+  }
+  if(staff){
+    try{
+      AP_PEOPLE = await rpc("agent_portal_people",{p_code:CODE}) || [];
+      $("#apViewBtn").classList.toggle("hidden", !AP_PEOPLE.length);
+    }catch(e){ AP_PEOPLE = []; }
+  }
+  await setMode(staff ? "manager" : agentPortal() ? "agent" : agentMulti() ? "home"
                 : retWorker ? "retention" : "training");
 }
 
@@ -1111,6 +1147,12 @@ async function setMode(mode){
     $("#paneTrainee").classList.add("hidden");
     $("#paneManager").classList.remove("hidden");
     renderAgentHome();
+  }else if(mode === "agent"){
+    $("#paneTrainee").classList.add("hidden");
+    $("#paneManager").classList.remove("hidden");
+    $("#modeToggle").classList.add("hidden");
+    await loadAgentPortal();
+    renderAgentPortal();
   }else{
     $("#paneManager").classList.add("hidden");
     $("#paneTrainee").classList.remove("hidden");
@@ -1120,13 +1162,19 @@ async function setMode(mode){
     STATE = null; openTracks = null; openMods.clear();
     await loadTrainee();
   }
+  // Agent Portal agents get one way home from every other area.
+  if(agentPortal() && mode !== "agent"){
+    $("#modeToggle").classList.remove("hidden");
+    $("#modeToggle").textContent = "\u2190 Agent Portal";
+  }
   window.scrollTo(0,0);
 }
 
 $("#modeToggle").addEventListener("click", async ()=>{
   const btn = $("#modeToggle");
   btn.disabled = true;
-  try{ await setMode(MODE === "training" ? homeMode()
+  try{ await setMode(agentPortal() ? (MODE === "agent" ? "training" : "agent")
+                   : MODE === "training" ? homeMode()
                    : agentMulti() ? "home" : "training"); }
   finally{ btn.disabled = false; }
 });
@@ -7784,6 +7832,211 @@ function renderAgentHome(){
   $("#paneManager").querySelectorAll("[data-area]").forEach(b =>
     b.addEventListener("click", ()=> setMode(b.dataset.area)));
 }
+
+/* ================= Agent Portal (pilot, 4 November 2026) =================
+   One page per agent: their bonus progress, production, follow-ups, retention, coaching,
+   documents and licence. agent_portal_me returns ONLY the signed-in agent's own records
+   (calls matched through training_call_agents, the Scorecard's mapping); the page never
+   filters anything itself. Staff can open the same page "as" a pilot agent, read-only. */
+async function loadAgentPortal(){
+  try{
+    AP = await rpc("agent_portal_me", apViewAs ? {p_code:CODE, p_person:apViewAs} : {p_code:CODE});
+  }catch(e){ AP = {error: String(e.message||e)}; }
+}
+const apDay = iso => { if(!iso) return "\u2014";
+  const s = String(iso);
+  // Document dates arrive as MM/DD/YYYY (and occasionally a range); show those as written.
+  if(!/^\d{4}-\d{2}-\d{2}/.test(s)){ const m = /^(\d{2})\/(\d{2})\/\d{4}$/.exec(s);
+    return m ? M3[+m[1]-1]+" "+(+m[2]) : s; }
+  const d=new Date(s.slice(0,10)+"T12:00:00");
+  return M3[d.getMonth()]+" "+d.getDate(); };
+const apWhen = iso => { if(!iso) return "\u2014"; const d=new Date(iso);
+  return M3[d.getMonth()]+" "+d.getDate()+", "+d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}); };
+const apList = a => Array.isArray(a) && a.length ? `<ul>${a.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>` : "";
+const AP_TABS = [["day","My Day"],["bonus","Bonus & Production"],["qns","Quoted Not Sold"],["ret","Retention"],
+  ["coach","Coaching"],["docs","Document Compliance"],["lic","Licensing & CE"],["mkt","Marketing"],["learn","Training & Tips"]];
+
+function apBonusNums(){
+  const b = (AP && AP.bonus) || {};
+  const done = +b.business_days_done || 0, all = +b.business_days_total || 0;
+  const proj = done ? (+b.fees_mtd||0) / done * all : 0;
+  return {b, done, all, proj};
+}
+
+function renderAgentPortal(){
+  const pane = $("#paneManager");
+  if(!AP || AP.error){
+    pane.innerHTML = `<div class="card pad"><b>The Agent Portal could not be loaded.</b>
+      <div class="ap-note">${esc(AP && AP.error || "")}</div></div>`;
+    return;
+  }
+  const me = AP.me || {}, ret = AP.retention || [], qns = AP.quoted_not_sold || [],
+        docs = AP.compliance || [], lic = AP.license || null;
+  const {b, proj} = apBonusNums();
+  const due7 = ret.filter(r => r.days_left !== null && r.days_left >= 0 && r.days_left <= 7).length;
+  pane.innerHTML = `
+    ${me.viewing_as ? `<div class="card pad" style="margin-bottom:16px;border-left:4px solid var(--gold);
+        display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px"><b>Previewing ${esc(me.name)}'s Agent Portal</b>
+          <div class="ap-note" style="margin:3px 0 0">This is exactly what ${esc(me.first)} sees. Nothing here can be changed from this view.</div></div>
+        <button class="btn sm" id="apBack">Back to dashboard</button></div>` : ""}
+    <div class="hero">
+      <div class="hero-row"><div>
+        <h1>Welcome, ${esc(me.first || "")}</h1>
+        <p>Your Agent Portal \u2014 your numbers, your follow-ups and your coaching in one place.</p>
+        <p style="margin-top:10px;font-size:13px;color:#b2b5d4">${esc(me.office||"")}${me.start_date ? " \u00b7 with Metro since "+esc(sdate(me.start_date)) : ""}</p>
+      </div></div>
+    </div>
+    <div class="grid-stats">
+      <div class="stat"><div class="k">Fees this month</div><div class="v">${money(b.fees_mtd)}</div></div>
+      <div class="stat"><div class="k">On pace for</div><div class="v">${money(proj)}</div></div>
+      <div class="stat"><div class="k">New policies this month</div><div class="v">${+b.nb_mtd||0}</div></div>
+      <div class="stat"><div class="k">Retention due in 7 days</div><div class="v" style="${due7?'color:var(--warn)':''}">${due7}</div></div>
+      <div class="stat"><div class="k">Quotes to follow up</div><div class="v">${qns.length}</div></div>
+    </div>
+    <div class="tabs">${AP_TABS.map(([k,l])=>`<button class="tab ${apTab===k?"on":""}" data-aptab="${k}">${l}</button>`).join("")}</div>
+    <div id="apBody"></div>`;
+  pane.querySelectorAll("[data-aptab]").forEach(t => t.addEventListener("click", ()=>{
+    apTab = t.dataset.aptab; renderAgentPortal(); }));
+  const back = $("#apBack"); if(back) back.addEventListener("click", apExitView);
+  $("#apBody").innerHTML = apSection(apTab);
+  $("#apBody").querySelectorAll("[data-apgo]").forEach(x => x.addEventListener("click", ()=>{
+    const g = x.dataset.apgo;
+    if(me.viewing_as){ toast("Preview only \u2014 open this from the dashboard."); return; }
+    if(AP_TABS.some(([k])=>k===g)){ apTab = g; renderAgentPortal(); window.scrollTo(0,0); }
+    else setMode(g);
+  }));
+}
+
+function apSection(k){
+  const me = AP.me || {}, ret = AP.retention || [], qns = AP.quoted_not_sold || [],
+        docs = AP.compliance || [], calls = AP.coaching || [], lic = AP.license || null,
+        prod = AP.production || [], open = AP.coaching_open || [];
+  const {b, done, all, proj} = apBonusNums();
+  const card = (title, inner, foot) => `<div class="card" style="margin-bottom:16px">
+      <div class="pad" style="padding-bottom:6px"><h3 style="font-size:15.5px">${title}</h3></div>${inner}
+      ${foot ? `<div class="pad" style="padding-top:8px">${foot}</div>` : ""}</div>`;
+  const go = (target, label) => `<button class="btn line sm" data-apgo="${target}">${label}</button>`;
+  const retRow = r => `<tr><td><b>${esc(r.insured||"")}</b><div class="ap-note" style="margin:2px 0 0">${esc(r.carrier||"")} ${esc(r.policy||"")}</div></td>
+      <td>${esc((r.reason||"").replace(/_/g," "))}</td>
+      <td class="num">${r.deadline ? apDay(r.deadline) : "\u2014"}${r.days_left!==null && r.days_left!==undefined
+        ? `<div>${r.days_left<0 ? `<span class="ap-pill bad">${-r.days_left}d past</span>`
+          : r.days_left<=7 ? `<span class="ap-pill warn">${r.days_left}d left</span>` : `<span class="ap-pill info">${r.days_left}d left</span>`}</div>` : ""}</td>
+      <td class="num">${+r.attempts||0}</td><td>${r.mine ? `<span class="ap-pill info">Yours</span>` : `<span class="ap-pill ok">Unclaimed</span>`}</td></tr>`;
+  const retTable = rows => rows.length ? `<div style="overflow-x:auto"><table class="ap-tbl"><thead><tr><th>Customer</th><th>Why</th>
+      <th class="num">Deadline</th><th class="num">Attempts</th><th></th></tr></thead><tbody>${rows.map(retRow).join("")}</tbody></table></div>`
+      : `<div class="empty">Nothing on your retention list right now.</div>`;
+  const qnsTable = rows => rows.length ? `<div style="overflow-x:auto"><table class="ap-tbl"><thead><tr><th>Quoted</th><th>Customer</th>
+      <th>Carrier</th><th class="num">Premium</th><th>Phone</th></tr></thead><tbody>${rows.map(q=>`<tr>
+      <td>${apDay(q.quoted_on)}</td><td><b>${esc(q.insured||"")}</b><div class="ap-note" style="margin:2px 0 0">Quote ${esc(q.quote_number||"")}</div></td>
+      <td>${esc(q.carrier||"\u2014")}</td><td class="num">${+q.premium ? money(q.premium) : "\u2014"}</td>
+      <td>${q.phone ? `<a href="tel:${esc(q.phone)}">${esc(String(q.phone).replace(/^(\d{3})(\d{3})(\d{4})$/,"($1) $2-$3"))}</a>` : "\u2014"}</td></tr>`).join("")}</tbody></table></div>`
+      : `<div class="empty">No open quotes from the last 45 days. Nice work.</div>`;
+
+  if(k==="day"){
+    const soon = ret.filter(r => r.days_left !== null && r.days_left <= 7).slice(0,8);
+    const sev = docs.reduce((a,d)=>(a[d.severity]=(a[d.severity]||0)+1, a), {});
+    return `
+      ${lic && lic.days_left !== null && lic.days_left <= 60 ? `<div class="card pad" style="margin-bottom:16px;border-left:4px solid var(--warn)">
+        <b>Your license renews ${apDay(lic.renewal_due)} \u2014 ${lic.days_left} days away.</b>
+        <div class="ap-note">${lic.courses_completed_at ? "CE courses complete." : lic.webce_enrolled_at ? "You're enrolled in WebCE; finish your courses." : "Enroll in WebCE to start your CE."}</div></div>` : ""}
+      ${card("Retention: due in the next 7 days", retTable(soon), go("retention","Open my retention worklist \u2192"))}
+      ${card("Quotes to follow up", qnsTable(qns.slice(0,5)), qns.length > 5 ? go("qns",`See all ${qns.length} \u2192`) : "")}
+      ${card("Documents to fix", docs.length ? `<div class="pad" style="padding-top:0">${docs.length} open item${docs.length===1?"":"s"}
+          ${Object.entries(sev).map(([s,n])=>`<span class="ap-pill ${s==="critical"?"bad":s==="major"?"warn":"info"}" style="margin-left:6px">${n} ${esc(s)}</span>`).join("")}</div>`
+          : `<div class="empty">No document issues. \u2705</div>`, docs.length ? go("docs","Review my documents \u2192") : "")}`;
+  }
+
+  if(k==="bonus"){
+    const prev = +b.fees_prev_month || 0, mtd = +b.fees_mtd || 0;
+    const scale = Math.max(prev, proj, mtd, 1);
+    const days = (b.by_day||[]).map(x=>({v:+x.v, label:apDay(x.d), short:String(+String(x.d).slice(8,10))}));
+    return `
+      ${card("Bonus progress", `<div class="pad" style="padding-top:4px">
+        <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px">
+          <span>Fees so far: <b>${money(mtd)}</b> after ${done} of ${all} business days</span>
+          <span>On pace for <b>${money(proj)}</b> \u00b7 last month <b>${money(prev)}</b></span></div>
+        <div class="ap-bar" style="margin:12px 0 4px"><i style="width:${Math.min(100, mtd/scale*100).toFixed(1)}%"></i>
+          <b style="left:${Math.min(99.5, prev/scale*100).toFixed(1)}%" title="Last month's total"></b></div>
+        <div class="ap-note">Gold line = last month's total. At this point last month you had ${money(b.fees_prev_same_point)}.</div>
+        <div style="margin-top:14px"><span class="ap-pill ${b.rules_loaded ? "ok" : "info"}">${b.rules_loaded ? "Bonus Eligible" : "Eligibility: coming soon"}</span>
+          <div class="ap-note">Your Bonus Eligible / Not Yet status will appear here as soon as the bonus rules are loaded into the Portal.</div></div>
+      </div>`)}
+      ${days.length ? card("Fees by day this month", `<div class="pad" style="padding-top:0">${finBars(days,{h:130, alt:"Fees by day"})}</div>`) : ""}
+      ${card("Your production", `<div style="overflow-x:auto"><table class="ap-tbl"><thead><tr><th>Month</th><th class="num">Fees</th>
+        <th class="num">New policies</th><th class="num">Quoted</th><th class="num">Sold</th><th class="num">Close rate</th><th class="num">Not sold</th></tr></thead>
+        <tbody>${prod.map(p=>`<tr><td>${esc(mLong(p.month))}</td><td class="num">${money(p.fees)}</td><td class="num">${p.nb ?? "\u2014"}</td>
+        <td class="num">${p.quoted ?? "\u2014"}</td><td class="num">${p.written ?? "\u2014"}</td>
+        <td class="num">${p.close_rate!==null && p.close_rate!==undefined ? (+p.close_rate).toFixed(0)+"%" : "\u2014"}</td>
+        <td class="num">${p.qns ?? "\u2014"}</td></tr>`).join("")}</tbody></table></div>`,
+        `<div class="ap-note">Quotes are from TurboRater; fees and new policies from Agency Matrix. Only your own work is counted.</div>`)}`;
+  }
+
+  if(k==="qns") return card(`Quoted, not sold \u2014 last 45 days (${qns.length})`, qnsTable(qns),
+      `<div class="ap-note">Every TurboRater quote you priced that hasn't been bound. Call them back while the quote is fresh.</div>`);
+
+  if(k==="ret") return card(`Your retention list (${ret.length})`, retTable(ret),
+      `${go("retention","Open the retention worklist to log calls \u2192")}
+       <div class="ap-note">Shows customers you've claimed plus unclaimed ones from ${esc(me.office||"your office")} or written under your name.</div>`);
+
+  if(k==="coach") return `
+      ${open.length ? card("Coaching items from your manager", `<div class="pad" style="padding-top:0">${apList(open.map(o=>o.note))}</div>`) : ""}
+      ${card(`Your recent calls (${calls.length})`, calls.length ? calls.map(c=>`<div class="ap-call">
+          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <b>${esc(c.direction==="outbound" ? "To " : c.direction==="inbound" ? "From " : "")}${esc(c.other||"Unknown caller")}</b>
+            <span class="ap-note" style="margin:0">${apWhen(c.started_at)} \u00b7 ${c.minutes} min</span></div>
+          ${Array.isArray(c.strengths)&&c.strengths.length ? `<h4>What went well</h4>${apList(c.strengths)}` : ""}
+          ${Array.isArray(c.suggestions)&&c.suggestions.length ? `<h4>Try next time</h4>${apList(c.suggestions)}` : ""}
+        </div>`).join("") : `<div class="empty">No reviewed calls in the last 30 days.</div>`,
+        `<div class="ap-note">Only your own calls are shown. Call scores are being fine-tuned, so for now you see the coaching notes.</div>`)}`;
+
+  if(k==="docs"){
+    return card(`Your document compliance (${docs.length} open)`, docs.length ? `<div style="overflow-x:auto"><table class="ap-tbl">
+        <thead><tr><th>Signed</th><th>Customer</th><th>What needs fixing</th><th>Severity</th></tr></thead><tbody>
+        ${docs.map(d=>`<tr><td>${apDay(d.signed_on)}</td><td><b>${esc(d.customer||"")}</b>
+          <div class="ap-note" style="margin:2px 0 0">${esc(d.carrier||"")} \u00b7 ${esc(d.document||"")}</div></td>
+          <td>${esc(d.issue||"")}${d.action ? `<div class="ap-note" style="margin:2px 0 0">${esc(d.action)}</div>` : ""}</td>
+          <td><span class="ap-pill ${d.severity==="critical"?"bad":d.severity==="major"?"warn":"info"}">${esc(d.severity||"")}</span></td></tr>`).join("")}
+        </tbody></table></div>` : `<div class="empty">No open document issues. \u2705</div>`,
+      `<div class="ap-note">These checks are still being tuned carrier by carrier. If one is wrong, tell us with the Feedback button \u2014 that's how they get fixed.</div>`);
+  }
+
+  if(k==="lic") return card("Licensing & CE", `<div class="pad" style="padding-top:0"><table class="ap-tbl"><tbody>
+      <tr><td>License</td><td><b>${esc(me.license_type==="pc" ? "Property & Casualty" : me.license_type==="pl" ? "Personal Lines" : (me.license_type||"\u2014"))}</b>
+        ${me.license_number ? ` \u00b7 #${esc(me.license_number)}` : ""}</td></tr>
+      <tr><td>Status</td><td>${esc(me.license_status||"\u2014")}</td></tr>
+      <tr><td>Renewal due</td><td>${lic ? `<b>${esc(sdate(lic.renewal_due))}</b> \u00b7 ${lic.days_left} days` : "\u2014"}</td></tr>
+      <tr><td>WebCE</td><td>${lic && lic.webce_enrolled_at ? "Enrolled "+esc(sdate(lic.webce_enrolled_at)) : "Not enrolled yet"}</td></tr>
+      <tr><td>CE courses</td><td>${lic && lic.courses_completed_at ? "Completed "+esc(sdate(lic.courses_completed_at)) : "Not completed yet"}</td></tr>
+    </tbody></table></div>`);
+
+  if(k==="mkt") return card("Marketing Programs", `<div class="pad" style="padding-top:0">Referral partners for ${esc(me.office||"your office")} \u2014 who to see, who has been seen, and what came of it.</div>`,
+      go("marketing","Open Marketing Programs \u2192"));
+
+  if(k==="learn") return card("Training library & carrier tips", `<div class="pad" style="padding-top:0">
+      Every module you've completed stays here for reference \u2014 search it, reread it, or retake a quiz. Approved carrier tips are on the same page.</div>`,
+      go("training","Open my training & tips \u2192"));
+  return "";
+}
+
+async function apEnterView(personId){
+  apViewAs = personId; apTab = "day"; MODE = "agent";
+  $("#paneTrainee").classList.add("hidden"); $("#paneManager").classList.remove("hidden");
+  $("#modeToggle").classList.add("hidden");
+  const pg = document.querySelector("#view-app .prog"); if(pg) pg.textContent = "Agent Portal (preview)";
+  await loadAgentPortal(); renderAgentPortal(); window.scrollTo(0,0);
+}
+async function apExitView(){
+  apViewAs = null; AP = null;
+  const pg = document.querySelector("#view-app .prog"); if(pg) pg.textContent = "Training Portal";
+  await setMode("manager");
+}
+$("#apViewBtn").addEventListener("click", ()=>{
+  if(!AP_PEOPLE.length) return;
+  const p = AP_PEOPLE.length === 1 ? AP_PEOPLE[0]
+    : AP_PEOPLE[Math.max(0, (+prompt("Which agent?\n" + AP_PEOPLE.map((x,i)=>`${i+1}. ${x.name}`).join("\n"), "1")||1) - 1)] || AP_PEOPLE[0];
+  apEnterView(p.id);
+});
 
 function renderMktWorker(){
   const all  = (PARTNERS && PARTNERS.partners) || [];
