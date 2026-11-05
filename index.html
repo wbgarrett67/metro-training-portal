@@ -7288,6 +7288,41 @@ async function esignReload(){
   }catch(e){
     ESIGN = {error:e.message, rows:[]};
   }
+  // Agreements sent but not yet signed (5 November 2026). A failure here leaves the rest of the
+  // tab working and says so in the card, rather than taking the tab down with it.
+  try{ ESIGN.pending = await rpc("esign_pending_list",{p_code:CODE}) || []; ESIGN.pendingErr = null; }
+  catch(e){ ESIGN.pending = []; ESIGN.pendingErr = String(e.message||e); }
+}
+
+/* Waiting for signature: every agreement Adobe says was sent and has not come back Signed and
+   Filed or been canceled. Built from Adobe's own emails to Service@ by esign-pending-intake;
+   matching is by agreement name plus recipients, because Adobe puts no reference number on
+   those emails. Over 24 hours is the line Braden set on 5 November. */
+function esignPendingCard(){
+  const all = (ESIGN && ESIGN.pending) || [];
+  if(ESIGN && ESIGN.pendingErr) return `<div class="card fin-pad"><b>Waiting for signature</b>
+    <div class="tsub">Could not be loaded: ${esc(ESIGN.pendingErr)}</div></div>`;
+  const late = all.filter(p => p.overdue);
+  const fresh = all.length - late.length;
+  const who = p => p.waiting_on === "customer" ? `<span class="pill todo">Customer</span>`
+               : p.waiting_on === "agent" ? `<span class="pill fail">Agent</span>` : `<span class="pill">Unknown</span>`;
+  const age = h => h >= 48 ? `${Math.floor(h/24)} days` : `${Math.round(h)} hrs`;
+  return `<div class="card fin-pad">
+    <b>Waiting for signature — ${late.length} over 24 hours</b>
+    <div class="tsub" style="margin:4px 0 12px">Sent through Adobe Sign and not yet signed by everyone.
+      ${fresh ? `${fresh} more sent within the last 24 hours are not shown.` : ""}
+      <b>Agent</b> means the customer has signed and the agent has not countersigned.</div>
+    ${late.length ? `<div style="overflow-x:auto"><table class="ap-tbl"><thead><tr>
+      <th>Agreement</th><th>Agent</th><th>Sent</th><th class="num">Out</th><th>Waiting on</th><th>Last activity</th></tr></thead><tbody>
+      ${late.map(p => `<tr><td><b>${esc(p.agreement)}</b>${(p.customer_emails||[]).length
+          ? `<div class="tsub">${esc((p.customer_emails||[]).join(", "))}</div>` : ""}</td>
+        <td>${esc(p.agent || "\u2014")}${p.office ? `<div class="tsub">${esc(p.office)}</div>` : ""}</td>
+        <td>${esc(when(p.sent_at))}</td><td class="num">${age(+p.hours_out)}</td>
+        <td>${who(p)}${(p.waiting_for||[]).length ? `<div class="tsub">${esc(p.waiting_for.join(", "))}</div>` : ""}</td>
+        <td class="tsub">${esc(p.last_event || "")}</td></tr>`).join("")}
+      </tbody></table></div>` : `<div class="empty">Nothing has been waiting more than 24 hours.</div>`}
+    <div class="fin-note" style="margin-top:10px">If one was replaced by a corrected copy, cancel the old one in Adobe Sign and it will drop off.</div>
+  </div>`;
 }
 
 /* The signed PDF is not stored anywhere. esign-document pulls it live out of the Adobe Sign
@@ -7418,6 +7453,7 @@ function mgrEsign(){
         It is not a defect until somebody looks.
       </div>
     </div>
+    ${esignPendingCard()}
 
     <div class="fin-sub" style="margin:12px 0">
       ${[["open","Open"],["closed","Closed"],["all","Everything"]].map(([k,l])=>
@@ -7933,6 +7969,14 @@ function apSection(k){
       <td>${q.phone ? `<a href="tel:${esc(q.phone)}">${esc(String(q.phone).replace(/^(\d{3})(\d{3})(\d{4})$/,"($1) $2-$3"))}</a>` : "\u2014"}</td></tr>`).join("")}</tbody></table></div>`
       : `<div class="empty">No open quotes from the last 45 days. Nice work.</div>`;
 
+  const uns = AP.unsigned || [];
+  const unsTable = rows => rows.length ? `<div style="overflow-x:auto"><table class="ap-tbl"><thead><tr><th>Agreement</th>
+      <th>Sent</th><th class="num">Out</th><th>Waiting on</th></tr></thead><tbody>${rows.map(u=>`<tr>
+      <td><b>${esc(u.agreement)}</b>${(u.customer_emails||[]).length ? `<div class="ap-note" style="margin:2px 0 0">${esc(u.customer_emails.join(", "))}</div>` : ""}</td>
+      <td>${apWhen(u.sent_at)}</td>
+      <td class="num">${+u.hours_out >= 48 ? Math.floor(u.hours_out/24)+" days" : Math.round(u.hours_out)+" hrs"}</td>
+      <td>${u.waiting_on==="agent" ? `<span class="ap-pill bad">You \u2014 countersign</span>` : u.waiting_on==="customer" ? `<span class="ap-pill warn">Customer</span>` : `<span class="ap-pill info">Unknown</span>`}</td>
+      </tr>`).join("")}</tbody></table></div>` : `<div class="empty">Nothing waiting for a signature.</div>`;
   if(k==="day"){
     const soon = ret.filter(r => r.days_left !== null && r.days_left <= 7).slice(0,8);
     const sev = docs.reduce((a,d)=>(a[d.severity]=(a[d.severity]||0)+1, a), {});
@@ -7942,6 +7986,8 @@ function apSection(k){
         <div class="ap-note">${lic.courses_completed_at ? "CE courses complete." : lic.webce_enrolled_at ? "You're enrolled in WebCE; finish your courses." : "Enroll in WebCE to start your CE."}</div></div>` : ""}
       ${card("Retention: due in the next 7 days", retTable(soon), go("retention","Open my retention worklist \u2192"))}
       ${card("Quotes to follow up", qnsTable(qns.slice(0,5)), qns.length > 5 ? go("qns",`See all ${qns.length} \u2192`) : "")}
+      ${uns.filter(u=>u.overdue).length ? card(`Unsigned for more than 24 hours (${uns.filter(u=>u.overdue).length})`,
+          unsTable(uns.filter(u=>u.overdue)), `<div class="ap-note">Follow up with the customer, countersign, or cancel it in Adobe Sign if it was replaced.</div>`) : ""}
       ${card("Documents to fix", docs.length ? `<div class="pad" style="padding-top:0">${docs.length} open item${docs.length===1?"":"s"}
           ${Object.entries(sev).map(([s,n])=>`<span class="ap-pill ${s==="critical"?"bad":s==="major"?"warn":"info"}" style="margin-left:6px">${n} ${esc(s)}</span>`).join("")}</div>`
           : `<div class="empty">No document issues. \u2705</div>`, docs.length ? go("docs","Review my documents \u2192") : "")}`;
@@ -7991,7 +8037,9 @@ function apSection(k){
         `<div class="ap-note">Only your own calls are shown. Call scores are being fine-tuned, so for now you see the coaching notes.</div>`)}`;
 
   if(k==="docs"){
-    return card(`Your document compliance (${docs.length} open)`, docs.length ? `<div style="overflow-x:auto"><table class="ap-tbl">
+    return card(`Waiting for signature (${uns.length})`, unsTable(uns),
+        `<div class="ap-note">Agreements you sent through Adobe Sign that are not signed by everyone yet. Over 24 hours shows on My Day.</div>`)
+      + card(`Your document compliance (${docs.length} open)`, docs.length ? `<div style="overflow-x:auto"><table class="ap-tbl">
         <thead><tr><th>Signed</th><th>Customer</th><th>What needs fixing</th><th>Severity</th></tr></thead><tbody>
         ${docs.map(d=>`<tr><td>${apDay(d.signed_on)}</td><td><b>${esc(d.customer||"")}</b>
           <div class="ap-note" style="margin:2px 0 0">${esc(d.carrier||"")} \u00b7 ${esc(d.document||"")}</div></td>
