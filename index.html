@@ -827,7 +827,7 @@ const SUPABASE_KEY = "sb_publishable_NoJmcZHNCtjjkrBlHNJL3w__X_lSAPv";
 
 /* ================= state ================= */
 let CODE=null, ME=null, STATE=null, MGR=null, CAT=null, CE=null, EMAILST=null, lastAdded=null,
-    PREVIEW=null, MODE=null, AP=null, AP_PEOPLE=[], apTab="day", apViewAs=null,
+    PREVIEW=null, MODE=null, PW=null, AP=null, AP_PEOPLE=[], apTab="day", apViewAs=null,
     selCE=null,
     openMods=new Set(), openTracks=null, mgrTab="home", selTrainee=null,
     PARTNERS=null, pnFilter="all", pnOffice="", pnCat="", pnSel=null, pnSweep=false, pnHelp=null,
@@ -1586,6 +1586,66 @@ async function loadTrust(){
 async function loadAudit(){
   try{ AUDIT = await rpc("audit_daily_log",{p_code:CODE}); }
   catch(e){ AUDIT = {error:e.message, items:[], days:[], coverage:{}}; }
+  // Payment Watch (7 November 2026) is owner-only: its subject is staff conduct.
+  PW = null;
+  if(ME && ME.role === "owner"){
+    try{ PW = await rpc("payment_watch_list",{p_code:CODE}); }catch(e){ PW = {error:String(e.message||e)}; }
+  }
+}
+
+/* Payment Watch: leads for the "cash taken, offline receipt, never posted" scheme found on
+   7 November 2026. Rebuilt every morning by payment_watch_refresh. A row is a customer to
+   verify, never a finding. Everything that existed at launch is kept as history so the
+   card leads with what is new. */
+const PW_LABEL = {never_posted:"Opened, nothing receipted, then cancelled",
+  posted_late:"Opened, nothing receipted, paid days later by the same agent",
+  payment_doc_no_receipt:"Carrier payment printout, no Matrix receipt",
+  customer_says_paid:"Customer said on a call they had already paid",
+  contact_change_cancel:"Address, email or phone changed, then cancelled within 30 days",
+  agent_outlier:"Agent's cancellations or voids far above the others (last 30 days)",
+  nb_quick_cancel:"New business cancelled within 30 days",
+  staff_contact_on_customer:"Agency email, or one phone number, on several customers",
+  repeat_nb_fee:"Same customer charged new-business fees twice within 120 days"};
+function pwRow(h){
+  const ev = h.evidence || {};
+  const detail = h.pattern==="never_posted" ? `${esc(ev.cancellation||"")} on ${esc(dlaDay(ev.cancelled_on))}`
+    : h.pattern==="posted_late" ? `${esc(ev.fee||"")} ${moneyC(ev.amount)} on ${esc(dlaDay(ev.paid_on))} — ${ev.gap_days} days later`
+    : h.pattern==="payment_doc_no_receipt" ? esc(ev.files||"")
+    : h.pattern==="contact_change_cancel" ? `${esc(String(ev.change||"").replace(/\n/g," · ").slice(0,170))} → ${esc(ev.cancellation||"")} on ${esc(dlaDay(ev.cancelled_on))}`
+    : h.pattern==="agent_outlier" ? `${ev.cancellations} cancellations and ${ev.voids_reversals} voids on ${ev.receipts_30d} receipts — ${ev.cancel_rate} and ${ev.void_rate} per 100 (agency median ${ev.median_cancel_rate} and ${ev.median_void_rate})`
+    : h.pattern==="nb_quick_cancel" ? `${esc(ev.fee||"")} receipt ${esc(ev.receipt||"")} → ${esc(ev.cancellation||"")} after ${ev.days_to_cancel} days`
+    : h.pattern==="staff_contact_on_customer" ? (ev.phone ? `Phone ${esc(ev.phone)} on ${ev.customers} customers' quotes (${esc(ev.agents||"")})` : esc(String(ev.change||"").replace(/\n/g," · ").slice(0,170)))
+    : h.pattern==="repeat_nb_fee" ? `${esc(ev.first||"")}; then ${esc(ev.second||"")} (${ev.days_apart} days apart)`
+    : `“${esc(String(ev.said||"").slice(0,160))}”`;
+  return `<tr><td><b>${esc(h.customer_name||"—")}</b><div class="tsub">${esc(h.office||"")}</div></td>
+    <td>${esc(h.agent||"—")}</td><td>${esc(dlaDay(h.touched_on))}</td>
+    <td><div class="tsub" style="color:var(--ink-2)">${esc(PW_LABEL[h.pattern]||h.pattern)}</div><div class="tsub">${detail}</div></td>
+    <td style="white-space:nowrap">${["cleared","confirmed","not_an_issue"].map(s=>`<button class="btn line sm" data-pwid="${h.id}" data-pwst="${s}">${s==="cleared"?"Cleared":s==="confirmed"?"Confirmed":"Not an issue"}</button>`).join(" ")}</td></tr>`;
+}
+function pwCard(){
+  if(!PW) return "";
+  if(PW.error) return `<div class="card fin-pad" style="margin-bottom:16px"><b>Payment Watch</b><div class="tsub">${esc(PW.error)}</div></div>`;
+  const fresh = PW.new || [], hist = PW.strong_history || [], ag = PW.by_agent || [];
+  const tbl = rows => `<div style="overflow-x:auto"><table class="fin-t"><thead><tr><th>Customer</th><th>Agent</th>
+     <th>File opened</th><th>Why it is here</th><th></th></tr></thead><tbody>${rows.map(pwRow).join("")}</tbody></table></div>`;
+  return `<div class="card fin-pad" style="margin-bottom:16px;border-left:4px solid var(--gold)">
+    <p class="fin-h">Payment Watch <span class="tsub">· visible to you only</span></p>
+    <p class="fin-sub2">Leads for staff theft. Cash taken and never posted: a file opened with nothing receipted, then a
+      cancellation, a late payment by the same agent, a carrier printout in place of a receipt, or a customer saying they
+      already paid. Other schemes: contact details changed before a cancellation (refund diversion), an agent's
+      cancellations or voids far above the rest, new business that cancels within 30 days, agency contact details on
+      customers, and repeated new-business fees for one customer. Each one is something to check, not a finding.</p>
+    <p class="tsub" style="margin:10px 0 6px"><b>New since November 7: ${fresh.length}</b></p>
+    ${fresh.length ? tbl(fresh) : `<div class="empty">Nothing new.</div>`}
+    ${hist.length ? `<details style="margin-top:12px"><summary class="tsub">Stronger leads from before launch (${hist.length})</summary>${tbl(hist)}</details>` : ""}
+    ${ag.length ? `<details style="margin-top:8px"><summary class="tsub">By agent, last 60 days</summary>
+      <div style="overflow-x:auto"><table class="fin-t"><thead><tr><th>Agent</th><th class="n">Opened, then cancelled</th>
+      <th class="n">Paid late</th><th class="n">Printout, no receipt</th><th class="n">"Already paid" calls</th></tr></thead><tbody>
+      ${ag.map(a=>`<tr><td>${esc(a.agent)}</td><td class="n">${a.never_posted}</td><td class="n">${a.posted_late}</td>
+        <td class="n">${a.doc_no_receipt}</td><td class="n">${a.says_paid}</td></tr>`).join("")}</tbody></table></div>
+      <div class="tsub" style="margin-top:6px">Agents who work the retention queue open many files of customers who are about to
+        cancel, so their first column runs high for an innocent reason. Look for one agent far above others doing the same work.</div></details>` : ""}
+  </div>`;
 }
 
 // TurboRater's Detailed Quote Report. Counts and close rates need financial access; the
@@ -4063,7 +4123,7 @@ function finAudit(){
     g.rows.push(d);
   });
 
-  el.innerHTML = `
+  el.innerHTML = `${pwCard()}
     <div class="card fin-pad" style="margin-bottom:16px">
       <p class="fin-h">Where the audit stands</p>
       <p class="fin-sub2">Money orders receipted across the counter against what reached the
@@ -4198,6 +4258,17 @@ function finAudit(){
         </tbody></table></div>`}
     </div>`;
 
+  el.querySelectorAll("[data-pwid]").forEach(b=>b.addEventListener("click", async ()=>{
+    const st = b.dataset.pwst;
+    const note = prompt(st==="confirmed" ? "What did you confirm? (customer, carrier, amount)"
+                      : "Short note on why this is cleared:", "");
+    if(note === null) return;
+    try{
+      await rpc("payment_watch_decide",{p_code:CODE, p_id:b.dataset.pwid, p_status:st, p_note:note});
+      PW = await rpc("payment_watch_list",{p_code:CODE});
+      finAudit();
+    }catch(e){ toast(e.message); }
+  }));
   el.querySelectorAll("[data-aexp]").forEach(b=>b.addEventListener("click", ()=>{
     const k = b.dataset.aexp;
     if(auditOpen.has(k)) auditOpen.delete(k); else auditOpen.add(k);
