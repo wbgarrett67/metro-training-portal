@@ -13318,13 +13318,17 @@ function drawContestList(){
     const phone = i.phone
       ? `<a href="tel:${esc(String(i.phone).replace(/[^\d+]/g,""))}">${pcTel(i.phone)}</a>`
       : `<span style="color:var(--ink-3)">No number on file. Look it up in Agency Matrix or FAO.</span>`;
+    const fu = i.outcome === "promised" && i.follow_up ? `promised to pay ${pcDate(i.follow_up)}`
+      : i.outcome === "reached" ? "talked with customer"
+      : i.outcome === "left_message" ? "left a message"
+      : i.outcome === "no_answer" ? "no answer" : "";
     let btns;
     if(i.mine){
       btns = `<button class="btn sm" data-act="contact" data-k="${esc(i.key)}">I called</button>
         <button class="btn sm gold" data-act="win" data-k="${esc(i.key)}">Report win</button>
         <button class="btn sm line" data-act="release" data-k="${esc(i.key)}">Release</button>`;
     }else if(taken){
-      btns = `<span style="font-size:12.5px;color:var(--ink-3)">Claimed by ${esc(i.claimed_by)}</span>`;
+      btns = `<span style="font-size:12.5px;color:var(--ink-3)">Claimed by ${esc(i.claimed_by)}${fu ? ` &middot; ${fu}` : ""}</span>`;
     }else{
       btns = `<button class="btn sm" data-act="claim" data-k="${esc(i.key)}">Claim</button>`;
     }
@@ -13334,7 +13338,7 @@ function drawContestList(){
         <div class="pc-meta">${tag}Policy ${esc(i.policy||"")}${i.office?` &middot; ${esc(i.office)}`:""}
           &middot; ${when}${i.due?` &middot; ${money(i.due)} due`:""}</div>
         <div class="pc-ph">${phone}</div>
-        ${i.mine && i.expires ? `<div class="pc-meta">Yours until ${pcTime(i.expires)}. Logging a call resets the 24 hours.</div>` : ""}
+        ${i.mine && i.expires ? `<div class="pc-meta">${fu ? `Last call: ${fu}. ` : ""}Yours until ${pcTime(i.expires)}.</div>` : ""}
       </div>
       <div class="pc-btns">${btns}</div></div>`;
   }).join("") || `<p style="color:var(--ink-3)">Nothing here right now.</p>`;
@@ -13348,8 +13352,9 @@ function drawContestList(){
     <div class="sheet-h"><h3>Progressive Contest &middot; call list</h3><button class="x" id="pcClose">×</button></div>
     <div class="sheet-b">
       <div class="pc-rules">The most important calls are at the top. <b>Claim</b> a customer before you call,
-        and <b>always call from your office phone</b>. A claim lasts 24 hours, and logging a call resets it.
-        A save only counts if you reached out before the customer paid.</div>
+        and <b>always call from your office phone</b>. Log every call. If you don't reach the customer, the claim lasts 24 hours.
+        If you talk with them, they stay yours through their cancellation date, or through the day after they promise to pay,
+        so nobody else calls them. A save only counts if you reached out before the customer paid.</div>
       <div class="pc-filter">
         <button data-f="all" class="${pcFilter==="all"?"on":""}">Everyone (${PCLIST.items.length})</button>
         <button data-f="open" class="${pcFilter==="open"?"on":""}">Unclaimed</button>
@@ -13380,12 +13385,7 @@ function drawContestList(){
         await rpc("pc_contest_release", {p_code:CODE, p_key:k});
         toast("Released back to the list.");
       }else if(b.dataset.act === "contact"){
-        let ph = null;
-        if(item && !item.phone){
-          ph = prompt("If you found a phone number for this customer, enter it so nobody has to look it up again. Otherwise leave this blank.") || null;
-        }
-        await rpc("pc_contest_contact", {p_code:CODE, p_key:k, p_phone:ph});
-        toast("Call logged. Your claim is good for another 24 hours.");
+        openContestCall(item); return;
       }else if(b.dataset.act === "win"){
         openContestReport(item); return;
       }
@@ -13393,6 +13393,59 @@ function drawContestList(){
       drawContestList();
     }catch(ex){ toast(ex.message); b.disabled = false; }
   }));
+}
+
+/* ----- log a call: what happened decides how long the customer stays with this agent ----- */
+function openContestCall(item){
+  const modal = $("#modal"); modal.classList.remove("hidden");
+  const t = new Date(), iso = d => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+  const max = new Date(t.getFullYear(), t.getMonth(), t.getDate() + 14);
+  const opt = (v, label, help) => `<label style="display:flex;gap:10px;align-items:flex-start;font-weight:600;margin:10px 0;cursor:pointer;text-transform:none;letter-spacing:0;font-size:14.5px;color:var(--ink)">
+      <input type="radio" name="pcOut" value="${v}" style="width:auto;margin-top:3px">
+      <span>${label}<br><span style="font-size:12.5px;font-weight:400;color:var(--ink-3)">${help}</span></span></label>`;
+  modal.innerHTML = `<div class="sheet">
+    <div class="sheet-h"><h3>How did the call go?</h3><button class="x" id="pclClose">×</button></div>
+    <div class="sheet-b pc-form">
+      <div class="pc-meta" style="font-size:13px;margin-bottom:6px"><b>${esc(item.name || "Customer")}</b> &middot; Policy ${esc(item.policy || "")}</div>
+      ${opt("no_answer", "No answer", "Stays yours for 24 hours.")}
+      ${opt("left_message", "Left a message", "Stays yours for 24 hours.")}
+      ${opt("reached", "Talked with the customer", "Stays yours through the cancellation date, so nobody else calls them.")}
+      ${opt("promised", "Customer promised to pay", "Stays yours through the day after the date they gave you.")}
+      <div id="pclDateWrap" class="hidden"><label>Date they said they'll pay</label>
+        <input id="pclDate" type="date" min="${iso(t)}" max="${iso(max)}"></div>
+      ${opt("declined", "Not interested / don't call again", "Removed from the list for the rest of the contest.")}
+      ${item.phone ? "" : `<label>Phone number you found (optional)</label><input id="pclPhone" placeholder="Saves it so nobody has to look it up again">`}
+      <label>Note (optional)</label><input id="pclNote">
+    </div>
+    <div class="sheet-f"><button class="btn gold" id="pclGo">Save</button>
+      <button class="btn line" id="pclCancel">Cancel</button></div></div>`;
+  modal.scrollTop = 0;
+  const back = () => drawContestList();
+  modal.querySelector("#pclClose").addEventListener("click", back);
+  modal.querySelector("#pclCancel").addEventListener("click", back);
+  modal.querySelectorAll('input[name="pcOut"]').forEach(r => r.addEventListener("change", () => {
+    modal.querySelector("#pclDateWrap").classList.toggle("hidden", r.value !== "promised" || !r.checked);
+  }));
+  modal.querySelector("#pclGo").addEventListener("click", async (e) => {
+    const sel = modal.querySelector('input[name="pcOut"]:checked');
+    if(!sel){ toast("Pick what happened on the call."); return; }
+    const d = modal.querySelector("#pclDate").value || null;
+    if(sel.value === "promised" && !d){ toast("Enter the date the customer said they will pay."); return; }
+    const ph = modal.querySelector("#pclPhone");
+    e.target.disabled = true;
+    try{
+      await rpc("pc_contest_log_call", {p_code:CODE, p_key:item.key, p_outcome:sel.value,
+        p_follow_up: sel.value === "promised" ? d : null,
+        p_phone: ph && ph.value.trim() ? ph.value.trim() : null,
+        p_note: modal.querySelector("#pclNote").value.trim() || null});
+      toast(sel.value === "declined" ? "Logged. This customer won't be called again."
+          : sel.value === "promised" ? "Logged. The customer stays yours until after they pay."
+          : sel.value === "reached" ? "Logged. The customer stays yours through the cancellation date."
+          : "Call logged. Your claim is good for another 24 hours.");
+      PCLIST = await rpc("pc_contest_list", {p_code:CODE});
+      drawContestList();
+    }catch(ex){ toast(ex.message); e.target.disabled = false; }
+  });
 }
 
 /* ----- report a sale or save ----- */
