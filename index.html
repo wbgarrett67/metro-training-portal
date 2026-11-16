@@ -13445,13 +13445,15 @@ function openContestReport(item){
 /* ----- leaderboard ----- */
 function openContestBoard(){
   const modal = $("#modal"); modal.classList.remove("hidden");
+  // Braden and Belinda also see how many customers each agent is holding right now.
+  const adm = !!PC.is_admin;
   const rows = (PC.leaderboard||[]).map(r => `<tr class="${r.me?"me":""}">
-    <td>#${r.rank}</td><td>${esc(r.name)}</td><td>${r.new}</td><td>${r.saves}</td>
+    <td>#${r.rank}</td><td>${esc(r.name)}</td>${adm ? `<td>${r.claimed ?? 0}</td>` : ""}<td>${r.new}</td><td>${r.saves}</td>
     <td>${money(r.approved)}</td><td>${money(r.total)}</td></tr>`).join("");
   modal.innerHTML = `<div class="sheet">
     <div class="sheet-h"><h3>Progressive Contest &middot; leaderboard</h3><button class="x" id="pcbClose">×</button></div>
     <div class="sheet-b"><table class="pc-tbl">
-      <tr><th>Rank</th><th>Name</th><th>New</th><th>Saves</th><th>Approved</th><th>Incl. pending</th></tr>${rows}</table></div>
+      <tr><th>Rank</th><th>Name</th>${adm ? "<th>Claimed</th>" : ""}<th>New</th><th>Saves</th><th>Approved</th><th>Incl. pending</th></tr>${rows}</table></div>
     <div class="sheet-f"><button class="btn line" id="pcbDone">Close</button></div></div>`;
   modal.scrollTop = 0;
   modal.querySelector("#pcbClose").addEventListener("click", closeModal);
