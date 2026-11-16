@@ -721,6 +721,51 @@ button.pg-m > .pg-more{margin-top:auto;padding-top:7px}
 /* The decision. White and lifted, so it reads as the end of the column rather than
    another band of the same weight. */
 .rsec-end{background:var(--card);border-color:var(--line-2);box-shadow:var(--shadow)}
+
+/* ---------- Progressive Contest (November 16 to December 31, 2026) ---------- */
+/* Sits above every pane so it is the first thing anyone sees after signing in. */
+.pc-chip{background:linear-gradient(135deg,var(--navy) 0%,var(--navy-3) 100%);color:#fff;border-radius:var(--r);
+  padding:18px 22px;margin:18px 0 6px;box-shadow:var(--shadow);display:flex;flex-wrap:wrap;gap:18px;align-items:center}
+.pc-chip .pc-t{flex:1 1 240px;min-width:220px}
+.pc-chip .pc-k{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--gold-soft)}
+.pc-chip h2{font-size:20px;margin:3px 0 2px;color:#fff}
+.pc-chip .pc-s{font-size:13px;color:#cfd2ea}
+.pc-stats{display:flex;gap:10px;flex-wrap:wrap}
+.pc-stat{background:rgba(255,255,255,.1);border-radius:10px;padding:8px 13px;min-width:86px}
+.pc-stat b{display:block;font-size:19px;line-height:1.2;color:#fff}
+.pc-stat span{font-size:11.5px;color:#c3c6e0}
+.pc-acts{display:flex;gap:8px;flex-wrap:wrap}
+.pc-acts .btn.line{background:transparent;color:#fff;border-color:rgba(255,255,255,.35)}
+.pc-acts .btn.line:hover{background:rgba(255,255,255,.12)}
+.pc-rules{font-size:13px;color:var(--ink-2);background:var(--info-bg);border-radius:10px;padding:10px 14px;margin-bottom:14px}
+.pc-filter{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.pc-filter button{border:1px solid var(--line-2);border-radius:20px;padding:5px 12px;font-size:13px;background:#fff}
+.pc-filter button.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+.pc-row{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:8px;display:flex;gap:12px;
+  align-items:flex-start;flex-wrap:wrap}
+.pc-row.mine{border-color:var(--gold);background:#fffaf0}
+.pc-row.taken{opacity:.55}
+.pc-row .pc-who{flex:1 1 260px;min-width:220px}
+.pc-row .pc-nm{font-weight:650}
+.pc-row .pc-meta{font-size:12.5px;color:var(--ink-3);margin-top:2px}
+.pc-row .pc-ph{font-size:14px;margin-top:4px}
+.pc-row .pc-ph a{font-weight:600;text-decoration:none}
+.pc-row .pc-btns{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.pc-tag{display:inline-block;font-size:11px;font-weight:650;padding:2px 8px;border-radius:10px;margin-right:6px}
+.pc-tag.pend{background:var(--warn-bg);color:var(--warn)}
+.pc-tag.lost{background:var(--bad-bg);color:var(--bad)}
+.pc-sec{font-size:15px;margin:18px 0 8px}
+.pc-tbl{width:100%;border-collapse:collapse;font-size:13.5px}
+.pc-tbl th,.pc-tbl td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+.pc-tbl th{font-size:12px;color:var(--ink-3);font-weight:650}
+.pc-tbl tr.me td{background:#fffaf0;font-weight:650}
+.pc-ok{color:var(--ok);font-weight:650}.pc-no{color:var(--bad);font-weight:650}
+.pc-form label{display:block;font-size:13px;font-weight:600;margin:10px 0 4px}
+.pc-form input,.pc-form select,.pc-form textarea{width:100%;padding:9px 11px;border:1px solid var(--line-2);border-radius:8px;font:inherit}
+.pc-score{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:8px}
+.pc-score div{background:#f5f6fa;border-radius:10px;padding:10px 12px}
+.pc-score b{display:block;font-size:20px}
+.pc-score span{font-size:12px;color:var(--ink-3)}
 </style>
 </head>
 <body>
@@ -806,6 +851,7 @@ button.pg-m > .pg-more{margin-top:auto;padding-top:7px}
     </div>
   </div>
   <div class="wrap">
+    <div id="pcChip" class="hidden"></div>
     <div id="paneTrainee" class="hidden"></div>
     <div id="paneManager" class="hidden"></div>
   </div>
@@ -1026,6 +1072,8 @@ $("#signOut").addEventListener("click", ()=>{
   if(PREVIEW){ exitPreview(); return; }
   AP=null; apViewAs=null; apTab="day"; AP_PEOPLE=[];
   $("#apViewBtn").classList.add("hidden");
+  PC=null; PCADM=null; PCLIST=null; clearTimeout(pcTimer);
+  { const c = $("#pcChip"); if(c){ c.classList.add("hidden"); c.innerHTML = ""; } }
   document.title = "Metro Insurance \u2014 Training Portal";
   { const pg = document.querySelector("#view-app .prog"); if(pg) pg.textContent = "Training Portal"; }
   CODE=ME=STATE=MGR=null; selTrainee=null; lastAdded=null; MODE=null;
@@ -1086,6 +1134,7 @@ async function boot(){
   $("#view-login").classList.add("hidden");
   $("#view-app").classList.remove("hidden");
   $("#whoName").textContent = ME.full_name;
+  loadContest();   // Progressive Contest chip; never blocks sign-in
   const staff = isStaff(ME.role);
   const retWorker = retWorkerOnly();
   // A granted agent gets the toggle too, or their training becomes unreachable.
@@ -13160,6 +13209,317 @@ async function pgToggle(person, metric){
     else forgetCode();
   }catch(e){ forgetCode(); }
 })();
+
+/* ================= Progressive Contest (November 16 to December 31, 2026) =================
+   All rules live in the database (pc_contest_* functions): who can claim, the 24-hour claim,
+   who may approve, and the owner-only scoreboard. This file only draws and calls them.
+   Staff never see the year-end bonus here; agents see their own earnings and the leaderboard. */
+let PC = null, PCADM = null, PCLIST = null, pcFilter = "all", pcTimer = null;
+
+const pcDate = s => {
+  if(!s) return "";
+  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const d = m ? new Date(+m[1], +m[2]-1, +m[3]) : new Date(s);
+  return d.toLocaleDateString("en-US", {month:"short", day:"numeric"});
+};
+const pcTime = s => s ? new Date(s).toLocaleString("en-US",
+  {weekday:"short", hour:"numeric", minute:"2-digit"}) : "";
+const pcTel = p => {
+  const d = String(p||"").replace(/\D/g,"").slice(-10);
+  return d.length === 10 ? `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}` : esc(p||"");
+};
+
+async function loadContest(){
+  try{ PC = await rpc("pc_contest_home", {p_code:CODE}); }catch(e){ PC = null; }
+  PCADM = null;
+  if(PC && PC.is_admin){
+    try{ PCADM = await rpc("pc_contest_admin", {p_code:CODE}); }catch(e){ PCADM = null; }
+  }
+  renderContestChip();
+  clearTimeout(pcTimer);
+  pcTimer = setTimeout(()=>{ if(CODE) loadContest(); }, 5*60*1000);
+}
+
+function renderContestChip(){
+  const el = $("#pcChip");
+  if(!el) return;
+  const today = new Date();
+  const end = PC && PC.contest_end ? new Date(PC.contest_end + "T23:59:59") : null;
+  // Shown from the start of the contest until the end of January, when payouts are made.
+  const showUntil = end ? new Date(end.getFullYear(), end.getMonth()+1, 31) : null;
+  if(!PC || !end || today > showUntil){ el.classList.add("hidden"); el.innerHTML = ""; return; }
+  el.classList.remove("hidden");
+  const over = today > end;
+  const pend = PCADM ? PCADM.queue.length : 0;
+  const adminBtn = PC.is_admin
+    ? `<button class="btn sm gold" data-pc="admin">Review entries${pend?` (${pend})`:""}</button>` : "";
+
+  if(PC.is_owner){
+    const s = PCADM && PCADM.scoreboard;
+    el.innerHTML = `<div class="pc-chip">
+      <div class="pc-t"><div class="pc-k">Progressive Contest &middot; owner view</div>
+        <h2>${s ? `Est. ${s.est_pl_pif.toLocaleString("en-US")} PL policies` : "Progressive Contest"}</h2>
+        <div class="pc-s">${s ? `Goal ${s.target_min.toLocaleString("en-US")} &middot; gap ${s.gap_to_min} &middot; ${s.pl_pending} pending cancellations` : ""}</div></div>
+      <div class="pc-stats">
+        <div class="pc-stat"><b>${over ? "Ended" : PC.days_left}</b><span>${over ? "Contest" : "Weekdays left"}</span></div>
+        <div class="pc-stat"><b>${s ? s.est_auto_pif.toLocaleString("en-US") : "—"}</b><span>Est. auto (floor ${s ? s.auto_floor.toLocaleString("en-US") : "—"})</span></div>
+        <div class="pc-stat"><b>${PC.unclaimed}</b><span>Unclaimed</span></div>
+        <div class="pc-stat"><b>${s ? money(+s.contest_paid_approved + +s.contest_pending) : "—"}</b><span>Owed to staff</span></div>
+      </div>
+      <div class="pc-acts">${adminBtn}
+        <button class="btn sm line" data-pc="list">Call list</button>
+        <button class="btn sm line" data-pc="board">Leaderboard</button></div>
+    </div>`;
+  }else{
+    const m = PC.me || {approved:0, pending:0, rank:"—", new:0, saves:0, pending_count:0};
+    const n = PC.leaderboard.length;
+    el.innerHTML = `<div class="pc-chip">
+      <div class="pc-t"><div class="pc-k">Progressive Contest</div>
+        <h2>${over ? "The contest has ended. Thank you!" : `${PC.unclaimed} customers are waiting for a call`}</h2>
+        <div class="pc-s">${money(PC.rate_new)} for every new Progressive policy &middot; ${money(PC.rate_save)} for every save &middot; paid in January</div></div>
+      <div class="pc-stats">
+        <div class="pc-stat"><b>${money(m.approved)}</b><span>Earned${+m.pending ? ` (+${money(m.pending)} pending)` : ""}</span></div>
+        <div class="pc-stat"><b>#${m.rank}</b><span>of ${n} on the leaderboard</span></div>
+        <div class="pc-stat"><b>${over ? "0" : PC.days_left}</b><span>Weekdays left</span></div>
+      </div>
+      <div class="pc-acts">
+        ${over ? "" : `<button class="btn sm gold" data-pc="list">Start calling</button>`}
+        ${over ? "" : `<button class="btn sm line" data-pc="report">Report a sale or save</button>`}
+        <button class="btn sm line" data-pc="board">Leaderboard</button>${adminBtn}</div>
+    </div>`;
+  }
+  el.querySelectorAll("[data-pc]").forEach(b => b.addEventListener("click", () => {
+    const a = b.dataset.pc;
+    if(a === "list") openContestList();
+    else if(a === "report") openContestReport(null);
+    else if(a === "board") openContestBoard();
+    else if(a === "admin") openContestAdmin();
+  }));
+}
+
+/* ----- call list ----- */
+async function openContestList(){
+  try{ PCLIST = await rpc("pc_contest_list", {p_code:CODE}); }
+  catch(ex){ toast(ex.message); return; }
+  drawContestList();
+}
+
+function drawContestList(){
+  const modal = $("#modal"); modal.classList.remove("hidden");
+  const items = (PCLIST.items||[]).filter(i =>
+    pcFilter === "mine" ? i.mine : pcFilter === "open" ? !i.claimed_by : true);
+  const rows = items.map(i => {
+    const taken = i.claimed_by && !i.mine;
+    const tag = i.type === "Pending cancellation"
+      ? `<span class="pc-tag pend">Pending cancellation</span>`
+      : `<span class="pc-tag lost">Cancelled &mdash; win back</span>`;
+    const when = i.type === "Pending cancellation"
+      ? `cancels ${pcDate(i.cancel_date)}` : `cancelled ${pcDate(i.cancel_date)}`;
+    const phone = i.phone
+      ? `<a href="tel:${esc(String(i.phone).replace(/[^\d+]/g,""))}">${pcTel(i.phone)}</a>`
+      : `<span style="color:var(--ink-3)">No number on file. Look it up in Agency Matrix or FAO.</span>`;
+    let btns;
+    if(i.mine){
+      btns = `<button class="btn sm" data-act="contact" data-k="${esc(i.key)}">I called</button>
+        <button class="btn sm gold" data-act="win" data-k="${esc(i.key)}">Report win</button>
+        <button class="btn sm line" data-act="release" data-k="${esc(i.key)}">Release</button>`;
+    }else if(taken){
+      btns = `<span style="font-size:12.5px;color:var(--ink-3)">Claimed by ${esc(i.claimed_by)}</span>`;
+    }else{
+      btns = `<button class="btn sm" data-act="claim" data-k="${esc(i.key)}">Claim</button>`;
+    }
+    return `<div class="pc-row${i.mine?" mine":""}${taken?" taken":""}">
+      <div class="pc-who">
+        <div class="pc-nm">${esc(i.name || "Name not on file")}</div>
+        <div class="pc-meta">${tag}Policy ${esc(i.policy||"")}${i.office?` &middot; ${esc(i.office)}`:""}
+          &middot; ${when}${i.due?` &middot; ${money(i.due)} due`:""}</div>
+        <div class="pc-ph">${phone}</div>
+        ${i.mine && i.expires ? `<div class="pc-meta">Yours until ${pcTime(i.expires)}. Logging a call resets the 24 hours.</div>` : ""}
+      </div>
+      <div class="pc-btns">${btns}</div></div>`;
+  }).join("") || `<p style="color:var(--ink-3)">Nothing here right now.</p>`;
+  const wins = (PCLIST.my_wins||[]).map(w => `<tr>
+      <td>${pcDate(w.date)}</td><td>${w.type === "save" ? "Save" : "New policy"}</td>
+      <td>${esc(w.policy)}</td><td>${esc(w.name||"")}</td><td>${money(w.amount)}</td>
+      <td>${w.status === "approved" ? `<span class="pc-ok">Approved</span>`
+          : w.status === "rejected" ? `<span class="pc-no">Not approved</span>${w.note?` (${esc(w.note)})`:""}`
+          : "Waiting for review"}</td></tr>`).join("");
+  modal.innerHTML = `<div class="sheet wide">
+    <div class="sheet-h"><h3>Progressive Contest &middot; call list</h3><button class="x" id="pcClose">×</button></div>
+    <div class="sheet-b">
+      <div class="pc-rules">The most important calls are at the top. <b>Claim</b> a customer before you call,
+        and <b>always call from your office phone</b>. A claim lasts 24 hours, and logging a call resets it.
+        A save only counts if you reached out before the customer paid.</div>
+      <div class="pc-filter">
+        <button data-f="all" class="${pcFilter==="all"?"on":""}">Everyone (${PCLIST.items.length})</button>
+        <button data-f="open" class="${pcFilter==="open"?"on":""}">Unclaimed</button>
+        <button data-f="mine" class="${pcFilter==="mine"?"on":""}">My claims</button>
+      </div>
+      ${rows}
+      <h4 class="pc-sec">My entries</h4>
+      ${wins ? `<table class="pc-tbl"><tr><th>Date</th><th>Type</th><th>Policy</th><th>Customer</th><th>Amount</th><th>Status</th></tr>${wins}</table>`
+             : `<p style="color:var(--ink-3)">No entries yet. Report a sale or save as soon as it happens.</p>`}
+    </div>
+    <div class="sheet-f"><button class="btn gold" id="pcNew">Report a new policy</button>
+      <button class="btn line" id="pcDone">Close</button></div></div>`;
+  modal.scrollTop = 0;
+  const close = () => { closeModal(); loadContest(); };
+  modal.querySelector("#pcClose").addEventListener("click", close);
+  modal.querySelector("#pcDone").addEventListener("click", close);
+  modal.querySelector("#pcNew").addEventListener("click", () => openContestReport(null));
+  modal.querySelectorAll("[data-f]").forEach(b => b.addEventListener("click", () => {
+    pcFilter = b.dataset.f; drawContestList(); }));
+  modal.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", async () => {
+    const k = b.dataset.k, item = PCLIST.items.find(x => x.key === k);
+    b.disabled = true;
+    try{
+      if(b.dataset.act === "claim"){
+        await rpc("pc_contest_claim", {p_code:CODE, p_key:k});
+        toast("Claimed. It's yours for 24 hours.");
+      }else if(b.dataset.act === "release"){
+        await rpc("pc_contest_release", {p_code:CODE, p_key:k});
+        toast("Released back to the list.");
+      }else if(b.dataset.act === "contact"){
+        let ph = null;
+        if(item && !item.phone){
+          ph = prompt("If you found a phone number for this customer, enter it so nobody has to look it up again. Otherwise leave this blank.") || null;
+        }
+        await rpc("pc_contest_contact", {p_code:CODE, p_key:k, p_phone:ph});
+        toast("Call logged. Your claim is good for another 24 hours.");
+      }else if(b.dataset.act === "win"){
+        openContestReport(item); return;
+      }
+      PCLIST = await rpc("pc_contest_list", {p_code:CODE});
+      drawContestList();
+    }catch(ex){ toast(ex.message); b.disabled = false; }
+  }));
+}
+
+/* ----- report a sale or save ----- */
+function openContestReport(item){
+  const modal = $("#modal"); modal.classList.remove("hidden");
+  const isPending = item && item.type === "Pending cancellation";
+  const today = new Date(); const iso = today.getFullYear() + "-" +
+    String(today.getMonth()+1).padStart(2,"0") + "-" + String(today.getDate()).padStart(2,"0");
+  modal.innerHTML = `<div class="sheet">
+    <div class="sheet-h"><h3>Report a sale or save</h3><button class="x" id="pcrClose">×</button></div>
+    <div class="sheet-b pc-form">
+      <label>What happened?</label>
+      <select id="pcrType">
+        ${item ? "" : `<option value="new_policy">New Progressive policy (${money(PC.rate_new)})</option>`}
+        ${isPending ? `<option value="save">Customer paid after I called (save, ${money(PC.rate_save)})</option>` : ""}
+        ${item ? `<option value="new_policy">Policy reinstated or rewritten with Progressive (${money(PC.rate_new)})</option>` : ""}
+      </select>
+      <label>Policy number</label><input id="pcrPol" value="${esc(item ? item.policy : "")}" autocomplete="off">
+      <label>Customer name</label><input id="pcrName" value="${esc(item ? (item.name||"") : "")}">
+      <label>Customer phone</label><input id="pcrPhone" value="${esc(item ? (item.phone||"") : "")}">
+      <label>Line</label><select id="pcrProd">
+        <option>Auto</option><option>Motorcycle</option><option>Boat</option><option>RV</option><option>Travel trailer</option></select>
+      <label>Date</label><input id="pcrDate" type="date" value="${iso}">
+      <label>Notes (optional)</label><textarea id="pcrNotes" rows="2"></textarea>
+      <p class="pc-meta" style="font-size:12.5px;color:var(--ink-3);margin-top:10px">Belinda or Braden will check it against
+        the office phone records and the Progressive download before approving.</p>
+    </div>
+    <div class="sheet-f"><button class="btn gold" id="pcrGo">Submit</button>
+      <button class="btn line" id="pcrCancel">Cancel</button></div></div>`;
+  modal.scrollTop = 0;
+  const back = () => item ? drawContestList() : (closeModal(), loadContest());
+  modal.querySelector("#pcrClose").addEventListener("click", back);
+  modal.querySelector("#pcrCancel").addEventListener("click", back);
+  modal.querySelector("#pcrGo").addEventListener("click", async (e) => {
+    const g = s => modal.querySelector(s).value.trim();
+    if(!g("#pcrPol")){ toast("Enter the policy number."); return; }
+    e.target.disabled = true;
+    try{
+      await rpc("pc_contest_report", {p_code:CODE, p_type:g("#pcrType"), p_policy:g("#pcrPol"),
+        p_key: item ? item.key : null, p_name:g("#pcrName")||null, p_phone:g("#pcrPhone")||null,
+        p_product:g("#pcrProd"), p_date:g("#pcrDate")||null, p_notes:g("#pcrNotes")||null});
+      toast("Submitted. Nice work!");
+      if(item){ PCLIST = await rpc("pc_contest_list", {p_code:CODE}); drawContestList(); }
+      else { closeModal(); }
+      loadContest();
+    }catch(ex){ toast(ex.message); e.target.disabled = false; }
+  });
+}
+
+/* ----- leaderboard ----- */
+function openContestBoard(){
+  const modal = $("#modal"); modal.classList.remove("hidden");
+  const rows = (PC.leaderboard||[]).map(r => `<tr class="${r.me?"me":""}">
+    <td>#${r.rank}</td><td>${esc(r.name)}</td><td>${r.new}</td><td>${r.saves}</td>
+    <td>${money(r.approved)}</td><td>${money(r.total)}</td></tr>`).join("");
+  modal.innerHTML = `<div class="sheet">
+    <div class="sheet-h"><h3>Progressive Contest &middot; leaderboard</h3><button class="x" id="pcbClose">×</button></div>
+    <div class="sheet-b"><table class="pc-tbl">
+      <tr><th>Rank</th><th>Name</th><th>New</th><th>Saves</th><th>Approved</th><th>Incl. pending</th></tr>${rows}</table></div>
+    <div class="sheet-f"><button class="btn line" id="pcbDone">Close</button></div></div>`;
+  modal.scrollTop = 0;
+  modal.querySelector("#pcbClose").addEventListener("click", closeModal);
+  modal.querySelector("#pcbDone").addEventListener("click", closeModal);
+}
+
+/* ----- review (Braden and Belinda) ----- */
+async function openContestAdmin(){
+  try{ PCADM = await rpc("pc_contest_admin", {p_code:CODE}); }
+  catch(ex){ toast(ex.message); return; }
+  const A = PCADM, s = A.scoreboard || {};
+  const modal = $("#modal"); modal.classList.remove("hidden");
+  const yes = (v, t) => v ? `<span class="pc-ok">${t}</span>`
+    : `<span class="pc-no">No ${/^Progressive/.test(t) ? t : t.toLowerCase()}</span>`;
+  const q = A.queue.map(w => {
+    const self = w.agent_id === A.me_id;
+    return `<div class="pc-row">
+      <div class="pc-who">
+        <div class="pc-nm">${esc(w.agent)} &middot; ${w.type === "save" ? "Save" : "New policy"} &middot; ${money(w.amount)}</div>
+        <div class="pc-meta">Policy ${esc(w.policy)}${w.name?` &middot; ${esc(w.name)}`:""} &middot; ${pcDate(w.date)}
+          ${w.notes?` &middot; ${esc(w.notes)}`:""}</div>
+        <div class="pc-meta">
+          ${yes(w.call_found, "Office call")}${w.call_found?` (${pcTime(w.call_at)}${w.call_agent?`, ${esc(w.call_agent)}`:""})`:""}
+          &middot; ${yes(w.ivans_ok, "Progressive download match")}${w.ivans_tx?` (latest: ${esc(w.ivans_tx)})`:""}
+          ${w.type === "save" ? ` &middot; ${yes(w.had_claim, "Claim")}` : ""}
+          ${w.cancelled_since ? ` &middot; <span class="pc-no">Cancelled since</span>` : ""}</div>
+      </div>
+      <div class="pc-btns">${self ? `<span style="font-size:12.5px;color:var(--ink-3)">Your own entry. The other reviewer approves it.</span>`
+        : `<button class="btn sm" data-rv="1" data-id="${w.id}">Approve</button>
+           <button class="btn sm line" data-rv="0" data-id="${w.id}">Reject</button>`}</div></div>`;
+  }).join("") || `<p style="color:var(--ink-3)">Nothing waiting for review.</p>`;
+  const done = (A.decided||[]).map(w => `<tr><td>${esc(w.agent)}</td><td>${w.type==="save"?"Save":"New"}</td>
+    <td>${esc(w.policy)}</td><td>${money(w.amount)}</td>
+    <td>${w.status==="approved"?`<span class="pc-ok">Approved</span>`:`<span class="pc-no">Rejected</span>`}
+      ${w.cancelled_since?` <span class="pc-no">(cancelled since)</span>`:""}</td></tr>`).join("");
+  modal.innerHTML = `<div class="sheet wide">
+    <div class="sheet-h"><h3>Progressive Contest &middot; review</h3><button class="x" id="pcaClose">×</button></div>
+    <div class="sheet-b">
+      <div class="pc-score">
+        <div><b>${(s.est_pl_pif||0).toLocaleString("en-US")}</b><span>Est. PL policies (goal ${s.target_min}, cushion ${s.target_cushion})</span></div>
+        <div><b>${s.gap_to_min}</b><span>Gap to goal</span></div>
+        <div><b>${s.pl_pending}</b><span>Pending cancellations</span></div>
+        <div><b>${(s.est_auto_pif||0).toLocaleString("en-US")}</b><span>Est. auto (floor ${s.auto_floor})</span></div>
+        <div><b>${money(s.contest_paid_approved)}</b><span>Approved payouts</span></div>
+        <div><b>${money(s.contest_pending)}</b><span>Pending payouts</span></div>
+      </div>
+      <div class="pc-meta" style="font-size:12px;color:var(--ink-3)">Estimate: the ${pcDate(s.scorecard_as_of)} scorecard plus new business, minus cancellations that took effect, from the IVANS download. Visible only to Braden and Belinda.</div>
+      <h4 class="pc-sec">Waiting for review (${A.queue.length})</h4>${q}
+      ${done ? `<h4 class="pc-sec">Recently decided</h4><table class="pc-tbl">
+        <tr><th>Agent</th><th>Type</th><th>Policy</th><th>Amount</th><th>Status</th></tr>${done}</table>` : ""}
+    </div>
+    <div class="sheet-f"><button class="btn line" id="pcaDone">Close</button></div></div>`;
+  modal.scrollTop = 0;
+  const close = () => { closeModal(); loadContest(); };
+  modal.querySelector("#pcaClose").addEventListener("click", close);
+  modal.querySelector("#pcaDone").addEventListener("click", close);
+  modal.querySelectorAll("[data-rv]").forEach(b => b.addEventListener("click", async () => {
+    const ok = b.dataset.rv === "1";
+    const note = ok ? null : prompt("Reason for rejecting (the agent will see this):");
+    if(!ok && note === null) return;
+    b.disabled = true;
+    try{
+      await rpc("pc_contest_review", {p_code:CODE, p_id:b.dataset.id, p_approve:ok, p_note:note});
+      toast(ok ? "Approved." : "Rejected.");
+      openContestAdmin();
+    }catch(ex){ toast(ex.message); b.disabled = false; }
+  }));
+}
 </script>
 <!-- ===== session timeout + build freshness ===== -->
 <!--
