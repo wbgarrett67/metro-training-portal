@@ -13533,6 +13533,12 @@ async function openContestAdmin(){
           &middot; ${yes(w.ivans_ok, "Progressive download match")}${w.ivans_tx?` (latest: ${esc(w.ivans_tx)})`:""}
           ${w.type === "save" ? ` &middot; ${yes(w.had_claim, "Claim")}` : ""}
           ${w.cancelled_since ? ` &middot; <span class="pc-no">Cancelled since</span>` : ""}</div>
+        ${w.type === "save" ? "" : `<div class="pc-meta">${w.quote
+          ? (w.quote.mismatch
+              ? `<span class="pc-no">TurboRater quote by ${esc(w.quote.agent || "someone else")}, not ${esc(w.agent)}</span>`
+              : `<span class="pc-ok">TurboRater quote</span>`)
+            + ` (${pcDate(w.quote.date)}${w.quote.office ? `, ${esc(w.quote.office)}` : ""}${w.quote.carrier ? `, ${esc(w.quote.carrier)}` : ""}${w.quote.premium ? `, ${money(w.quote.premium)}` : ""}${w.quote.bound ? ", marked bound" : ", not marked bound"})`
+          : `<span style="color:var(--ink-3)">No TurboRater quote found (common for Progressive, which is usually quoted on Progressive's own site)</span>`}</div>`}
       </div>
       <div class="pc-btns">${self ? `<span style="font-size:12.5px;color:var(--ink-3)">Your own entry. The other reviewer approves it.</span>`
         : `<button class="btn sm" data-rv="1" data-id="${w.id}">Approve</button>
