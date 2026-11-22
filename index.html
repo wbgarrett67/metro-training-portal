@@ -13539,6 +13539,18 @@ async function openContestAdmin(){
               : `<span class="pc-ok">TurboRater quote</span>`)
             + ` (${pcDate(w.quote.date)}${w.quote.office ? `, ${esc(w.quote.office)}` : ""}${w.quote.carrier ? `, ${esc(w.quote.carrier)}` : ""}${w.quote.premium ? `, ${money(w.quote.premium)}` : ""}${w.quote.bound ? ", marked bound" : ", not marked bound"})`
           : `<span style="color:var(--ink-3)">No TurboRater quote found (common for Progressive, which is usually quoted on Progressive's own site)</span>`}</div>`}
+        ${(() => { const m = w.matrix || {}; const parts = [];
+          const isNew = w.type !== "save";
+          const autoFee = /auto fee/i.test(m.fee_name || "");
+          if (!m.fee_by) parts.push(`<span class="pc-no">No Matrix fee found</span>`);
+          else if (m.fee_by_other) parts.push(`<span class="pc-no">Matrix fee taken by ${esc(m.fee_by)}, not ${esc(w.agent)}</span> (${esc(m.fee_name || "")}, ${esc(m.fee_office || "")}, ${pcDate(m.fee_date)})`);
+          else if (isNew && !autoFee) parts.push(`<span class="pc-no">No new-business fee in Matrix</span> (only ${esc(m.fee_name || "a fee")} by ${esc(m.fee_by)}, ${pcDate(m.fee_date)})`);
+          else parts.push(`<span class="pc-ok">Matrix fee</span> (${esc(m.fee_name || "")} by ${esc(m.fee_by)}, ${esc(m.fee_office || "")}, ${pcDate(m.fee_date)})`);
+          if (!m.act_all) parts.push(`<span class="pc-no">No Matrix file activity</span>`);
+          else if (m.act_mostly_other) parts.push(`<span class="pc-no">File activity mostly by others</span> (${m.act_mine} of ${m.act_all} by ${esc(w.agent)}${m.act_others ? `; also ${esc(m.act_others)}` : ""})`);
+          else parts.push(`<span class="pc-ok">File activity</span> (${m.act_mine} of ${m.act_all} by ${esc(w.agent)})`);
+          if (m.dup_count > 0) parts.push(`<span class="pc-no">Also claimed: ${esc(m.dup_detail || "")}</span>`);
+          return `<div class="pc-meta">${parts.join(" &middot; ")}</div>`; })()}
       </div>
       <div class="pc-btns">${self ? `<span style="font-size:12.5px;color:var(--ink-3)">Your own entry. The other reviewer approves it.</span>`
         : `<button class="btn sm" data-rv="1" data-id="${w.id}">Approve</button>
